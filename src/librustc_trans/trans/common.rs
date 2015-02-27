@@ -120,14 +120,16 @@ pub fn erase_regions<'tcx,T>(cx: &ty::ctxt<'tcx>, value: &T) -> T
 // Is the type's representation size known at compile time?
 pub fn type_is_sized<'tcx>(tcx: &ty::ctxt<'tcx>, ty: Ty<'tcx>) -> bool {
     let param_env = ty::empty_parameter_environment(tcx);
-    ty::type_is_sized(&param_env, DUMMY_SP, ty)
-}
-
-pub fn lltype_is_sized<'tcx>(cx: &ty::ctxt<'tcx>, ty: Ty<'tcx>) -> bool {
-    match ty.sty {
-        ty::ty_open(_) => true,
-        _ => type_is_sized(cx, ty),
+    // FIXME(#4287) This can cause errors due to polymorphic recursion,
+    // a better span should be provided, if available.
+    let err_count = tcx.sess.err_count();
+    let is_sized = ty::type_is_sized(&param_env, DUMMY_SP, ty);
+    // Those errors aren't fatal, but an incorrect result can later
+    // trip over asserts in both rustc's trans and LLVM.
+    if err_count < tcx.sess.err_count() {
+        tcx.sess.abort_if_errors();
     }
+    is_sized
 }
 
 pub fn type_is_fat_ptr<'tcx>(cx: &ty::ctxt<'tcx>, ty: Ty<'tcx>) -> bool {
@@ -211,9 +213,7 @@ pub fn type_needs_unwind_cleanup<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, ty: Ty<
     }
 }
 
-pub fn type_needs_drop<'tcx>(cx: &ty::ctxt<'tcx>,
-                         ty: Ty<'tcx>)
-                         -> bool {
+pub fn type_needs_drop<'tcx>(cx: &ty::ctxt<'tcx>, ty: Ty<'tcx>) -> bool {
     ty::type_contents(cx, ty).needs_drop(cx)
 }
 
@@ -297,7 +297,7 @@ pub fn gensym_name(name: &str) -> PathElem {
     let num = token::gensym(name).usize();
     // use one colon which will get translated to a period by the mangler, and
     // we're guaranteed that `num` is globally unique for this crate.
-    PathName(token::gensym(&format!("{}:{}", name, num)[]))
+    PathName(token::gensym(&format!("{}:{}", name, num)))
 }
 
 #[derive(Copy)]
@@ -622,10 +622,10 @@ impl<'blk, 'tcx> BlockS<'blk, 'tcx> {
 
     pub fn def(&self, nid: ast::NodeId) -> def::Def {
         match self.tcx().def_map.borrow().get(&nid) {
-            Some(v) => v.clone(),
+            Some(v) => v.full_def(),
             None => {
                 self.tcx().sess.bug(&format!(
-                    "no def associated with node id {}", nid)[]);
+                    "no def associated with node id {}", nid));
             }
         }
     }
@@ -791,6 +791,10 @@ pub fn C_bool(ccx: &CrateContext, val: bool) -> ValueRef {
 
 pub fn C_i32(ccx: &CrateContext, i: i32) -> ValueRef {
     C_integral(Type::i32(ccx), i as u64, true)
+}
+
+pub fn C_u32(ccx: &CrateContext, i: u32) -> ValueRef {
+    C_integral(Type::i32(ccx), i as u64, false)
 }
 
 pub fn C_u64(ccx: &CrateContext, i: u64) -> ValueRef {
@@ -1030,7 +1034,7 @@ pub fn fulfill_obligation<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                 span,
                 &format!("Encountered error `{}` selecting `{}` during trans",
                         e.repr(tcx),
-                        trait_ref.repr(tcx))[])
+                        trait_ref.repr(tcx)))
         }
     };
 
@@ -1123,7 +1127,7 @@ pub fn drain_fulfillment_cx<'a,'tcx,T>(span: Span,
                 infcx.tcx.sess.span_bug(
                     span,
                     &format!("Encountered errors `{}` fulfilling during trans",
-                            errors.repr(infcx.tcx))[]);
+                            errors.repr(infcx.tcx)));
             }
         }
     }
@@ -1163,7 +1167,7 @@ pub fn node_id_substs<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
 
     if substs.types.any(|t| ty::type_needs_infer(*t)) {
             tcx.sess.bug(&format!("type parameters for node {:?} include inference types: {:?}",
-                                 node, substs.repr(tcx))[]);
+                                 node, substs.repr(tcx)));
         }
 
         monomorphize::apply_param_substs(tcx,

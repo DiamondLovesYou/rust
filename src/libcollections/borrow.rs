@@ -132,7 +132,7 @@ impl<T> ToOwned for T where T: Clone {
 /// ```rust
 /// use std::borrow::Cow;
 ///
-/// fn abs_all(input: &mut Cow<[int]>) {
+/// fn abs_all(input: &mut Cow<[i32]>) {
 ///     for i in 0..input.len() {
 ///         let v = input[i];
 ///         if v < 0 {
@@ -282,16 +282,6 @@ impl<'a, B: ?Sized> fmt::Display for Cow<'a, B> where
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-#[cfg(stage0)]
-impl<'a, B: ?Sized, S: Hasher> Hash<S> for Cow<'a, B> where B: Hash<S> + ToOwned
-{
-    #[inline]
-    fn hash(&self, state: &mut S) {
-        Hash::hash(&**self, state)
-    }
-}
-#[stable(feature = "rust1", since = "1.0.0")]
-#[cfg(not(stage0))]
 impl<'a, B: ?Sized> Hash for Cow<'a, B> where B: Hash + ToOwned
 {
     #[inline]

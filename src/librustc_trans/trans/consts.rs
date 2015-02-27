@@ -54,7 +54,7 @@ pub fn const_lit(cx: &CrateContext, e: &ast::Expr, lit: &ast::Lit)
                 _ => cx.sess().span_bug(lit.span,
                         &format!("integer literal has type {} (expected int \
                                  or uint)",
-                                ty_to_string(cx.tcx(), lit_int_ty))[])
+                                ty_to_string(cx.tcx(), lit_int_ty)))
             }
         }
         ast::LitFloat(ref fs, t) => {
@@ -146,13 +146,13 @@ fn const_deref<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 (const_deref_ptr(cx, v), mt.ty)
             } else {
                 // Derefing a fat pointer does not change the representation,
-                // just the type to ty_open.
-                (v, ty::mk_open(cx.tcx(), mt.ty))
+                // just the type to the unsized contents.
+                (v, mt.ty)
             }
         }
         None => {
             cx.sess().bug(&format!("unexpected dereferenceable type {}",
-                                   ty_to_string(cx.tcx(), ty))[])
+                                   ty_to_string(cx.tcx(), ty)))
         }
     }
 }
@@ -174,7 +174,7 @@ pub fn get_const_expr<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
     } else {
         ccx.sess().span_bug(ref_expr.span,
                             &format!("get_const_val given non-constant item {}",
-                                     item.repr(ccx.tcx()))[]);
+                                     item.repr(ccx.tcx())));
     }
 }
 
@@ -193,8 +193,8 @@ pub fn get_const_expr_as_global<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                                           -> ValueRef {
     // Special-case constants to cache a common global for all uses.
     match expr.node {
-        ast::ExprPath(_) => {
-            let def = ccx.tcx().def_map.borrow()[expr.id];
+        ast::ExprPath(..) => {
+            let def = ccx.tcx().def_map.borrow()[expr.id].full_def();
             match def {
                 def::DefConst(def_id) => {
                     if !ccx.tcx().adjustments.borrow().contains_key(&expr.id) {
@@ -290,18 +290,10 @@ pub fn const_expr<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                         // an optimisation, it is necessary for mutable vectors to
                         // work properly.
                         ty = match ty::deref(ty, true) {
-                            Some(mt) => {
-                                if type_is_sized(cx.tcx(), mt.ty) {
-                                    mt.ty
-                                } else {
-                                    // Derefing a fat pointer does not change the representation,
-                                    // just the type to ty_open.
-                                    ty::mk_open(cx.tcx(), mt.ty)
-                                }
-                            }
+                            Some(mt) => mt.ty,
                             None => {
                                 cx.sess().bug(&format!("unexpected dereferenceable type {}",
-                                                       ty_to_string(cx.tcx(), ty))[])
+                                                       ty_to_string(cx.tcx(), ty)))
                             }
                         }
                     }
@@ -309,7 +301,7 @@ pub fn const_expr<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 }
                 Some(autoref) => {
                     cx.sess().span_bug(e.span,
-                        &format!("unimplemented const first autoref {:?}", autoref)[])
+                        &format!("unimplemented const first autoref {:?}", autoref))
                 }
             };
             match second_autoref {
@@ -319,11 +311,12 @@ pub fn const_expr<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                     llconst = addr_of(cx, llconst, "autoref", e.id);
                 }
                 Some(box ty::AutoUnsize(ref k)) => {
-                    let unsized_ty = ty::unsize_ty(cx.tcx(), ty, k, e.span);
                     let info = expr::unsized_info(cx, k, e.id, ty, param_substs,
                         |t| ty::mk_imm_rptr(cx.tcx(), cx.tcx().mk_region(ty::ReStatic), t));
 
-                    let base = ptrcast(llconst, type_of::type_of(cx, unsized_ty).ptr_to());
+                    let unsized_ty = ty::unsize_ty(cx.tcx(), ty, k, e.span);
+                    let ptr_ty = type_of::in_memory_type_of(cx, unsized_ty).ptr_to();
+                    let base = ptrcast(llconst, ptr_ty);
                     let prev_const = cx.const_unsized().borrow_mut()
                                        .insert(base, llconst);
                     assert!(prev_const.is_none() || prev_const == Some(llconst));
@@ -333,7 +326,7 @@ pub fn const_expr<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 }
                 Some(autoref) => {
                     cx.sess().span_bug(e.span,
-                        &format!("unimplemented const second autoref {:?}", autoref)[])
+                        &format!("unimplemented const second autoref {:?}", autoref))
                 }
             }
         }
@@ -351,7 +344,7 @@ pub fn const_expr<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         }
         cx.sess().bug(&format!("const {} of type {} has size {} instead of {}",
                          e.repr(cx.tcx()), ty_to_string(cx.tcx(), ety_adjusted),
-                         csize, tsize)[]);
+                         csize, tsize));
     }
     (llconst, ety_adjusted)
 }
@@ -366,7 +359,7 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
     };
     unsafe {
         let _icx = push_ctxt("const_expr");
-        return match e.node {
+        match e.node {
           ast::ExprLit(ref lit) => {
               const_lit(cx, e, &**lit)
           }
@@ -386,7 +379,7 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
             let (te2, _) = const_expr(cx, &**e2, param_substs);
             let te2 = base::cast_shift_const_rhs(b, te1, te2);
 
-            return match b.node {
+            match b.node {
               ast::BiAdd   => {
                 if is_float { llvm::LLVMConstFAdd(te1, te2) }
                 else        { llvm::LLVMConstAdd(te1, te2) }
@@ -440,7 +433,7 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
           ast::ExprUnary(u, ref e) => {
             let (te, ty) = const_expr(cx, &**e, param_substs);
             let is_float = ty::type_is_fp(ty);
-            return match u {
+            match u {
               ast::UnUniq | ast::UnDeref => {
                 const_deref(cx, te, ty).0
               }
@@ -477,16 +470,10 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
               };
               let (arr, len) = match bt.sty {
                   ty::ty_vec(_, Some(u)) => (bv, C_uint(cx, u)),
-                  ty::ty_open(ty) => match ty.sty {
-                      ty::ty_vec(_, None) | ty::ty_str => {
-                          let e1 = const_get_elt(cx, bv, &[0]);
-                          (const_deref_ptr(cx, e1), const_get_elt(cx, bv, &[1]))
-                      },
-                      _ => cx.sess().span_bug(base.span,
-                                              &format!("index-expr base must be a vector \
-                                                       or string type, found {}",
-                                                      ty_to_string(cx.tcx(), bt))[])
-                  },
+                  ty::ty_vec(_, None) | ty::ty_str => {
+                      let e1 = const_get_elt(cx, bv, &[0]);
+                      (const_deref_ptr(cx, e1), const_get_elt(cx, bv, &[1]))
+                  }
                   ty::ty_rptr(_, mt) => match mt.ty.sty {
                       ty::ty_vec(_, Some(u)) => {
                           (const_deref_ptr(cx, bv), C_uint(cx, u))
@@ -494,12 +481,12 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                       _ => cx.sess().span_bug(base.span,
                                               &format!("index-expr base must be a vector \
                                                        or string type, found {}",
-                                                      ty_to_string(cx.tcx(), bt))[])
+                                                      ty_to_string(cx.tcx(), bt)))
                   },
                   _ => cx.sess().span_bug(base.span,
                                           &format!("index-expr base must be a vector \
                                                    or string type, found {}",
-                                                  ty_to_string(cx.tcx(), bt))[])
+                                                  ty_to_string(cx.tcx(), bt)))
               };
 
               let len = llvm::LLVMConstIntGetZExtValue(len) as u64;
@@ -527,8 +514,8 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
             if expr::cast_is_noop(basety, ety) {
                 return v;
             }
-            return match (expr::cast_type_kind(cx.tcx(), basety),
-                           expr::cast_type_kind(cx.tcx(), ety)) {
+            match (expr::cast_type_kind(cx.tcx(), basety),
+                   expr::cast_type_kind(cx.tcx(), ety)) {
 
               (expr::cast_integral, expr::cast_integral) => {
                 let s = ty::type_is_signed(basety) as Bool;
@@ -595,15 +582,15 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                       _ => break,
                   }
               }
-              let opt_def = cx.tcx().def_map.borrow().get(&cur.id).cloned();
+              let opt_def = cx.tcx().def_map.borrow().get(&cur.id).map(|d| d.full_def());
               if let Some(def::DefStatic(def_id, _)) = opt_def {
-                  return get_static_val(cx, def_id, ety);
+                  get_static_val(cx, def_id, ety)
+              } else {
+                  // If this isn't the address of a static, then keep going through
+                  // normal constant evaluation.
+                  let (v, _) = const_expr(cx, &**sub, param_substs);
+                  addr_of(cx, v, "ref", e.id)
               }
-
-              // If this isn't the address of a static, then keep going through
-              // normal constant evaluation.
-              let (v, _) = const_expr(cx, &**sub, param_substs);
-              addr_of(cx, v, "ref", e.id)
           }
           ast::ExprAddrOf(ast::MutMutable, ref sub) => {
               let (v, _) = const_expr(cx, &**sub, param_substs);
@@ -676,10 +663,10 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 C_array(llunitty, &vs[..])
             }
           }
-          ast::ExprPath(_) | ast::ExprQPath(_) => {
-            let def = cx.tcx().def_map.borrow()[e.id];
+          ast::ExprPath(..) => {
+            let def = cx.tcx().def_map.borrow()[e.id].full_def();
             match def {
-                def::DefFn(..) | def::DefStaticMethod(..) | def::DefMethod(..) => {
+                def::DefFn(..) | def::DefMethod(..) => {
                     expr::trans_def_fn_unadjusted(cx, e, def, param_substs).val
                 }
                 def::DefConst(def_id) => {
@@ -714,7 +701,7 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
             }
           }
           ast::ExprCall(ref callee, ref args) => {
-              let opt_def = cx.tcx().def_map.borrow().get(&callee.id).cloned();
+              let opt_def = cx.tcx().def_map.borrow().get(&callee.id).map(|d| d.full_def());
               let arg_vals = map_list(&args[..]);
               match opt_def {
                   Some(def::DefStruct(_)) => {
@@ -753,7 +740,7 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
           }
           _ => cx.sess().span_bug(e.span,
                   "bad constant expression type in consts::const_expr")
-        };
+        }
     }
 }
 

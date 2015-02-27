@@ -12,7 +12,8 @@
 //ignore-freebsd
 //ignore-ios
 //ignore-dragonfly
-// ignore-pnacl
+//ignore-bitrig
+//ignore-pnacl
 
 #![feature(asm)]
 

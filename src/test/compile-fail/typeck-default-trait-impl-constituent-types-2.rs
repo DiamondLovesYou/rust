@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,21 +8,25 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![allow(unused_unsafe)]
-#![allow(dead_code)]
-#![deny(unsafe_blocks)]
-unsafe fn allowed() {}
+#![feature(optin_builtin_traits)]
 
-#[allow(unsafe_blocks)] fn also_allowed() { unsafe {} }
+use std::marker::MarkerTrait;
 
-macro_rules! unsafe_in_macro {
-    () => {
-        unsafe {} //~ ERROR: usage of an `unsafe` block
-    }
-}
+trait MyTrait: MarkerTrait {}
+
+impl MyTrait for .. {}
+
+struct MyS;
+
+struct MyS2;
+
+impl !MyTrait for MyS2 {}
+
+fn is_mytrait<T: MyTrait>() {}
 
 fn main() {
-    unsafe {} //~ ERROR: usage of an `unsafe` block
+    is_mytrait::<MyS>();
 
-    unsafe_in_macro!()
+    is_mytrait::<(MyS2, MyS)>();
+    //~^ ERROR the trait `MyTrait` is not implemented for the type `MyS2`
 }

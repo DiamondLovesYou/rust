@@ -134,7 +134,7 @@ pub fn unop_to_string(op: UnOp) -> &'static str {
 }
 
 pub fn is_path(e: P<Expr>) -> bool {
-    return match e.node { ExprPath(_) => true, _ => false };
+    match e.node { ExprPath(..) => true, _ => false }
 }
 
 /// Get a string representation of a signed int type, with its value.
@@ -252,8 +252,12 @@ pub fn name_to_dummy_lifetime(name: Name) -> Lifetime {
 /// hint of where they came from, (previously they would all just be
 /// listed as `__extensions__::method_name::hash`, with no indication
 /// of the type).
-pub fn impl_pretty_name(trait_ref: &Option<TraitRef>, ty: &Ty) -> Ident {
-    let mut pretty = pprust::ty_to_string(ty);
+pub fn impl_pretty_name(trait_ref: &Option<TraitRef>, ty: Option<&Ty>) -> Ident {
+    let mut pretty = match ty {
+        Some(t) => pprust::ty_to_string(t),
+        None => String::from_str("..")
+    };
+
     match *trait_ref {
         Some(ref trait_ref) => {
             pretty.push('.');
@@ -484,9 +488,6 @@ impl<'a, 'v, O: IdVisitingOperation> Visitor<'v> for IdVisitor<'a, O> {
 
     fn visit_ty(&mut self, typ: &Ty) {
         self.operation.visit_id(typ.id);
-        if let TyPath(_, id) = typ.node {
-            self.operation.visit_id(id);
-        }
         visit::walk_ty(self, typ)
     }
 
@@ -560,12 +561,17 @@ impl<'a, 'v, O: IdVisitingOperation> Visitor<'v> for IdVisitor<'a, O> {
         visit::walk_trait_item(self, tm);
     }
 
-    fn visit_lifetime_ref(&mut self, lifetime: &'v Lifetime) {
+    fn visit_lifetime_ref(&mut self, lifetime: &Lifetime) {
         self.operation.visit_id(lifetime.id);
     }
 
-    fn visit_lifetime_def(&mut self, def: &'v LifetimeDef) {
+    fn visit_lifetime_def(&mut self, def: &LifetimeDef) {
         self.visit_lifetime_ref(&def.lifetime);
+    }
+
+    fn visit_trait_ref(&mut self, trait_ref: &TraitRef) {
+        self.operation.visit_id(trait_ref.ref_id);
+        visit::walk_trait_ref(self, trait_ref);
     }
 }
 

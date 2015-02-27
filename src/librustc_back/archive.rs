@@ -14,7 +14,7 @@ use std::old_io::fs::PathExtensions;
 use std::old_io::process::{Command, ProcessOutput};
 use std::old_io::{fs, TempDir};
 use std::old_io;
-use std::env;
+use std::os;
 use std::str;
 use syntax::diagnostic::Handler as ErrorHandler;
 
@@ -133,22 +133,20 @@ impl<'a> Archive<'a> {
                 if !o.status.success() {
                     self.handler.err(&format!("{:?} failed with: {}",
                                              cmd,
-                                     o.status)[]);
+                                     o.status));
                     self.handler.note(&format!("stdout ---\n{}",
                                                str::from_utf8(&o.output
-                                                              []).unwrap())
-                                      []);
+                                                              ).unwrap()));
                     self.handler.note(&format!("stderr ---\n{}",
                                                str::from_utf8(&o.error
-                                                              []).unwrap())
-                                      []);
+                                                              ).unwrap()));
                     self.handler.abort_if_errors();
                 }
                 o
             },
             Err(e) => {
                 self.handler.err(&format!("could not exec `{}`: {}", &ar[..],
-                                 e)[]);
+                                          e));
                 self.handler.abort_if_errors();
                 panic!("rustc::back::archive::run_ar() should not reach this point");
             }
@@ -174,7 +172,7 @@ pub fn find_library(name: &str, osprefix: &str, ossuffix: &str,
     }
     handler.fatal(&format!("could not find native static library `{}`, \
                            perhaps an -L flag is missing?",
-                          name)[]);
+                          name));
 }
 
 impl<'a> ArchiveBuilder<'a> {
@@ -197,9 +195,9 @@ impl<'a> ArchiveBuilder<'a> {
     /// search in the relevant locations for a library named `name`.
     pub fn add_native_library(&mut self, name: &str) -> old_io::IoResult<()> {
         let location = find_library(name,
-                                    &self.archive.slib_prefix[],
-                                    &self.archive.slib_suffix[],
-                                    &self.archive.lib_search_paths[],
+                                    &self.archive.slib_prefix,
+                                    &self.archive.slib_suffix,
+                                    &self.archive.lib_search_paths,
                                     self.archive.handler);
         self.add_archive(&location, name, |_| false)
     }
@@ -247,7 +245,7 @@ impl<'a> ArchiveBuilder<'a> {
     pub fn build(self) -> Archive<'a> {
         // Get an absolute path to the destination, so `ar` will work even
         // though we run it from `self.work_dir`.
-        let abs_dst = env::current_dir().unwrap().join(&self.archive.dst);
+        let abs_dst = os::getcwd().unwrap().join(&self.archive.dst);
         assert!(!abs_dst.is_relative());
         let mut args = vec![&abs_dst];
         let mut total_len = abs_dst.as_vec().len();
@@ -303,7 +301,7 @@ impl<'a> ArchiveBuilder<'a> {
         // First, extract the contents of the archive to a temporary directory.
         // We don't unpack directly into `self.work_dir` due to the possibility
         // of filename collisions.
-        let archive = env::current_dir().unwrap().join(archive);
+        let archive = os::getcwd().unwrap().join(archive);
         self.archive.run_ar("x", Some(loc.path()), &[&archive]);
 
         // Next, we must rename all of the inputs to "guaranteed unique names".

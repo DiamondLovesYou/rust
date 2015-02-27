@@ -16,8 +16,6 @@ use prelude::*;
 use default::Default;
 
 use super::Hasher;
-#[cfg(stage0)]
-use super::Writer;
 
 /// An implementation of SipHash 2-4.
 ///
@@ -36,13 +34,13 @@ use super::Writer;
 pub struct SipHasher {
     k0: u64,
     k1: u64,
-    length: uint, // how many bytes we've processed
+    length: usize, // how many bytes we've processed
     v0: u64,      // hash state
     v1: u64,
     v2: u64,
     v3: u64,
     tail: u64, // unprocessed bytes le
-    ntail: uint,  // how many bytes in tail are valid
+    ntail: usize,  // how many bytes in tail are valid
 }
 
 // sadly, these macro definitions can't appear later,
@@ -175,26 +173,9 @@ impl SipHasher {
     }
 }
 
-#[cfg(stage0)]
-impl Writer for SipHasher {
-    #[inline]
-    fn write(&mut self, msg: &[u8]) {
-        self.write(msg)
-    }
-}
-
 #[stable(feature = "rust1", since = "1.0.0")]
 impl Hasher for SipHasher {
-    #[cfg(stage0)]
-    type Output = u64;
-
-    #[cfg(stage0)]
-    fn reset(&mut self) {
-        self.reset();
-    }
-
     #[inline]
-    #[cfg(not(stage0))]
     fn write(&mut self, msg: &[u8]) {
         self.write(msg)
     }

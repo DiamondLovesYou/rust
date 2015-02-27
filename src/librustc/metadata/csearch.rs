@@ -92,7 +92,7 @@ pub fn get_item_path(tcx: &ty::ctxt, def: ast::DefId) -> Vec<ast_map::PathElem> 
 
     // FIXME #1920: This path is not always correct if the crate is not linked
     // into the root namespace.
-    let mut r = vec![ast_map::PathMod(token::intern(&cdata.name[]))];
+    let mut r = vec![ast_map::PathMod(token::intern(&cdata.name))];
     r.push_all(&path);
     r
 }
@@ -150,12 +150,9 @@ pub fn get_trait_name(cstore: &cstore::CStore, def: ast::DefId) -> ast::Name {
                             def.node)
 }
 
-pub fn get_trait_item_name_and_kind(cstore: &cstore::CStore, def: ast::DefId)
-                                    -> (ast::Name, def::TraitItemKind) {
+pub fn is_static_method(cstore: &cstore::CStore, def: ast::DefId) -> bool {
     let cdata = cstore.get_crate_data(def.krate);
-    decoder::get_trait_item_name_and_kind(cstore.intr.clone(),
-                                          &*cdata,
-                                          def.node)
+    decoder::is_static_method(&*cdata, def.node)
 }
 
 pub fn get_trait_item_def_ids(cstore: &cstore::CStore, def: ast::DefId)
@@ -391,7 +388,7 @@ pub fn is_staged_api(cstore: &cstore::CStore, def: ast::DefId) -> bool {
     let cdata = cstore.get_crate_data(def.krate);
     let attrs = decoder::get_crate_attributes(cdata.data());
     for attr in &attrs {
-        if &attr.name()[] == "staged_api" {
+        if &attr.name()[..] == "staged_api" {
             match attr.node.value.node { ast::MetaWord(_) => return true, _ => (/*pass*/) }
         }
     }
@@ -410,3 +407,7 @@ pub fn is_associated_type(cstore: &cstore::CStore, def: ast::DefId) -> bool {
     decoder::is_associated_type(&*cdata, def.node)
 }
 
+pub fn is_default_trait(cstore: &cstore::CStore, def: ast::DefId) -> bool {
+    let cdata = cstore.get_crate_data(def.krate);
+    decoder::is_default_trait(&*cdata, def.node)
+}

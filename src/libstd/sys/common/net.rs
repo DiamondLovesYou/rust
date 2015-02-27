@@ -503,7 +503,7 @@ pub fn connect_timeout(fd: sock_t,
     #[cfg(windows)] use libc::WSAEWOULDBLOCK as WOULDBLOCK;
 
     // Make sure the call to connect() doesn't block
-    try!(set_nonblocking(fd, true));
+    set_nonblocking(fd, true);
 
     let ret = match unsafe { libc::connect(fd, addrp, len) } {
         // If the connection is in progress, then we need to wait for it to
@@ -533,7 +533,7 @@ pub fn connect_timeout(fd: sock_t,
     };
 
     // be sure to turn blocking I/O back on
-    try!(set_nonblocking(fd, false));
+    set_nonblocking(fd, false);
     return ret;
 
     #[cfg(unix)]
@@ -626,7 +626,7 @@ pub struct Guard<'a> {
 #[unsafe_destructor]
 impl<'a> Drop for Guard<'a> {
     fn drop(&mut self) {
-        assert!(set_nonblocking(self.fd, false).is_ok());
+        set_nonblocking(self.fd, false);
     }
 }
 
@@ -694,7 +694,8 @@ impl TcpStream {
         setsockopt(self.fd(), libc::IPPROTO_TCP, libc::TCP_KEEPALIVE,
                    seconds as libc::c_int)
     }
-    #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
+    #[cfg(any(target_os = "freebsd",
+              target_os = "dragonfly"))]
     fn set_tcp_keepalive(&mut self, seconds: uint) -> IoResult<()> {
         setsockopt(self.fd(), libc::IPPROTO_TCP, libc::TCP_KEEPIDLE,
                    seconds as libc::c_int)
@@ -722,7 +723,7 @@ impl TcpStream {
             fd: self.fd(),
             guard: self.inner.lock.lock().unwrap(),
         };
-        assert!(set_nonblocking(self.fd(), true).is_ok());
+        set_nonblocking(self.fd(), true);
         ret
     }
 
@@ -861,7 +862,7 @@ impl UdpSocket {
             fd: self.fd(),
             guard: self.inner.lock.lock().unwrap(),
         };
-        assert!(set_nonblocking(self.fd(), true).is_ok());
+        set_nonblocking(self.fd(), true);
         ret
     }
 
@@ -886,9 +887,7 @@ impl UdpSocket {
                            storagep,
                            &mut addrlen) as libc::c_int
         }));
-        sockaddr_to_addr(&storage, addrlen as uint).and_then(|addr| {
-            Ok((n as uint, addr))
-        })
+        Ok((n as uint, sockaddr_to_addr(&storage, addrlen as uint).unwrap()))
     }
 
     pub fn send_to(&mut self, buf: &[u8], dst: SocketAddr) -> IoResult<()> {
@@ -909,11 +908,8 @@ impl UdpSocket {
         };
 
         let n = try!(write(fd, self.write_deadline, buf, false, dolock, dowrite));
-        if n != buf.len() {
-            Err(short_write(n, "couldn't send entire packet at once"))
-        } else {
-            Ok(())
-        }
+        assert!(n == buf.len(), "UDP packet not completely written.");
+        Ok(())
     }
 
     pub fn join_multicast(&mut self, multi: IpAddr) -> IoResult<()> {

@@ -138,7 +138,9 @@ pub fn main() {
     let cross_path = matches.opt_str("cross-path").unwrap();
     let cross_path = env::current_dir()
         .unwrap()
-        .join(cross_path);
+        .join(&cross_path[..]);
+    let cross_path =
+        ::std::old_path::Path::new(cross_path.into_os_string().into_string().unwrap());
     let all_raw = matches.opt_present("all-raw");
     let mut input: Vec<(String, bool)> = matches.free
         .iter()

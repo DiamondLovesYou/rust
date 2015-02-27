@@ -34,8 +34,8 @@ pub fn pat_is_refutable(dm: &DefMap, pat: &ast::Pat) -> bool {
         ast::PatEnum(_, _) |
         ast::PatIdent(_, _, None) |
         ast::PatStruct(..) => {
-            match dm.borrow().get(&pat.id) {
-                Some(&DefVariant(..)) => true,
+            match dm.borrow().get(&pat.id).map(|d| d.full_def()) {
+                Some(DefVariant(..)) => true,
                 _ => false
             }
         }
@@ -49,8 +49,8 @@ pub fn pat_is_variant_or_struct(dm: &DefMap, pat: &ast::Pat) -> bool {
         ast::PatEnum(_, _) |
         ast::PatIdent(_, _, None) |
         ast::PatStruct(..) => {
-            match dm.borrow().get(&pat.id) {
-                Some(&DefVariant(..)) | Some(&DefStruct(..)) => true,
+            match dm.borrow().get(&pat.id).map(|d| d.full_def()) {
+                Some(DefVariant(..)) | Some(DefStruct(..)) => true,
                 _ => false
             }
         }
@@ -61,8 +61,8 @@ pub fn pat_is_variant_or_struct(dm: &DefMap, pat: &ast::Pat) -> bool {
 pub fn pat_is_const(dm: &DefMap, pat: &ast::Pat) -> bool {
     match pat.node {
         ast::PatIdent(_, _, None) | ast::PatEnum(..) => {
-            match dm.borrow().get(&pat.id) {
-                Some(&DefConst(..)) => true,
+            match dm.borrow().get(&pat.id).map(|d| d.full_def()) {
+                Some(DefConst(..)) => true,
                 _ => false
             }
         }
@@ -112,6 +112,21 @@ pub fn pat_contains_bindings(dm: &DefMap, pat: &ast::Pat) -> bool {
         if pat_is_binding(dm, p) {
             contains_bindings = true;
             false // there's at least one binding, can short circuit now.
+        } else {
+            true
+        }
+    });
+    contains_bindings
+}
+
+/// Checks if the pattern contains any patterns that bind something to
+/// an ident or wildcard, e.g. `foo`, or `Foo(_)`, `foo @ Bar(..)`,
+pub fn pat_contains_bindings_or_wild(dm: &DefMap, pat: &ast::Pat) -> bool {
+    let mut contains_bindings = false;
+    walk_pat(pat, |p| {
+        if pat_is_binding_or_wild(dm, p) {
+            contains_bindings = true;
+            false // there's at least one binding/wildcard, can short circuit now.
         } else {
             true
         }

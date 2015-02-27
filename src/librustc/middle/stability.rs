@@ -181,7 +181,7 @@ impl Index {
     pub fn new(krate: &Crate) -> Index {
         let mut staged_api = false;
         for attr in &krate.attrs {
-            if &attr.name()[] == "staged_api" {
+            if &attr.name()[..] == "staged_api" {
                 match attr.node.value.node {
                     ast::MetaWord(_) => {
                         attr::mark_used(attr);
@@ -393,12 +393,14 @@ pub fn check_expr(tcx: &ty::ctxt, e: &ast::Expr,
 
 pub fn check_path(tcx: &ty::ctxt, path: &ast::Path, id: ast::NodeId,
                   cb: &mut FnMut(ast::DefId, Span, &Option<Stability>)) {
-    let did = match tcx.def_map.borrow().get(&id) {
-        Some(&def::DefPrimTy(..)) => return,
-        Some(def) => def.def_id(),
-        None => return
-    };
-    maybe_do_stability_check(tcx, did, path.span, cb)
+    match tcx.def_map.borrow().get(&id).map(|d| d.full_def()) {
+        Some(def::DefPrimTy(..)) => {}
+        Some(def) => {
+            maybe_do_stability_check(tcx, def.def_id(), path.span, cb);
+        }
+        None => {}
+    }
+
 }
 
 fn maybe_do_stability_check(tcx: &ty::ctxt, id: ast::DefId, span: Span,

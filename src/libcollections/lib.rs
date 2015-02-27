@@ -30,6 +30,7 @@
 #![feature(unboxed_closures)]
 #![feature(unicode)]
 #![feature(unsafe_destructor)]
+#![feature(unique)]
 #![feature(unsafe_no_drop_flag)]
 #![cfg_attr(test, feature(rand, rustc_private, test))]
 #![cfg_attr(test, allow(deprecated))] // rand
@@ -86,22 +87,16 @@ mod macros;
 pub mod binary_heap;
 mod bit;
 mod btree;
-pub mod linked_list;
+pub mod borrow;
 pub mod enum_set;
 pub mod fmt;
-pub mod vec_deque;
+pub mod linked_list;
 pub mod slice;
 pub mod str;
 pub mod string;
 pub mod vec;
+pub mod vec_deque;
 pub mod vec_map;
-
-#[cfg(stage0)]
-#[path = "borrow_stage0.rs"]
-pub mod borrow;
-
-#[cfg(not(stage0))]
-pub mod borrow;
 
 #[unstable(feature = "collections",
            reason = "RFC 509")]

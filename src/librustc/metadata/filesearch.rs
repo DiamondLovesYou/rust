@@ -14,6 +14,7 @@ pub use self::FileMatch::*;
 
 use std::collections::HashSet;
 use std::env;
+use std::os;
 use std::old_io::fs::PathExtensions;
 use std::old_io::fs;
 
@@ -194,7 +195,7 @@ pub fn get_or_default_sysroot() -> Path {
             })
     }
 
-    match canonicalize(env::current_exe().ok()) {
+    match canonicalize(os::self_exe_name()) {
         Some(mut p) => { p.pop(); p.pop(); p }
         None => panic!("can't determine value for sysroot")
     }
@@ -223,12 +224,12 @@ pub fn rust_path() -> Vec<Path> {
     let mut env_rust_path: Vec<Path> = match get_rust_path() {
         Some(env_path) => {
             let env_path_components =
-                env_path.split_str(PATH_ENTRY_SEPARATOR);
+                env_path.split(PATH_ENTRY_SEPARATOR);
             env_path_components.map(|s| Path::new(s)).collect()
         }
         None => Vec::new()
     };
-    let mut cwd = env::current_dir().unwrap();
+    let mut cwd = os::getcwd().unwrap();
     // now add in default entries
     let cwd_dot_rust = cwd.join(".rust");
     if !env_rust_path.contains(&cwd_dot_rust) {
@@ -247,7 +248,7 @@ pub fn rust_path() -> Vec<Path> {
         }
         cwd.pop();
     }
-    if let Some(h) = env::home_dir() {
+    if let Some(h) = os::homedir() {
         let p = h.join(".rust");
         if !env_rust_path.contains(&p) && p.exists() {
             env_rust_path.push(p);

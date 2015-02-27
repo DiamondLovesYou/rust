@@ -24,26 +24,32 @@ I may offer nightly downloads, however that isn't finished yet.
 ## Building from Source
 
 1. Make sure you have installed the dependencies:
-    * `g++` 4.7 or `clang++` 3.x
-    * `python` 2.6 or later (but not 3.x)
-    * GNU `make` 3.81 or later
-    * `curl`
-    * `git`
+
+   * `g++` 4.7 or `clang++` 3.x
+   * `python` 2.6 or later (but not 3.x)
+   * GNU `make` 3.81 or later
+   * `curl`
+   * `git`
     * `pepper_39` or newer from the [NaCl SDK](https://developer.chrome.com/native-client).
 2. Clone the [source] with `git`:
 
-        $ git clone https://github.com/DiamondLovesYou/rust.git
-        $ cd rust
+   ```sh
+   $ git clone https://github.com/DiamondLovesYou/rust.git
+   $ cd rust
+   ```
 
 3. Build and install:
 
-        $ ./configure --target=le32-unknown-nacl --nacl-cross-path=path/to/pepper_39
-        $ make && make install
+    ```sh
+    $ ./configure --target=le32-unknown-nacl --nacl-cross-path=path/to/pepper_40
+    $ make && make install
+    ```
 
-    > ***Note:*** You may need to use `sudo make install` if you do not normally have
-    > permission to modify the destination directory. The install locations can
-    > be adjusted by passing a `--prefix` argument to `configure`. Various other
-    > options are also supported, pass `--help` for more information on them.
+    > ***Note:*** You may need to use `sudo make install` if you do not
+    > normally have permission to modify the destination directory. The
+    > install locations can be adjusted by passing a `--prefix` argument
+    > to `configure`. Various other options are also supported – pass
+    > `--help` for more information on them.
 
     When complete, `make install` will place several programs into
     `/usr/local/bin`: `rustc`, the Rust compiler, `rustdoc`, the
@@ -68,27 +74,30 @@ I may offer nightly downloads, however that isn't finished yet.
 
 > ***Note:*** building on Windows is not tested by me (Richard Diamond)
 
-To easily build on windows we can use [MSYS2](http://msys2.github.io/):
+[MSYS2](http://msys2.github.io/) can be used to easily build Rust on Windows:
 
 1. Grab the latest MSYS2 installer and go through the installer.
-2. Now from the MSYS2 terminal we want to install the mingw64 toolchain and the other
-   tools we need.
 
-```bash
-# choose one based on platform
-$ pacman -S mingw-w64-i686-toolchain
-$ pacman -S mingw-w64-x86_64-toolchain
+2. From the MSYS2 terminal, install the `mingw64` toolchain and other required
+   tools.
 
-$ pacman -S base-devel
-```
+   ```sh
+   # Choose one based on platform:
+   $ pacman -S mingw-w64-i686-toolchain
+   $ pacman -S mingw-w64-x86_64-toolchain
+   
+   $ pacman -S base-devel
+   ```
 
-3. With that now start `mingw32_shell.bat` or `mingw64_shell.bat`
-   from where you installed MSYS2 (i.e. `C:\msys`). Which one you
-   choose depends on if you want 32 or 64 bit Rust.
-4. From there just navigate to where you have Rust's source code, configure and build it:
+3. Run `mingw32_shell.bat` or `mingw64_shell.bat` from wherever you installed
+   MYSY2 (i.e. `C:\msys`), depending on whether you want 32-bit or 64-bit Rust.
 
-        $ ./configure
-        $ make && make install
+4. Navigate to Rust's source code, configure and build it:
+
+   ```sh
+   $ ./configure
+   $ make && make install
+   ```
 
 ## Notes
 
@@ -127,15 +136,15 @@ Some helpful projects:
   Allows you to run your pexes like you would a regular binary, except in a
   NaCl sandbox. Ie: ```./pexe-bitcode.pexe $ARGS```.
 
-## Getting help
+## Getting Help
 
 The Rust community congregates in a few places:
 
-* [StackOverflow] - Direct questions about using the language here.
-* [users.rust-lang.org] - General discussion, broader questions.
+* [Stack Overflow] - Direct questions about using the language.
+* [users.rust-lang.org] - General discussion and broader questions.
 * [/r/rust] - News and general discussion.
 
-[StackOverflow]: http://stackoverflow.com/questions/tagged/rust
+[Stack Overflow]: http://stackoverflow.com/questions/tagged/rust
 [/r/rust]: http://reddit.com/r/rust
 [users.rust-lang.org]: http://users.rust-lang.org/
 
@@ -146,7 +155,7 @@ To contribute to Rust, please see [CONTRIBUTING.md](CONTRIBUTING.md).
 Rust has an [IRC] culture and most real-time collaboration happens in a
 variety of channels on Mozilla's IRC network, irc.mozilla.org. The
 most popular channel is [#rust], a venue for general discussion about
-Rust, and a good place to ask for help,
+Rust, and a good place to ask for help.
 
 [IRC]: https://en.wikipedia.org/wiki/Internet_Relay_Chat
 [#rust]: irc://irc.mozilla.org/rust

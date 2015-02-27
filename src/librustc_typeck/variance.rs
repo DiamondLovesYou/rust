@@ -203,6 +203,56 @@
 //! failure, but rather because the target type `Foo<Y>` is itself just
 //! not well-formed. Basically we get to assume well-formedness of all
 //! types involved before considering variance.
+//!
+//! ### Associated types
+//!
+//! Any trait with an associated type is invariant with respect to all
+//! of its inputs. To see why this makes sense, consider what
+//! subtyping for a trait reference means:
+//!
+//!    <T as Trait> <: <U as Trait>
+//!
+//! means that if I know that `T as Trait`,
+//! I also know that `U as
+//! Trait`. Moreover, if you think of it as
+//! dictionary passing style, it means that
+//! a dictionary for `<T as Trait>` is safe
+//! to use where a dictionary for `<U as
+//! Trait>` is expected.
+//!
+//! The problem is that when you can
+//! project types out from `<T as Trait>`,
+//! the relationship to types projected out
+//! of `<U as Trait>` is completely unknown
+//! unless `T==U` (see #21726 for more
+//! details). Making `Trait` invariant
+//! ensures that this is true.
+//!
+//! *Historical note: we used to preserve this invariant another way,
+//! by tweaking the subtyping rules and requiring that when a type `T`
+//! appeared as part of a projection, that was considered an invariant
+//! location, but this version does away with the need for those
+//! somewhat "special-case-feeling" rules.*
+//!
+//! Another related reason is that if we didn't make traits with
+//! associated types invariant, then projection is no longer a
+//! function with a single result. Consider:
+//!
+//! ```
+//! trait Identity { type Out; fn foo(&self); }
+//! impl<T> Identity for T { type Out = T; ... }
+//! ```
+//!
+//! Now if I have `<&'static () as Identity>::Out`, this can be
+//! validly derived as `&'a ()` for any `'a`:
+//!
+//!    <&'a () as Identity> <: <&'static () as Identity>
+//!    if &'static () < : &'a ()   -- Identity is contravariant in Self
+//!    if 'static : 'a             -- Subtyping rules for relations
+//!
+//! This change otoh means that `<'static () as Identity>::Out` is
+//! always `&'static ()` (which might then be upcast to `'a ()`,
+//! separately). This was helpful in solving #21750.
 
 use self::VarianceTerm::*;
 use self::ParamKind::*;
@@ -476,6 +526,7 @@ impl<'a, 'tcx, 'v> Visitor<'v> for TermsContext<'a, 'tcx> {
 
             ast::ItemExternCrate(_) |
             ast::ItemUse(_) |
+            ast::ItemDefaultImpl(..) |
             ast::ItemImpl(..) |
             ast::ItemStatic(..) |
             ast::ItemConst(..) |
@@ -595,7 +646,7 @@ impl<'a, 'tcx, 'v> Visitor<'v> for ConstraintContext<'a, 'tcx> {
                 let trait_def = ty::lookup_trait_def(tcx, did);
                 let predicates = ty::predicates(tcx, ty::mk_self_type(tcx), &trait_def.bounds);
                 self.add_constraints_from_predicates(&trait_def.generics,
-                                                     &predicates[],
+                                                     &predicates,
                                                      self.covariant);
 
                 let trait_items = ty::trait_items(tcx, did);
@@ -612,7 +663,18 @@ impl<'a, 'tcx, 'v> Visitor<'v> for ConstraintContext<'a, 'tcx> {
                                 &method.fty.sig,
                                 self.covariant);
                         }
-                        ty::TypeTraitItem(_) => {}
+                        ty::TypeTraitItem(ref data) => {
+                            // Any trait with an associated type is
+                            // invariant with respect to all of its
+                            // inputs. See length discussion in the comment
+                            // on this module.
+                            let projection_ty = ty::mk_projection(tcx,
+                                                                  trait_def.trait_ref.clone(),
+                                                                  data.name);
+                            self.add_constraints_from_ty(&trait_def.generics,
+                                                         projection_ty,
+                                                         self.invariant);
+                        }
                     }
                 }
             }
@@ -626,6 +688,7 @@ impl<'a, 'tcx, 'v> Visitor<'v> for ConstraintContext<'a, 'tcx> {
             ast::ItemForeignMod(..) |
             ast::ItemTy(..) |
             ast::ItemImpl(..) |
+            ast::ItemDefaultImpl(..) |
             ast::ItemMac(..) => {
             }
         }
@@ -652,7 +715,7 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
             None => {
                 self.tcx().sess.bug(&format!(
                         "no inferred index entry for {}",
-                        self.tcx().map.node_to_string(param_id))[]);
+                        self.tcx().map.node_to_string(param_id)));
             }
         }
     }
@@ -847,7 +910,7 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
                 self.add_constraints_from_mt(generics, mt, variance);
             }
 
-            ty::ty_uniq(typ) | ty::ty_vec(typ, _) | ty::ty_open(typ) => {
+            ty::ty_uniq(typ) | ty::ty_vec(typ, _) => {
                 self.add_constraints_from_ty(generics, typ, variance);
             }
 
@@ -891,7 +954,7 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
                     trait_def.generics.types.as_slice(),
                     trait_def.generics.regions.as_slice(),
                     trait_ref.substs,
-                    self.invariant);
+                    variance);
             }
 
             ty::ty_trait(ref data) => {
@@ -941,7 +1004,7 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
                 self.tcx().sess.bug(
                     &format!("unexpected type encountered in \
                             variance inference: {}",
-                            ty.repr(self.tcx()))[]);
+                            ty.repr(self.tcx())));
             }
         }
     }
@@ -1071,7 +1134,7 @@ impl<'a, 'tcx> ConstraintContext<'a, 'tcx> {
                     .sess
                     .bug(&format!("unexpected region encountered in variance \
                                   inference: {}",
-                                 region.repr(self.tcx()))[]);
+                                 region.repr(self.tcx())));
             }
         }
     }

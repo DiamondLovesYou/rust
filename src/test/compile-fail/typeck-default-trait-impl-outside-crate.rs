@@ -1,4 +1,4 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,17 +8,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-mod foo {
-    pub struct Foo {
-        x: isize,
-        y: isize,
-    }
-}
+// ignore-tidy-linelength
 
-impl foo::Foo {
-//~^ ERROR implementations may only be implemented in the same module
-    fn bar() {}
-}
+#![feature(optin_builtin_traits)]
+
+impl Copy for .. {}
+//~^ ERROR cannot create default implementations for traits outside the crate they're defined in; define a new trait instead.
 
 fn main() {}
-

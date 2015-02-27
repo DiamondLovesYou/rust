@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,16 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// ignore-tidy-linelength
+// Test that we do not consider parameter types to be sendable without
+// an explicit trait bound.
 
-pub struct Foo;
-
-mod bar {
-    use Foo;
-
-    impl Foo { //~ERROR inherent implementations are only allowed on types defined in the current module
-        fn baz(&self) {}
-    }
+fn foo<T>() {
+    is_send::<T>() //~ ERROR not implemented
 }
-fn main() {}
 
+fn is_send<T:Send>() {
+}
+
+fn main() { }

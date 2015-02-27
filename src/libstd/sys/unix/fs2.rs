@@ -18,7 +18,7 @@ use libc::{self, c_int, c_void, size_t, off_t, c_char, mode_t};
 use mem;
 use path::{Path, PathBuf};
 use ptr;
-use rc::Rc;
+use sync::Arc;
 use sys::fd::FileDesc;
 use sys::{c, cvt, cvt_r};
 use sys_common::FromInner;
@@ -31,14 +31,18 @@ pub struct FileAttr {
 }
 
 pub struct ReadDir {
-    dirp: *mut libc::DIR,
-    root: Rc<PathBuf>,
+    dirp: Dir,
+    root: Arc<PathBuf>,
 }
 
+struct Dir(*mut libc::DIR);
+
+unsafe impl Send for Dir {}
+unsafe impl Sync for Dir {}
+
 pub struct DirEntry {
-    buf: Vec<u8>,
-    dirent: *mut libc::dirent_t,
-    root: Rc<PathBuf>,
+    buf: Vec<u8>, // actually *mut libc::dirent_t
+    root: Arc<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -86,6 +90,7 @@ impl FilePermissions {
             self.mode |= 0o222;
         }
     }
+    pub fn mode(&self) -> i32 { self.mode as i32 }
 }
 
 impl FromInner<i32> for FilePermissions {
@@ -109,7 +114,7 @@ impl Iterator for ReadDir {
 
         let mut entry_ptr = ptr::null_mut();
         loop {
-            if unsafe { libc::readdir_r(self.dirp, ptr, &mut entry_ptr) != 0 } {
+            if unsafe { libc::readdir_r(self.dirp.0, ptr, &mut entry_ptr) != 0 } {
                 return Some(Err(Error::last_os_error()))
             }
             if entry_ptr.is_null() {
@@ -118,7 +123,6 @@ impl Iterator for ReadDir {
 
             let entry = DirEntry {
                 buf: buf,
-                dirent: entry_ptr,
                 root: self.root.clone()
             };
             if entry.name_bytes() == b"." || entry.name_bytes() == b".." {
@@ -130,9 +134,9 @@ impl Iterator for ReadDir {
     }
 }
 
-impl Drop for ReadDir {
+impl Drop for Dir {
     fn drop(&mut self) {
-        let r = unsafe { libc::closedir(self.dirp) };
+        let r = unsafe { libc::closedir(self.0) };
         debug_assert_eq!(r, 0);
     }
 }
@@ -147,8 +151,12 @@ impl DirEntry {
             fn rust_list_dir_val(ptr: *mut libc::dirent_t) -> *const c_char;
         }
         unsafe {
-            CStr::from_ptr(rust_list_dir_val(self.dirent)).to_bytes()
+            CStr::from_ptr(rust_list_dir_val(self.dirent())).to_bytes()
         }
+    }
+
+    fn dirent(&self) -> *mut libc::dirent_t {
+        self.buf.as_ptr() as *mut _
     }
 }
 
@@ -279,14 +287,14 @@ pub fn mkdir(p: &Path) -> io::Result<()> {
 }
 
 pub fn readdir(p: &Path) -> io::Result<ReadDir> {
-    let root = Rc::new(p.to_path_buf());
+    let root = Arc::new(p.to_path_buf());
     let p = try!(cstr(p));
     unsafe {
         let ptr = libc::opendir(p.as_ptr());
         if ptr.is_null() {
             Err(Error::last_os_error())
         } else {
-            Ok(ReadDir { dirp: ptr, root: root })
+            Ok(ReadDir { dirp: Dir(ptr), root: root })
         }
     }
 }
@@ -325,9 +333,22 @@ pub fn chown(p: &Path, uid: isize, gid: isize) -> io::Result<()> {
 }
 
 pub fn readlink(p: &Path) -> io::Result<PathBuf> {
+    #[cfg(not(target_libc = "newlib"))]
+    fn pathconf(p: *mut libc::c_char) -> i64 {
+        unsafe {
+            libc::pathconf(p, libc::_PC_NAME_MAX) as i64
+        }
+    }
+    #[cfg(target_libc = "newlib")]
+    fn pathconf(_: *mut libc::c_char) -> i64 {
+        unsafe {
+            libc::sysconf(libc::_PC_NAME_MAX) as i64
+        }
+    }
+
     let c_path = try!(cstr(p));
     let p = c_path.as_ptr();
-    let mut len = unsafe { libc::pathconf(p as *mut _, libc::_PC_NAME_MAX) };
+    let mut len = unsafe { pathconf(p as *mut _) };
     if len < 0 {
         len = 1024; // FIXME: read PATH_MAX from C ffi?
     }

@@ -32,22 +32,16 @@ use hash::Hash;
 use hash::Hasher;
 
 /// Types able to be transferred across thread boundaries.
-#[unstable(feature = "core",
-           reason = "will be overhauled with new lifetime rules; see RFC 458")]
-#[lang="send"]
-#[rustc_on_unimplemented = "`{Self}` cannot be sent between threads safely"]
-#[cfg(stage0)]
-pub unsafe trait Send: 'static {
-    // empty.
-}
-/// Types able to be transferred across thread boundaries.
 #[stable(feature = "rust1", since = "1.0.0")]
 #[lang="send"]
 #[rustc_on_unimplemented = "`{Self}` cannot be sent between threads safely"]
-#[cfg(not(stage0))]
 pub unsafe trait Send : MarkerTrait {
     // empty.
 }
+
+impl<T> !Send for *const T { }
+impl<T> !Send for *mut T { }
+impl !Send for Managed { }
 
 /// Types with a constant size known at compile-time.
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -214,6 +208,10 @@ pub unsafe trait Sync : MarkerTrait {
     // Empty
 }
 
+impl<T> !Sync for *const T { }
+impl<T> !Sync for *mut T { }
+impl !Sync for Managed { }
+
 /// A type which is considered "not POD", meaning that it is not
 /// implicitly copyable. This is typically embedded in other types to
 /// ensure that they are never copied, even if they lack a destructor.
@@ -233,13 +231,6 @@ pub struct Managed;
 
 macro_rules! impls{
     ($t: ident) => (
-        #[cfg(stage0)]
-        impl<T:?Sized, S: Hasher> Hash<S> for $t<T> {
-            #[inline]
-            fn hash(&self, _: &mut S) {
-            }
-        }
-        #[cfg(not(stage0))]
         impl<T:?Sized> Hash for $t<T> {
             #[inline]
             fn hash<H: Hasher>(&self, _: &mut H) {
@@ -348,14 +339,6 @@ impl<T:?Sized> MarkerTrait for T { }
 #[stable(feature = "rust1", since = "1.0.0")]
 pub trait PhantomFn<A:?Sized,R:?Sized=()> { }
 
-#[cfg(stage0)] // built into the trait matching system after stage0
-impl<A:?Sized, R:?Sized, U:?Sized> PhantomFn<A,R> for U { }
-
-/// Specific to stage0. You should not be seeing these docs!
-#[cfg(stage0)]
-#[lang="covariant_type"] // only relevant to stage0
-pub struct PhantomData<T:?Sized>;
-
 /// `PhantomData` is a way to tell the compiler about fake fields.
 /// Phantom data is required whenever type parameters are not used.
 /// The idea is that if the compiler encounters a `PhantomData<T>`
@@ -374,14 +357,12 @@ pub struct PhantomData<T:?Sized>;
 /// here! For now, please see [RFC 738][738] for more information.
 ///
 /// [738]: https://github.com/rust-lang/rfcs/blob/master/text/0738-variance.md
-#[cfg(not(stage0))]
 #[lang="phantom_data"]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct PhantomData<T:?Sized>;
 
 impls! { PhantomData }
 
-#[cfg(not(stage0))]
 mod impls {
     use super::{Send, Sync, Sized};
 
@@ -417,7 +398,6 @@ pub struct ContravariantType<T>;
 #[unstable(feature = "core", reason = "deprecated")]
 #[deprecated(since = "1.0.0", reason = "Replace with `PhantomData<T>`")]
 #[lang="covariant_type"]
-#[cfg(not(stage0))]
 pub struct CovariantType<T>;
 
 /// Old-style marker trait. Deprecated.

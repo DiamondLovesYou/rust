@@ -109,7 +109,7 @@ impl Type {
     }
 
     pub fn int(ccx: &CrateContext) -> Type {
-        match &ccx.tcx().sess.target.target.target_pointer_width[] {
+        match &ccx.tcx().sess.target.target.target_pointer_width[..] {
             "32" => Type::i32(ccx),
             "64" => Type::i64(ccx),
             tws => panic!("Unsupported target word size for int: {}", tws),
@@ -230,14 +230,6 @@ impl Type {
 
     pub fn vtable_ptr(ccx: &CrateContext) -> Type {
         Type::glue_fn(ccx, Type::i8p(ccx)).ptr_to().ptr_to()
-    }
-
-    pub fn opaque_trait(ccx: &CrateContext) -> Type {
-        Type::struct_(ccx, &[Type::opaque_trait_data(ccx).ptr_to(), Type::vtable_ptr(ccx)], false)
-    }
-
-    pub fn opaque_trait_data(ccx: &CrateContext) -> Type {
-        Type::i8(ccx)
     }
 
     pub fn kind(&self) -> TypeKind {

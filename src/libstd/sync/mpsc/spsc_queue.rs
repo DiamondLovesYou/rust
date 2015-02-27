@@ -37,8 +37,8 @@
 
 use core::prelude::*;
 
+use alloc::boxed;
 use alloc::boxed::Box;
-use core::mem;
 use core::ptr;
 use core::cell::UnsafeCell;
 
@@ -69,19 +69,19 @@ pub struct Queue<T> {
 
     // Cache maintenance fields. Additions and subtractions are stored
     // separately in order to allow them to use nonatomic addition/subtraction.
-    cache_bound: uint,
+    cache_bound: usize,
     cache_additions: AtomicUsize,
     cache_subtractions: AtomicUsize,
 }
 
-unsafe impl<T: Send + 'static> Send for Queue<T> { }
+unsafe impl<T: Send> Send for Queue<T> { }
 
-unsafe impl<T: Send + 'static> Sync for Queue<T> { }
+unsafe impl<T: Send> Sync for Queue<T> { }
 
-impl<T: Send + 'static> Node<T> {
+impl<T: Send> Node<T> {
     fn new() -> *mut Node<T> {
         unsafe {
-            mem::transmute(box Node {
+            boxed::into_raw(box Node {
                 value: None,
                 next: AtomicPtr::new(ptr::null_mut::<Node<T>>()),
             })
@@ -89,7 +89,7 @@ impl<T: Send + 'static> Node<T> {
     }
 }
 
-impl<T: Send + 'static> Queue<T> {
+impl<T: Send> Queue<T> {
     /// Creates a new queue.
     ///
     /// This is unsafe as the type system doesn't enforce a single
@@ -107,7 +107,7 @@ impl<T: Send + 'static> Queue<T> {
     ///               cache (if desired). If the value is 0, then the cache has
     ///               no bound. Otherwise, the cache will never grow larger than
     ///               `bound` (although the queue itself could be much larger.
-    pub unsafe fn new(bound: uint) -> Queue<T> {
+    pub unsafe fn new(bound: usize) -> Queue<T> {
         let n1 = Node::new();
         let n2 = Node::new();
         (*n1).next.store(n2, Ordering::Relaxed);
@@ -200,7 +200,7 @@ impl<T: Send + 'static> Queue<T> {
                           .next.store(next, Ordering::Relaxed);
                     // We have successfully erased all references to 'tail', so
                     // now we can safely drop it.
-                    let _: Box<Node<T>> = mem::transmute(tail);
+                    let _: Box<Node<T>> = Box::from_raw(tail);
                 }
             }
             return ret;
@@ -227,13 +227,13 @@ impl<T: Send + 'static> Queue<T> {
 }
 
 #[unsafe_destructor]
-impl<T: Send + 'static> Drop for Queue<T> {
+impl<T: Send> Drop for Queue<T> {
     fn drop(&mut self) {
         unsafe {
             let mut cur = *self.first.get();
             while !cur.is_null() {
                 let next = (*cur).next.load(Ordering::Relaxed);
-                let _n: Box<Node<T>> = mem::transmute(cur);
+                let _n: Box<Node<T>> = Box::from_raw(cur);
                 cur = next;
             }
         }
@@ -319,7 +319,7 @@ mod test {
             stress_bound(1);
         }
 
-        unsafe fn stress_bound(bound: uint) {
+        unsafe fn stress_bound(bound: usize) {
             let q = Arc::new(Queue::new(bound));
 
             let (tx, rx) = channel();

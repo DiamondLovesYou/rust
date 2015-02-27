@@ -35,7 +35,7 @@ pub fn expand_line(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
     let topmost = cx.original_span_in_file();
     let loc = cx.codemap().lookup_char_pos(topmost.lo);
 
-    base::MacExpr::new(cx.expr_usize(topmost, loc.line))
+    base::MacExpr::new(cx.expr_u32(topmost, loc.line as u32))
 }
 
 /* column!(): expands to the current column number */
@@ -45,7 +45,8 @@ pub fn expand_column(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
 
     let topmost = cx.original_span_in_file();
     let loc = cx.codemap().lookup_char_pos(topmost.lo);
-    base::MacExpr::new(cx.expr_usize(topmost, loc.col.to_usize()))
+
+    base::MacExpr::new(cx.expr_u32(topmost, loc.col.to_usize() as u32))
 }
 
 /// file!(): expands to the current filename */
@@ -57,7 +58,7 @@ pub fn expand_file(cx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
 
     let topmost = cx.original_span_in_file();
     let loc = cx.codemap().lookup_char_pos(topmost.lo);
-    let filename = token::intern_and_get_ident(&loc.file.name[]);
+    let filename = token::intern_and_get_ident(&loc.file.name);
     base::MacExpr::new(cx.expr_str(topmost, filename))
 }
 

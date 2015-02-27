@@ -79,7 +79,7 @@ pub fn trans_impl(ccx: &CrateContext,
         match *impl_item {
             ast::MethodImplItem(ref method) => {
                 if method.pe_generics().ty_params.len() == 0 {
-                    let trans_everywhere = attr::requests_inline(&method.attrs[]);
+                    let trans_everywhere = attr::requests_inline(&method.attrs);
                     for (ref ccx, is_origin) in ccx.maybe_iter(trans_everywhere) {
                         let llfn = get_item_val(ccx, method.id);
                         let empty_substs = tcx.mk_substs(Substs::trans_empty());
@@ -305,7 +305,7 @@ pub fn trans_static_method_callee<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
         }
         _ => {
             tcx.sess.bug(&format!("static call to invalid vtable: {}",
-                                 vtbl.repr(tcx))[]);
+                                 vtbl.repr(tcx)));
         }
     }
 }
@@ -390,10 +390,11 @@ fn trans_monomorphized_callee<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             Callee { bcx: bcx, data: Fn(llfn) }
         }
         traits::VtableBuiltin(..) |
+        traits::VtableDefaultImpl(..) |
         traits::VtableParam(..) => {
             bcx.sess().bug(
                 &format!("resolved vtable bad vtable {} in trans",
-                        vtable.repr(bcx.tcx()))[]);
+                        vtable.repr(bcx.tcx())));
         }
     }
 }
@@ -714,6 +715,8 @@ pub fn get_vtable<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
     let methods = traits::supertraits(tcx, trait_ref.clone()).flat_map(|trait_ref| {
         let vtable = fulfill_obligation(ccx, DUMMY_SP, trait_ref.clone());
         match vtable {
+            // Should default trait error here?
+            traits::VtableDefaultImpl(_) |
             traits::VtableBuiltin(_) => {
                 Vec::new().into_iter()
             }
@@ -749,7 +752,7 @@ pub fn get_vtable<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                 tcx.sess.bug(
                     &format!("resolved vtable for {} to bad vtable {} in trans",
                             trait_ref.repr(tcx),
-                            vtable.repr(tcx))[]);
+                            vtable.repr(tcx)));
             }
         }
     });
@@ -814,9 +817,6 @@ fn emit_vtable_methods<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                         ExprId(0),
                         param_substs,
                         substs.clone()).val;
-
-                    // currently, at least, by-value self is not object safe
-                    assert!(m.explicit_self != ty::ByValueExplicitSelfCategory);
 
                     Some(fn_ref).into_iter()
                 }

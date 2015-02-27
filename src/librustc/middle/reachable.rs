@@ -26,19 +26,9 @@ use syntax::abi;
 use syntax::ast;
 use syntax::ast_map;
 use syntax::ast_util::{is_local, PostExpansionMethod};
-use syntax::attr::{InlineAlways, InlineHint, InlineNever, InlineNone};
 use syntax::attr;
 use syntax::visit::Visitor;
 use syntax::visit;
-
-// Returns true if the given set of attributes contains the `#[inline]`
-// attribute.
-fn attributes_specify_inlining(attrs: &[ast::Attribute]) -> bool {
-    match attr::find_inline_attr(attrs) {
-        InlineNone | InlineNever => false,
-        InlineAlways | InlineHint => true,
-    }
-}
 
 // Returns true if the given set of generics implies that the item it's
 // associated with must be inlined.
@@ -50,7 +40,7 @@ fn generics_require_inlining(generics: &ast::Generics) -> bool {
 // monomorphized or it was marked with `#[inline]`. This will only return
 // true for functions.
 fn item_might_be_inlined(item: &ast::Item) -> bool {
-    if attributes_specify_inlining(&item.attrs[]) {
+    if attr::requests_inline(&item.attrs) {
         return true
     }
 
@@ -65,7 +55,7 @@ fn item_might_be_inlined(item: &ast::Item) -> bool {
 
 fn method_might_be_inlined(tcx: &ty::ctxt, method: &ast::Method,
                            impl_src: ast::DefId) -> bool {
-    if attributes_specify_inlining(&method.attrs[]) ||
+    if attr::requests_inline(&method.attrs) ||
         generics_require_inlining(method.pe_generics()) {
         return true
     }
@@ -104,9 +94,9 @@ impl<'a, 'tcx, 'v> Visitor<'v> for ReachableContext<'a, 'tcx> {
     fn visit_expr(&mut self, expr: &ast::Expr) {
 
         match expr.node {
-            ast::ExprPath(_) | ast::ExprQPath(_) => {
+            ast::ExprPath(..) => {
                 let def = match self.tcx.def_map.borrow().get(&expr.id) {
-                    Some(&def) => def,
+                    Some(d) => d.full_def(),
                     None => {
                         self.tcx.sess.span_bug(expr.span,
                                                "def ID not in def map?!")
@@ -201,8 +191,7 @@ impl<'a, 'tcx> ReachableContext<'a, 'tcx> {
                 match *impl_item {
                     ast::MethodImplItem(ref method) => {
                         if generics_require_inlining(method.pe_generics()) ||
-                                attributes_specify_inlining(
-                                    &method.attrs[]) {
+                                attr::requests_inline(&method.attrs) {
                             true
                         } else {
                             let impl_did = self.tcx
@@ -249,7 +238,7 @@ impl<'a, 'tcx> ReachableContext<'a, 'tcx> {
                 None => {
                     self.tcx.sess.bug(&format!("found unmapped ID in worklist: \
                                                {}",
-                                              search_item)[])
+                                              search_item))
                 }
             }
         }
@@ -301,7 +290,8 @@ impl<'a, 'tcx> ReachableContext<'a, 'tcx> {
                     ast::ItemTy(..) | ast::ItemStatic(_, _, _) |
                     ast::ItemMod(..) | ast::ItemForeignMod(..) |
                     ast::ItemImpl(..) | ast::ItemTrait(..) |
-                    ast::ItemStruct(..) | ast::ItemEnum(..) => {}
+                    ast::ItemStruct(..) | ast::ItemEnum(..) |
+                    ast::ItemDefaultImpl(..) => {}
 
                     _ => {
                         self.tcx.sess.span_bug(item.span,
@@ -342,7 +332,7 @@ impl<'a, 'tcx> ReachableContext<'a, 'tcx> {
                     .bug(&format!("found unexpected thingy in worklist: {}",
                                  self.tcx
                                      .map
-                                     .node_to_string(search_item))[])
+                                     .node_to_string(search_item)))
             }
         }
     }

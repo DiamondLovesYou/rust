@@ -88,7 +88,6 @@ impl DefaultResizePolicy {
 
 #[test]
 fn test_resize_policy() {
-    use prelude::v1::*;
     let rp = DefaultResizePolicy;
     for n in 0..1000 {
         assert!(rp.min_capacity(rp.usable_capacity(n)) <= n);
@@ -204,7 +203,7 @@ fn test_resize_policy() {
 // produces identical results to a linear naive reinsertion from the same
 // element.
 //
-// FIXME(Gankro, pczarn): review the proof and put it all in a separate doc.rs
+// FIXME(Gankro, pczarn): review the proof and put it all in a separate README.md
 
 /// A hash map implementation which uses linear probing with Robin
 /// Hood bucket stealing.
@@ -1213,7 +1212,7 @@ impl<K, V, S> Debug for HashMap<K, V, S>
     where K: Eq + Hash + Debug, V: Debug, S: HashState
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, "HashMap {{"));
+        try!(write!(f, "{{"));
 
         for (i, (k, v)) in self.iter().enumerate() {
             if i != 0 { try!(write!(f, ", ")); }
@@ -2000,9 +1999,9 @@ mod test_map {
 
         let map_str = format!("{:?}", map);
 
-        assert!(map_str == "HashMap {1: 2, 3: 4}" ||
-                map_str == "HashMap {3: 4, 1: 2}");
-        assert_eq!(format!("{:?}", empty), "HashMap {}");
+        assert!(map_str == "{1: 2, 3: 4}" ||
+                map_str == "{3: 4, 1: 2}");
+        assert_eq!(format!("{:?}", empty), "{}");
     }
 
     #[test]
@@ -2256,6 +2255,7 @@ mod test_map {
 
     #[test]
     fn test_entry_take_doesnt_corrupt() {
+        #![allow(deprecated)] //rand
         // Test for #19292
         fn check(m: &HashMap<isize, ()>) {
             for k in m.keys() {

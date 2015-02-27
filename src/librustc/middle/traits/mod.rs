@@ -18,7 +18,7 @@ pub use self::ObligationCauseCode::*;
 use middle::subst;
 use middle::ty::{self, HasProjectionTypes, Ty};
 use middle::ty_fold::TypeFoldable;
-use middle::infer::{self, InferCtxt};
+use middle::infer::{self, fixup_err_to_string, InferCtxt};
 use std::slice::Iter;
 use std::rc::Rc;
 use syntax::ast;
@@ -221,6 +221,12 @@ pub enum Vtable<'tcx, N> {
     /// Vtable identifying a particular impl.
     VtableImpl(VtableImplData<'tcx, N>),
 
+    /// Vtable for default trait implementations
+    /// This carries the information and nested obligations with regards
+    /// to a default implementation for a trait `Trait`. The nested obligations
+    /// ensure the trait implementation holds for all the constituent types.
+    VtableDefaultImpl(VtableDefaultImplData<N>),
+
     /// Successful resolution to an obligation provided by the caller
     /// for some type parameter. The `Vec<N>` represents the
     /// obligations incurred from normalizing the where-clause (if
@@ -257,6 +263,12 @@ pub struct VtableImplData<'tcx, N> {
     pub impl_def_id: ast::DefId,
     pub substs: subst::Substs<'tcx>,
     pub nested: subst::VecPerParamSpace<N>
+}
+
+#[derive(Debug,Clone)]
+pub struct VtableDefaultImplData<N> {
+    pub trait_def_id: ast::DefId,
+    pub nested: Vec<N>
 }
 
 #[derive(Debug,Clone)]
@@ -383,53 +395,64 @@ pub fn type_known_to_meet_builtin_bound<'a,'tcx>(infcx: &InferCtxt<'a,'tcx>,
     }
 }
 
+/// Normalizes the parameter environment, reporting errors if they occur.
 pub fn normalize_param_env_or_error<'a,'tcx>(unnormalized_env: ty::ParameterEnvironment<'a,'tcx>,
                                              cause: ObligationCause<'tcx>)
                                              -> ty::ParameterEnvironment<'a,'tcx>
 {
-    match normalize_param_env(&unnormalized_env, cause) {
-        Ok(p) => p,
-        Err(errors) => {
-            // I'm not wild about reporting errors here; I'd prefer to
-            // have the errors get reported at a defined place (e.g.,
-            // during typeck). Instead I have all parameter
-            // environments, in effect, going through this function
-            // and hence potentially reporting errors. This ensurse of
-            // course that we never forget to normalize (the
-            // alternative seemed like it would involve a lot of
-            // manual invocations of this fn -- and then we'd have to
-            // deal with the errors at each of those sites).
-            //
-            // In any case, in practice, typeck constructs all the
-            // parameter environments once for every fn as it goes,
-            // and errors will get reported then; so after typeck we
-            // can be sure that no errors should occur.
-            let infcx = infer::new_infer_ctxt(unnormalized_env.tcx);
-            report_fulfillment_errors(&infcx, &errors);
+    // I'm not wild about reporting errors here; I'd prefer to
+    // have the errors get reported at a defined place (e.g.,
+    // during typeck). Instead I have all parameter
+    // environments, in effect, going through this function
+    // and hence potentially reporting errors. This ensurse of
+    // course that we never forget to normalize (the
+    // alternative seemed like it would involve a lot of
+    // manual invocations of this fn -- and then we'd have to
+    // deal with the errors at each of those sites).
+    //
+    // In any case, in practice, typeck constructs all the
+    // parameter environments once for every fn as it goes,
+    // and errors will get reported then; so after typeck we
+    // can be sure that no errors should occur.
 
-            // Normalized failed? use what they gave us, it's better than nothing.
-            unnormalized_env
-        }
-    }
-}
+    let tcx = unnormalized_env.tcx;
+    let span = cause.span;
+    let body_id = cause.body_id;
 
-pub fn normalize_param_env<'a,'tcx>(param_env: &ty::ParameterEnvironment<'a,'tcx>,
-                                    cause: ObligationCause<'tcx>)
-                                    -> Result<ty::ParameterEnvironment<'a,'tcx>,
-                                              Vec<FulfillmentError<'tcx>>>
-{
-    let tcx = param_env.tcx;
-
-    debug!("normalize_param_env(param_env={})",
-           param_env.repr(tcx));
+    debug!("normalize_param_env_or_error(unnormalized_env={})",
+           unnormalized_env.repr(tcx));
 
     let infcx = infer::new_infer_ctxt(tcx);
-    let predicates = try!(fully_normalize(&infcx, param_env, cause, &param_env.caller_bounds));
+    let predicates = match fully_normalize(&infcx, &unnormalized_env, cause,
+                                           &unnormalized_env.caller_bounds) {
+        Ok(predicates) => predicates,
+        Err(errors) => {
+            report_fulfillment_errors(&infcx, &errors);
+            return unnormalized_env; // an unnormalized env is better than nothing
+        }
+    };
 
-    debug!("normalize_param_env: predicates={}",
+    infcx.resolve_regions_and_report_errors(body_id);
+    let predicates = match infcx.fully_resolve(&predicates) {
+        Ok(predicates) => predicates,
+        Err(fixup_err) => {
+            // If we encounter a fixup error, it means that some type
+            // variable wound up unconstrained. I actually don't know
+            // if this can happen, and I certainly don't expect it to
+            // happen often, but if it did happen it probably
+            // represents a legitimate failure due to some kind of
+            // unconstrained variable, and it seems better not to ICE,
+            // all things considered.
+            let err_msg = fixup_err_to_string(fixup_err);
+            tcx.sess.span_err(span, &err_msg);
+            return unnormalized_env; // an unnormalized env is better than nothing
+        }
+    };
+
+    debug!("normalize_param_env_or_error: predicates={}",
            predicates.repr(tcx));
 
-    Ok(param_env.with_caller_bounds(predicates))
+    unnormalized_env.with_caller_bounds(predicates)
 }
 
 pub fn fully_normalize<'a,'tcx,T>(infcx: &InferCtxt<'a,'tcx>,
@@ -441,8 +464,7 @@ pub fn fully_normalize<'a,'tcx,T>(infcx: &InferCtxt<'a,'tcx>,
 {
     let tcx = closure_typer.tcx();
 
-    debug!("normalize_param_env(value={})",
-           value.repr(tcx));
+    debug!("normalize_param_env(value={})", value.repr(tcx));
 
     let mut selcx = &mut SelectionContext::new(infcx, closure_typer);
     let mut fulfill_cx = FulfillmentContext::new();
@@ -456,8 +478,7 @@ pub fn fully_normalize<'a,'tcx,T>(infcx: &InferCtxt<'a,'tcx>,
     }
     try!(fulfill_cx.select_all_or_error(infcx, closure_typer));
     let resolved_value = infcx.resolve_type_vars_if_possible(&normalized_value);
-    debug!("normalize_param_env: resolved_value={}",
-           resolved_value.repr(tcx));
+    debug!("normalize_param_env: resolved_value={}", resolved_value.repr(tcx));
     Ok(resolved_value)
 }
 
@@ -513,17 +534,18 @@ impl<'tcx, N> Vtable<'tcx, N> {
     pub fn iter_nested(&self) -> Iter<N> {
         match *self {
             VtableImpl(ref i) => i.iter_nested(),
-            VtableFnPointer(..) => (&[]).iter(),
-            VtableClosure(..) => (&[]).iter(),
             VtableParam(ref n) => n.iter(),
-            VtableObject(_) => (&[]).iter(),
             VtableBuiltin(ref i) => i.iter_nested(),
+            VtableObject(_) |
+            VtableDefaultImpl(..) | VtableFnPointer(..) |
+            VtableClosure(..) => (&[]).iter(),
         }
     }
 
     pub fn map_nested<M, F>(&self, op: F) -> Vtable<'tcx, M> where F: FnMut(&N) -> M {
         match *self {
             VtableImpl(ref i) => VtableImpl(i.map_nested(op)),
+            VtableDefaultImpl(ref t) => VtableDefaultImpl(t.map_nested(op)),
             VtableFnPointer(ref sig) => VtableFnPointer((*sig).clone()),
             VtableClosure(d, ref s) => VtableClosure(d, s.clone()),
             VtableParam(ref n) => VtableParam(n.iter().map(op).collect()),
@@ -539,6 +561,7 @@ impl<'tcx, N> Vtable<'tcx, N> {
             VtableImpl(i) => VtableImpl(i.map_move_nested(op)),
             VtableFnPointer(sig) => VtableFnPointer(sig),
             VtableClosure(d, s) => VtableClosure(d, s),
+            VtableDefaultImpl(t) => VtableDefaultImpl(t.map_move_nested(op)),
             VtableParam(n) => VtableParam(n.into_iter().map(op).collect()),
             VtableObject(p) => VtableObject(p),
             VtableBuiltin(no) => VtableBuiltin(no.map_move_nested(op)),
@@ -569,6 +592,31 @@ impl<'tcx, N> VtableImplData<'tcx, N> {
             impl_def_id: impl_def_id,
             substs: substs,
             nested: nested.map_move(op)
+        }
+    }
+}
+
+impl<N> VtableDefaultImplData<N> {
+    pub fn iter_nested(&self) -> Iter<N> {
+        self.nested.iter()
+    }
+
+    pub fn map_nested<M, F>(&self, op: F) -> VtableDefaultImplData<M> where
+        F: FnMut(&N) -> M,
+    {
+        VtableDefaultImplData {
+            trait_def_id: self.trait_def_id,
+            nested: self.nested.iter().map(op).collect()
+        }
+    }
+
+    pub fn map_move_nested<M, F>(self, op: F) -> VtableDefaultImplData<M> where
+        F: FnMut(N) -> M,
+    {
+        let VtableDefaultImplData { trait_def_id, nested } = self;
+        VtableDefaultImplData {
+            trait_def_id: trait_def_id,
+            nested: nested.into_iter().map(op).collect()
         }
     }
 }

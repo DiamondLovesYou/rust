@@ -10,7 +10,6 @@
 
 // aux-build:lang-item-public.rs
 // ignore-android
-// ignore-windows #13361
 
 #![feature(lang_items, start, no_std)]
 #![no_std]
@@ -37,7 +36,7 @@ extern {}
 #[link(name = "c")]
 extern {}
 
-#[cfg(target_os = "openbsd")]
+#[cfg(any(target_os = "bitrig", target_os = "openbsd"))]
 #[link(name = "c")]
 extern {}
 

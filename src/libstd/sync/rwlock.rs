@@ -64,8 +64,8 @@ pub struct RwLock<T> {
     data: UnsafeCell<T>,
 }
 
-unsafe impl<T:'static+Send> Send for RwLock<T> {}
-unsafe impl<T> Sync for RwLock<T> {}
+unsafe impl<T: Send + Sync> Send for RwLock<T> {}
+unsafe impl<T: Send + Sync> Sync for RwLock<T> {}
 
 /// Structure representing a statically allocated RwLock.
 ///
@@ -96,9 +96,6 @@ pub struct StaticRwLock {
     lock: sys::RWLock,
     poison: poison::Flag,
 }
-
-unsafe impl Send for StaticRwLock {}
-unsafe impl Sync for StaticRwLock {}
 
 /// Constant initialization for a statically-initialized rwlock.
 #[unstable(feature = "std_misc",

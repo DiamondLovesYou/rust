@@ -64,7 +64,7 @@ impl Svh {
     }
 
     pub fn as_str<'a>(&'a self) -> &'a str {
-        &self.hash[]
+        &self.hash
     }
 
     pub fn calculate(metadata: &Vec<String>, krate: &ast::Crate) -> Svh {
@@ -244,8 +244,7 @@ mod svh_visitor {
         SawExprAssignOp(ast::BinOp_),
         SawExprIndex,
         SawExprRange,
-        SawExprPath,
-        SawExprQPath,
+        SawExprPath(Option<usize>),
         SawExprAddrOf(ast::Mutability),
         SawExprRet,
         SawExprInlineAsm(&'a ast::InlineAsm),
@@ -277,8 +276,7 @@ mod svh_visitor {
             ExprTupField(_, id)      => SawExprTupField(id.node),
             ExprIndex(..)            => SawExprIndex,
             ExprRange(..)            => SawExprRange,
-            ExprPath(..)             => SawExprPath,
-            ExprQPath(..)            => SawExprQPath,
+            ExprPath(ref qself, _)   => SawExprPath(qself.as_ref().map(|q| q.position)),
             ExprAddrOf(m, _)         => SawExprAddrOf(m),
             ExprBreak(id)            => SawExprBreak(id.map(content)),
             ExprAgain(id)            => SawExprAgain(id.map(content)),
@@ -329,7 +327,7 @@ mod svh_visitor {
             // macro invocations, namely macro_rules definitions,
             // *can* appear as items, even in the expanded crate AST.
 
-            if &macro_name(mac)[] == "macro_rules" {
+            if &macro_name(mac)[..] == "macro_rules" {
                 // Pretty-printing definition to a string strips out
                 // surface artifacts (currently), such as the span
                 // information, yielding a content-based hash.
@@ -356,7 +354,7 @@ mod svh_visitor {
             fn macro_name(mac: &Mac) -> token::InternedString {
                 match &mac.node {
                     &MacInvocTT(ref path, ref _tts, ref _stx_ctxt) => {
-                        let s = &path.segments[];
+                        let s = &path.segments;
                         assert_eq!(s.len(), 1);
                         content(s[0].identifier)
                     }

@@ -361,16 +361,16 @@ duration a *lifetime*. Let's try a more complex example:
 
 ```{rust}
 fn main() {
-    let x = &mut 5;
+    let mut x = 5;
 
-    if *x < 10 {
+    if x < 10 {
         let y = &x;
 
         println!("Oh no: {}", y);
         return;
     }
 
-    *x -= 1;
+    x -= 1;
 
     println!("Oh no: {}", x);
 }
@@ -382,17 +382,18 @@ mutated, and therefore, lets us pass. This wouldn't work:
 
 ```{rust,ignore}
 fn main() {
-    let x = &mut 5;
+    let mut x = 5;
 
-    if *x < 10 {
+    if x < 10 {
         let y = &x;
-        *x -= 1;
+
+        x -= 1;
 
         println!("Oh no: {}", y);
         return;
     }
 
-    *x -= 1;
+    x -= 1;
 
     println!("Oh no: {}", x);
 }
@@ -401,12 +402,12 @@ fn main() {
 It gives this error:
 
 ```text
-test.rs:5:8: 5:10 error: cannot assign to `*x` because it is borrowed
-test.rs:5         *x -= 1;
-                  ^~
-test.rs:4:16: 4:18 note: borrow of `*x` occurs here
-test.rs:4         let y = &x;
-                          ^~
+test.rs:7:9: 7:15 error: cannot assign to `x` because it is borrowed
+test.rs:7         x -= 1;
+                  ^~~~~~
+test.rs:5:18: 5:19 note: borrow of `x` occurs here
+test.rs:5         let y = &x;
+                           ^
 ```
 
 As you might guess, this kind of analysis is complex for a human, and therefore
@@ -687,7 +688,9 @@ than the hundred `int`s that make up the `BigStruct`.
 
 This is an antipattern in Rust. Instead, write this:
 
-```{rust}
+```rust
+#![feature(box_syntax)]
+
 struct BigStruct {
     one: i32,
     two: i32,
@@ -706,9 +709,12 @@ fn main() {
         one_hundred: 100,
     });
 
-    let y = Box::new(foo(x));
+    let y = box foo(x);
 }
 ```
+
+Note that this uses the `box_syntax` feature gate, so this syntax may change in
+the future.
 
 This gives you flexibility without sacrificing performance.
 

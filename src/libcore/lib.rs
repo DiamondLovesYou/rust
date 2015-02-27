@@ -68,9 +68,13 @@
 #![feature(staged_api)]
 #![feature(unboxed_closures)]
 #![feature(rustc_attrs)]
+#![feature(optin_builtin_traits)]
 
 #[macro_use]
 mod macros;
+
+#[macro_use]
+mod cmp_macros;
 
 #[path = "num/float_macros.rs"]
 #[macro_use]

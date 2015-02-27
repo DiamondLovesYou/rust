@@ -51,7 +51,7 @@ use ptr;
 use ptr::PtrExt;
 use mem;
 use mem::size_of;
-use marker::{Sized, self};
+use marker::{Send, Sized, Sync, self};
 use raw::Repr;
 // Avoid conflicts with *both* the Slice trait (buggy) and the `slice::raw` module.
 use raw::Slice as RawSlice;
@@ -657,6 +657,8 @@ macro_rules! iterator {
             fn next(&mut self) -> Option<$elem> {
                 // could be implemented with slices, but this avoids bounds checks
                 unsafe {
+                    ::intrinsics::assume(!self.ptr.is_null());
+                    ::intrinsics::assume(!self.end.is_null());
                     if self.ptr == self.end {
                         None
                     } else {
@@ -693,6 +695,8 @@ macro_rules! iterator {
             fn next_back(&mut self) -> Option<$elem> {
                 // could be implemented with slices, but this avoids bounds checks
                 unsafe {
+                    ::intrinsics::assume(!self.ptr.is_null());
+                    ::intrinsics::assume(!self.end.is_null());
                     if self.end == self.ptr {
                         None
                     } else {
@@ -735,6 +739,9 @@ pub struct Iter<'a, T: 'a> {
     end: *const T,
     _marker: marker::PhantomData<&'a T>,
 }
+
+unsafe impl<'a, T: Sync> Sync for Iter<'a, T> {}
+unsafe impl<'a, T: Sync> Send for Iter<'a, T> {}
 
 #[unstable(feature = "core")]
 impl<'a, T> ops::Index<ops::Range<usize>> for Iter<'a, T> {
@@ -826,6 +833,8 @@ pub struct IterMut<'a, T: 'a> {
     _marker: marker::PhantomData<&'a mut T>,
 }
 
+unsafe impl<'a, T: Sync> Sync for IterMut<'a, T> {}
+unsafe impl<'a, T: Send> Send for IterMut<'a, T> {}
 
 #[unstable(feature = "core")]
 impl<'a, T> ops::Index<ops::Range<usize>> for IterMut<'a, T> {
@@ -1496,7 +1505,7 @@ pub mod bytes {
     impl MutableByteVector for [u8] {
         #[inline]
         fn set_memory(&mut self, value: u8) {
-            unsafe { ptr::set_memory(self.as_mut_ptr(), value, self.len()) };
+            unsafe { ptr::write_bytes(self.as_mut_ptr(), value, self.len()) };
         }
     }
 
@@ -1510,9 +1519,9 @@ pub mod bytes {
         // `dst` is unaliasable, so we know statically it doesn't overlap
         // with `src`.
         unsafe {
-            ptr::copy_nonoverlapping_memory(dst.as_mut_ptr(),
-                                            src.as_ptr(),
-                                            len_src);
+            ptr::copy_nonoverlapping(dst.as_mut_ptr(),
+                                     src.as_ptr(),
+                                     len_src);
         }
     }
 }

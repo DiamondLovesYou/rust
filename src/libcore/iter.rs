@@ -68,7 +68,7 @@ use num::{ToPrimitive, Int};
 use ops::{Add, Deref, FnMut};
 use option::Option;
 use option::Option::{Some, None};
-use marker::Sized;
+use marker::{Send, Sized, Sync};
 use usize;
 
 /// An interface for dealing with "external iterators". These types of iterators
@@ -86,6 +86,7 @@ use usize;
 #[rustc_on_unimplemented = "`{Self}` is not an iterator; maybe try calling `.iter()` or a similar \
                             method"]
 pub trait Iterator {
+    /// The type of the elements being iterated
     #[stable(feature = "rust1", since = "1.0.0")]
     type Item;
 
@@ -122,9 +123,11 @@ pub trait FromIterator<A> {
 /// Conversion into an `Iterator`
 #[stable(feature = "rust1", since = "1.0.0")]
 pub trait IntoIterator {
+    /// The type of the elements being iterated
     #[stable(feature = "rust1", since = "1.0.0")]
     type Item;
 
+    /// A container for iterating over elements of type Item
     #[stable(feature = "rust1", since = "1.0.0")]
     type IntoIter: Iterator<Item=Self::Item>;
 
@@ -579,8 +582,8 @@ pub trait IteratorExt: Iterator + Sized {
     /// ```
     /// let vec = vec![1, 2, 3, 4];
     /// let (even, odd): (Vec<_>, Vec<_>) = vec.into_iter().partition(|&n| n % 2 == 0);
-    /// assert_eq!(even, vec![2, 4]);
-    /// assert_eq!(odd, vec![1, 3]);
+    /// assert_eq!(even, [2, 4]);
+    /// assert_eq!(odd, [1, 3]);
     /// ```
     #[unstable(feature = "core",
                reason = "recently added as part of collections reform")]
@@ -978,7 +981,7 @@ pub trait IteratorExt: Iterator + Sized {
     #[unstable(feature = "core", reason = "recent addition")]
     fn cloned(self) -> Cloned<Self> where
         Self::Item: Deref,
-        <Self::Item as Deref>::Output: Clone,
+        <Self::Item as Deref>::Target: Clone,
     {
         Cloned { it: self }
     }
@@ -1782,6 +1785,10 @@ pub struct Peekable<I: Iterator> {
     iter: I,
     peeked: Option<I::Item>,
 }
+
+// FIXME: after #22828 being fixed, the following unsafe impl should be removed
+unsafe impl<I: Iterator> Sync for Peekable<I> where I: Sync, I::Item: Sync {}
+unsafe impl<I: Iterator> Send for Peekable<I> where I: Send, I::Item: Send {}
 
 impl<I: Iterator + Clone> Clone for Peekable<I> where I::Item: Clone {
     fn clone(&self) -> Peekable<I> {
@@ -2592,7 +2599,29 @@ pub struct RangeStep<A> {
     rev: bool,
 }
 
-/// Return an iterator over the range [start, stop) by `step`. It handles overflow by stopping.
+/// Return an iterator over the range [start, stop) by `step`.
+///
+/// It handles overflow by stopping.
+///
+/// # Examples
+///
+/// ```
+/// use std::iter::range_step;
+///
+/// for i in range_step(0, 10, 2) {
+///     println!("{}", i);
+/// }
+/// ```
+///
+/// This prints:
+///
+/// ```text
+/// 0
+/// 2
+/// 4
+/// 6
+/// 8
+/// ```
 #[inline]
 #[unstable(feature = "core",
            reason = "likely to be replaced by range notation and adapters")]
@@ -2633,7 +2662,30 @@ pub struct RangeStepInclusive<A> {
     done: bool,
 }
 
-/// Return an iterator over the range [start, stop] by `step`. It handles overflow by stopping.
+/// Return an iterator over the range [start, stop] by `step`.
+///
+/// It handles overflow by stopping.
+///
+/// # Examples
+///
+/// ```
+/// use std::iter::range_step_inclusive;
+///
+/// for i in range_step_inclusive(0, 10, 2) {
+///     println!("{}", i);
+/// }
+/// ```
+///
+/// This prints:
+///
+/// ```text
+/// 0
+/// 2
+/// 4
+/// 6
+/// 8
+/// 10
+/// ```
 #[inline]
 #[unstable(feature = "core",
            reason = "likely to be replaced by range notation and adapters")]

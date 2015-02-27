@@ -515,6 +515,9 @@ This last example is different because it is not possible to use the suffix
 syntax with a floating point literal ending in a period. `2.f64` would attempt
 to call a method named `f64` on `2`.
 
+The representation semantics of floating-point numbers are described in
+["Machine Types"](#machine-types).
+
 #### Boolean literals
 
 The two values of the boolean type are written `true` and `false`.
@@ -728,15 +731,20 @@ Rust syntax is restricted in two ways:
    pairs when they occur at the beginning of, or immediately after, a `$(...)*`;
    requiring a distinctive token in front can solve the problem.
 
-## Syntax extensions useful for the macro author
+## Syntax extensions useful in macros
+
+* `stringify!` : turn the identifier argument into a string literal
+* `concat!` : concatenates a comma-separated list of literals
+
+## Syntax extensions for macro debugging
 
 * `log_syntax!` : print out the arguments at compile time
 * `trace_macros!` : supply `true` or `false` to enable or disable macro expansion logging
-* `stringify!` : turn the identifier argument into a string literal
-* `concat!` : concatenates a comma-separated list of literals
-* `concat_idents!` : create a new identifier by concatenating the arguments
 
-The following attributes are used for quasiquoting in procedural macros:
+## Quasiquoting
+
+The following syntax extensions are used for quasiquoting Rust syntax trees,
+usually in [procedural macros](book/plugins.html#syntax-extensions):
 
 * `quote_expr!`
 * `quote_item!`
@@ -744,6 +752,8 @@ The following attributes are used for quasiquoting in procedural macros:
 * `quote_stmt!`
 * `quote_tokens!`
 * `quote_ty!`
+
+Documentation is very limited at the moment.
 
 # Crates and source files
 
@@ -2162,7 +2172,7 @@ fn needs_foo_or_bar() {
 
 // This function is only included when compiling for a unixish OS with a 32-bit
 // architecture
-#[cfg(all(unix, target_word_size = "32"))]
+#[cfg(all(unix, target_pointer_width = "32"))]
 fn on_32bit_unix() {
   // ...
 }
@@ -2188,11 +2198,11 @@ The following configurations must be defined by the implementation:
   `"unix"` or `"windows"`. The value of this configuration option is defined
   as a configuration itself, like `unix` or `windows`.
 * `target_os = "..."`. Operating system of the target, examples include
-  `"win32"`, `"macos"`, `"linux"`, `"android"`, `"freebsd"`, `"dragonfly"` or
-  `"openbsd"`.
-* `target_word_size = "..."`. Target word size in bits. This is set to `"32"`
-  for targets with 32-bit pointers, and likewise set to `"64"` for 64-bit
-  pointers.
+  `"win32"`, `"macos"`, `"linux"`, `"android"`, `"freebsd"`, `"dragonfly"`,
+  `"bitrig"` or `"openbsd"`.
+* `target_pointer_width = "..."`. Target pointer width in bits. This is set
+  to `"32"` for targets with 32-bit pointers, and likewise set to `"64"` for
+  64-bit pointers.
 * `unix`. See `target_family`.
 * `windows`. See `target_family`.
 
@@ -3554,7 +3564,8 @@ Tuple types and values are denoted by listing the types or values of their
 elements, respectively, in a parenthesized, comma-separated list.
 
 Because tuple elements don't have a name, they can only be accessed by
-pattern-matching.
+pattern-matching or by using `N` directly as a field to access the
+`N`th element.
 
 An example of a tuple type and its use:
 
@@ -3563,6 +3574,7 @@ type Pair<'a> = (i32, &'a str);
 let p: Pair<'static> = (10, "hello");
 let (a, b) = p;
 assert!(b != "world");
+assert!(p.0 == 10);
 ```
 
 ### Array, and Slice types

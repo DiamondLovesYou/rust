@@ -21,6 +21,7 @@ use ffi::CString;
 use mem;
 use env;
 use str;
+use os;
 
 pub struct DynamicLibrary {
     handle: *mut u8
@@ -102,7 +103,7 @@ impl DynamicLibrary {
     /// process
     pub fn search_path() -> Vec<Path> {
         match env::var_os(DynamicLibrary::envvar()) {
-            Some(var) => env::split_paths(&var).collect(),
+            Some(var) => os::split_paths(var.to_str().unwrap()),
             None => Vec::new(),
         }
     }
@@ -165,6 +166,7 @@ mod test {
               target_os = "macos",
               target_os = "freebsd",
               target_os = "dragonfly",
+              target_os = "bitrig",
               target_os = "openbsd"))]
     fn test_errors_do_not_crash() {
         // Open /dev/null as a library to get an error, and make sure
@@ -183,6 +185,7 @@ mod test {
           target_os = "ios",
           target_os = "freebsd",
           target_os = "dragonfly",
+          target_os = "bitrig",
           target_os = "openbsd"))]
 mod dl {
     use prelude::v1::*;

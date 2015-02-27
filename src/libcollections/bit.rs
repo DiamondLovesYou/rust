@@ -110,7 +110,7 @@ fn reverse_bits(byte: u8) -> u8 {
     result
 }
 
-// Take two BitV's, and return iterators of their words, where the shorter one
+// Take two BitVec's, and return iterators of their words, where the shorter one
 // has been padded with 0's
 fn match_words <'a,'b>(a: &'a BitVec, b: &'b BitVec) -> (MatchWords<'a>, MatchWords<'b>) {
     let a_len = a.storage.len();
@@ -640,13 +640,13 @@ impl BitVec {
     /// let mut bv = BitVec::from_elem(3, true);
     /// bv.set(1, false);
     ///
-    /// assert_eq!(bv.to_bytes(), vec!(0b10100000));
+    /// assert_eq!(bv.to_bytes(), [0b10100000]);
     ///
     /// let mut bv = BitVec::from_elem(9, false);
     /// bv.set(2, true);
     /// bv.set(8, true);
     ///
-    /// assert_eq!(bv.to_bytes(), vec!(0b00100000, 0b10000000));
+    /// assert_eq!(bv.to_bytes(), [0b00100000, 0b10000000]);
     /// ```
     pub fn to_bytes(&self) -> Vec<u8> {
         fn bit(bit_vec: &BitVec, byte: usize, bit: usize) -> u8 {
@@ -806,7 +806,7 @@ impl BitVec {
     /// let mut bv = BitVec::from_bytes(&[0b01001011]);
     /// bv.grow(2, true);
     /// assert_eq!(bv.len(), 10);
-    /// assert_eq!(bv.to_bytes(), vec!(0b01001011, 0b11000000));
+    /// assert_eq!(bv.to_bytes(), [0b01001011, 0b11000000]);
     /// ```
     pub fn grow(&mut self, n: usize, value: bool) {
         // Note: we just bulk set all the bits in the last word in this fn in multiple places
@@ -978,24 +978,13 @@ impl Ord for BitVec {
 impl fmt::Debug for BitVec {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         for bit in self {
-            try!(write!(fmt, "{}", if bit { 1u32 } else { 0u32 }));
+            try!(write!(fmt, "{}", if bit { 1 } else { 0 }));
         }
         Ok(())
     }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-#[cfg(stage0)]
-impl<S: hash::Writer + hash::Hasher> hash::Hash<S> for BitVec {
-    fn hash(&self, state: &mut S) {
-        self.nbits.hash(state);
-        for elem in self.blocks() {
-            elem.hash(state);
-        }
-    }
-}
-#[stable(feature = "rust1", since = "1.0.0")]
-#[cfg(not(stage0))]
 impl hash::Hash for BitVec {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.nbits.hash(state);
@@ -1763,7 +1752,7 @@ impl BitSet {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl fmt::Debug for BitSet {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(fmt, "BitSet {{"));
+        try!(write!(fmt, "{{"));
         let mut first = true;
         for n in self {
             if !first {
@@ -1776,16 +1765,7 @@ impl fmt::Debug for BitSet {
     }
 }
 
-#[cfg(stage0)]
-impl<S: hash::Writer + hash::Hasher> hash::Hash<S> for BitSet {
-    fn hash(&self, state: &mut S) {
-        for pos in self {
-            pos.hash(state);
-        }
-    }
-}
 #[stable(feature = "rust1", since = "1.0.0")]
-#[cfg(not(stage0))]
 impl hash::Hash for BitSet {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         for pos in self {
@@ -2305,12 +2285,12 @@ mod tests {
     fn test_to_bytes() {
         let mut bv = BitVec::from_elem(3, true);
         bv.set(1, false);
-        assert_eq!(bv.to_bytes(), vec!(0b10100000));
+        assert_eq!(bv.to_bytes(), [0b10100000]);
 
         let mut bv = BitVec::from_elem(9, false);
         bv.set(2, true);
         bv.set(8, true);
-        assert_eq!(bv.to_bytes(), vec!(0b00100000, 0b10000000));
+        assert_eq!(bv.to_bytes(), [0b00100000, 0b10000000]);
     }
 
     #[test]
@@ -2675,7 +2655,7 @@ mod bit_set_test {
         s.insert(10);
         s.insert(50);
         s.insert(2);
-        assert_eq!("BitSet {1, 2, 10, 50}", format!("{:?}", s));
+        assert_eq!("{1, 2, 10, 50}", format!("{:?}", s));
     }
 
     #[test]
@@ -2695,7 +2675,7 @@ mod bit_set_test {
         let bit_vec: BitSet = usizes.into_iter().collect();
 
         let idxs: Vec<_> = bit_vec.iter().collect();
-        assert_eq!(idxs, vec![0, 2, 3]);
+        assert_eq!(idxs, [0, 2, 3]);
 
         let long: BitSet = (0..10000).filter(|&n| n % 2 == 0).collect();
         let real: Vec<_> = range_step(0, 10000, 2).collect();

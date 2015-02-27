@@ -1,4 +1,4 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -405,8 +405,8 @@ struct ImproperCTypesVisitor<'a, 'tcx: 'a> {
 }
 
 impl<'a, 'tcx> ImproperCTypesVisitor<'a, 'tcx> {
-    fn check_def(&mut self, sp: Span, ty_id: ast::NodeId, path_id: ast::NodeId) {
-        match self.cx.tcx.def_map.borrow()[path_id].clone() {
+    fn check_def(&mut self, sp: Span, id: ast::NodeId) {
+        match self.cx.tcx.def_map.borrow()[id].full_def() {
             def::DefPrimTy(ast::TyInt(ast::TyIs(_))) => {
                 self.cx.span_lint(IMPROPER_CTYPES, sp,
                                   "found rust type `isize` in foreign module, while \
@@ -418,7 +418,7 @@ impl<'a, 'tcx> ImproperCTypesVisitor<'a, 'tcx> {
                                    libc::c_uint or libc::c_ulong should be used");
             }
             def::DefTy(..) => {
-                let tty = match self.cx.tcx.ast_ty_to_ty_cache.borrow().get(&ty_id) {
+                let tty = match self.cx.tcx.ast_ty_to_ty_cache.borrow().get(&id) {
                     Some(&ty::atttce_resolved(t)) => t,
                     _ => panic!("ast_ty_to_ty_cache was incomplete after typeck!")
                 };
@@ -437,9 +437,8 @@ impl<'a, 'tcx> ImproperCTypesVisitor<'a, 'tcx> {
 
 impl<'a, 'tcx, 'v> Visitor<'v> for ImproperCTypesVisitor<'a, 'tcx> {
     fn visit_ty(&mut self, ty: &ast::Ty) {
-        match ty.node {
-            ast::TyPath(_, id) => self.check_def(ty.span, ty.id, id),
-            _ => (),
+        if let ast::TyPath(..) = ty.node {
+            self.check_def(ty.span, ty.id);
         }
         visit::walk_ty(self, ty);
     }
@@ -588,7 +587,7 @@ impl LintPass for RawPointerDerive {
     }
 
     fn check_item(&mut self, cx: &Context, item: &ast::Item) {
-        if !attr::contains_name(&item.attrs[], "automatically_derived") {
+        if !attr::contains_name(&item.attrs, "automatically_derived") {
             return
         }
         let did = match item.node {
@@ -652,7 +651,7 @@ impl LintPass for UnusedAttributes {
 
         if !attr::is_used(attr) {
             cx.span_lint(UNUSED_ATTRIBUTES, attr.span, "unused attribute");
-            if KNOWN_ATTRIBUTES.contains(&(&attr.name()[], AttributeType::CrateLevel)) {
+            if KNOWN_ATTRIBUTES.contains(&(&attr.name(), AttributeType::CrateLevel)) {
                 let msg = match attr.node.style {
                     ast::AttrOuter => "crate-level attribute should be an inner \
                                        attribute: add an exclamation mark: #![foo]",
@@ -683,8 +682,8 @@ impl LintPass for PathStatements {
         match s.node {
             ast::StmtSemi(ref expr, _) => {
                 match expr.node {
-                    ast::ExprPath(_) => cx.span_lint(PATH_STATEMENTS, s.span,
-                                                     "path statement with no effect"),
+                    ast::ExprPath(..) => cx.span_lint(PATH_STATEMENTS, s.span,
+                                                      "path statement with no effect"),
                     _ => ()
                 }
             }
@@ -732,7 +731,7 @@ impl LintPass for UnusedResults {
             ty::ty_enum(did, _) => {
                 if ast_util::is_local(did) {
                     if let ast_map::NodeItem(it) = cx.tcx.map.get(did.node) {
-                        warned |= check_must_use(cx, &it.attrs[], s.span);
+                        warned |= check_must_use(cx, &it.attrs, s.span);
                     }
                 } else {
                     let attrs = csearch::get_item_attrs(&cx.sess().cstore, did);
@@ -784,7 +783,7 @@ impl NonCamelCaseTypes {
 
             // start with a non-lowercase letter rather than non-uppercase
             // ones (some scripts don't have a concept of upper/lowercase)
-            ident.len() > 0 && !ident.char_at(0).is_lowercase() && !ident.contains_char('_')
+            ident.len() > 0 && !ident.char_at(0).is_lowercase() && !ident.contains('_')
         }
 
         fn to_camel_case(s: &str) -> String {
@@ -1001,7 +1000,8 @@ impl LintPass for NonSnakeCase {
 
     fn check_pat(&mut self, cx: &Context, p: &ast::Pat) {
         if let &ast::PatIdent(_, ref path1, _) = &p.node {
-            if let Some(&def::DefLocal(_)) = cx.tcx.def_map.borrow().get(&p.id) {
+            let def = cx.tcx.def_map.borrow().get(&p.id).map(|d| d.full_def());
+            if let Some(def::DefLocal(_)) = def {
                 self.check_snake_case(cx, "variable", path1.node, p.span);
             }
         }
@@ -1066,8 +1066,8 @@ impl LintPass for NonUpperCaseGlobals {
 
     fn check_pat(&mut self, cx: &Context, p: &ast::Pat) {
         // Lint for constants that look like binding identifiers (#7526)
-        match (&p.node, cx.tcx.def_map.borrow().get(&p.id)) {
-            (&ast::PatIdent(_, ref path1, _), Some(&def::DefConst(..))) => {
+        match (&p.node, cx.tcx.def_map.borrow().get(&p.id).map(|d| d.full_def())) {
+            (&ast::PatIdent(_, ref path1, _), Some(def::DefConst(..))) => {
                 NonUpperCaseGlobals::check_upper_case(cx, "constant in pattern",
                                                       path1.node, p.span);
             }
@@ -1093,7 +1093,7 @@ impl UnusedParens {
             if !necessary {
                 cx.span_lint(UNUSED_PARENS, value.span,
                              &format!("unnecessary parentheses around {}",
-                                     msg)[])
+                                     msg))
             }
         }
 
@@ -1227,15 +1227,18 @@ impl LintPass for NonShorthandFieldPatterns {
     fn check_pat(&mut self, cx: &Context, pat: &ast::Pat) {
         let def_map = cx.tcx.def_map.borrow();
         if let ast::PatStruct(_, ref v, _) = pat.node {
-            for fieldpat in v.iter()
-                             .filter(|fieldpat| !fieldpat.node.is_shorthand)
-                             .filter(|fieldpat| def_map.get(&fieldpat.node.pat.id)
-                                                == Some(&def::DefLocal(fieldpat.node.pat.id))) {
+            let field_pats = v.iter()
+                              .filter(|fieldpat| !fieldpat.node.is_shorthand)
+                              .filter(|fieldpat| {
+                let def = def_map.get(&fieldpat.node.pat.id).map(|d| d.full_def());
+                def == Some(def::DefLocal(fieldpat.node.pat.id))
+            });
+            for fieldpat in field_pats {
                 if let ast::PatIdent(_, ident, None) = fieldpat.node.pat.node {
                     if ident.node.as_str() == fieldpat.node.ident.as_str() {
                         cx.span_lint(NON_SHORTHAND_FIELD_PATTERNS, fieldpat.span,
                                      &format!("the `{}:` in this pattern is redundant and can \
-                                              be removed", ident.node.as_str())[])
+                                              be removed", ident.node.as_str()))
                     }
                 }
             }
@@ -1269,25 +1272,59 @@ impl LintPass for UnusedUnsafe {
 }
 
 declare_lint! {
-    UNSAFE_BLOCKS,
+    UNSAFE_CODE,
     Allow,
-    "usage of an `unsafe` block"
+    "usage of `unsafe` code"
 }
 
 #[derive(Copy)]
-pub struct UnsafeBlocks;
+pub struct UnsafeCode;
 
-impl LintPass for UnsafeBlocks {
+impl LintPass for UnsafeCode {
     fn get_lints(&self) -> LintArray {
-        lint_array!(UNSAFE_BLOCKS)
+        lint_array!(UNSAFE_CODE)
     }
 
     fn check_expr(&mut self, cx: &Context, e: &ast::Expr) {
         if let ast::ExprBlock(ref blk) = e.node {
             // Don't warn about generated blocks, that'll just pollute the output.
             if blk.rules == ast::UnsafeBlock(ast::UserProvided) {
-                cx.span_lint(UNSAFE_BLOCKS, blk.span, "usage of an `unsafe` block");
+                cx.span_lint(UNSAFE_CODE, blk.span, "usage of an `unsafe` block");
             }
+        }
+    }
+
+    fn check_item(&mut self, cx: &Context, it: &ast::Item) {
+        match it.node {
+            ast::ItemTrait(ast::Unsafety::Unsafe, _, _, _) =>
+                cx.span_lint(UNSAFE_CODE, it.span, "declaration of an `unsafe` trait"),
+
+            ast::ItemImpl(ast::Unsafety::Unsafe, _, _, _, _, _) =>
+                cx.span_lint(UNSAFE_CODE, it.span, "implementation of an `unsafe` trait"),
+
+            _ => return,
+        }
+    }
+
+    fn check_fn(&mut self, cx: &Context, fk: visit::FnKind, _: &ast::FnDecl,
+                _: &ast::Block, span: Span, _: ast::NodeId) {
+        match fk {
+            visit::FkItemFn(_, _, ast::Unsafety::Unsafe, _) =>
+                cx.span_lint(UNSAFE_CODE, span, "declaration of an `unsafe` function"),
+
+            visit::FkMethod(_, _, m) => {
+                if let ast::Method_::MethDecl(_, _, _, _, ast::Unsafety::Unsafe, _, _, _) = m.node {
+                    cx.span_lint(UNSAFE_CODE, m.span, "implementation of an `unsafe` method")
+                }
+            },
+
+            _ => (),
+        }
+    }
+
+    fn check_ty_method(&mut self, cx: &Context, ty_method: &ast::TypeMethod) {
+        if let ast::TypeMethod { unsafety: ast::Unsafety::Unsafe, span, ..} = *ty_method {
+            cx.span_lint(UNSAFE_CODE, span, "declaration of an `unsafe` method")
         }
     }
 }
@@ -1339,7 +1376,7 @@ impl LintPass for UnusedMut {
     fn check_expr(&mut self, cx: &Context, e: &ast::Expr) {
         if let ast::ExprMatch(_, ref arms, _) = e.node {
             for a in arms {
-                self.check_unused_mut_pat(cx, &a.pats[])
+                self.check_unused_mut_pat(cx, &a.pats)
             }
         }
     }
@@ -1460,7 +1497,7 @@ impl MissingDoc {
         });
         if !has_doc {
             cx.span_lint(MISSING_DOCS, sp,
-                &format!("missing documentation for {}", desc)[]);
+                &format!("missing documentation for {}", desc));
         }
     }
 }
@@ -1496,7 +1533,7 @@ impl LintPass for MissingDoc {
     }
 
     fn check_crate(&mut self, cx: &Context, krate: &ast::Crate) {
-        self.check_missing_docs_attrs(cx, None, &krate.attrs[],
+        self.check_missing_docs_attrs(cx, None, &krate.attrs,
                                      krate.span, "crate");
     }
 
@@ -1510,7 +1547,7 @@ impl LintPass for MissingDoc {
             ast::ItemTy(..) => "a type alias",
             _ => return
         };
-        self.check_missing_docs_attrs(cx, Some(it.id), &it.attrs[],
+        self.check_missing_docs_attrs(cx, Some(it.id), &it.attrs,
                                      it.span, desc);
     }
 
@@ -1523,14 +1560,22 @@ impl LintPass for MissingDoc {
 
             // Otherwise, doc according to privacy. This will also check
             // doc for default methods defined on traits.
-            self.check_missing_docs_attrs(cx, Some(m.id), &m.attrs[],
+            self.check_missing_docs_attrs(cx, Some(m.id), &m.attrs,
                                           m.span, "a method");
         }
     }
 
     fn check_ty_method(&mut self, cx: &Context, tm: &ast::TypeMethod) {
-        self.check_missing_docs_attrs(cx, Some(tm.id), &tm.attrs[],
+        self.check_missing_docs_attrs(cx, Some(tm.id), &tm.attrs,
                                      tm.span, "a type method");
+    }
+
+    fn check_trait_method(&mut self, cx: &Context, it: &ast::TraitItem) {
+        if let ast::TraitItem::TypeTraitItem(ref ty) = *it {
+            let assoc_ty = &ty.ty_param;
+            self.check_missing_docs_attrs(cx, Some(assoc_ty.id), &ty.attrs,
+                                          assoc_ty.span, "an associated type");
+        }
     }
 
     fn check_struct_field(&mut self, cx: &Context, sf: &ast::StructField) {
@@ -1539,14 +1584,14 @@ impl LintPass for MissingDoc {
                 let cur_struct_def = *self.struct_def_stack.last()
                     .expect("empty struct_def_stack");
                 self.check_missing_docs_attrs(cx, Some(cur_struct_def),
-                                              &sf.node.attrs[], sf.span,
+                                              &sf.node.attrs, sf.span,
                                               "a struct field")
             }
         }
     }
 
     fn check_variant(&mut self, cx: &Context, v: &ast::Variant, _: &ast::Generics) {
-        self.check_missing_docs_attrs(cx, Some(v.node.id), &v.node.attrs[],
+        self.check_missing_docs_attrs(cx, Some(v.node.id), &v.node.attrs,
                                      v.span, "a variant");
         assert!(!self.in_variant);
         self.in_variant = true;
@@ -1804,7 +1849,7 @@ impl LintPass for UnconditionalRecursion {
                 continue
             }
             visited.insert(cfg_id);
-            let node_id = cfg.graph.node_data(idx).id;
+            let node_id = cfg.graph.node_data(idx).id();
 
             // is this a recursive call?
             if node_id != ast::DUMMY_NODE_ID && checker(cx.tcx, impl_node_id, id, name, node_id) {
@@ -1857,10 +1902,7 @@ impl LintPass for UnconditionalRecursion {
                                       _: ast::Ident,
                                       id: ast::NodeId) -> bool {
             tcx.def_map.borrow().get(&id)
-                .map_or(false, |def| {
-                    let did = def.def_id();
-                    ast_util::is_local(did) && did.node == fn_id
-                })
+                .map_or(false, |def| def.def_id() == ast_util::local_def(fn_id))
         }
 
         // check if the method call `id` refers to method `method_id`

@@ -27,6 +27,13 @@ use sys::pipe2::AnonPipe;
 use sys::{self, retry, c, wouldblock, set_nonblocking, ms_to_timeval, cvt};
 use sys_common::AsInner;
 
+#[cfg(target_os = "nacl")]
+fn nacl_permission_denied() -> Error {
+    Error::new(ErrorKind::PermissionDenied,
+               "Can't interact with system processes from within sandbox",
+               None)
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Command
 ////////////////////////////////////////////////////////////////////////////////
@@ -136,12 +143,20 @@ impl Process {
         Ok(())
     }
 
+    #[cfg(target_os = "nacl")]
+    pub fn spawn(_: &Command,
+                 _: Option<AnonPipe>,
+                 _: Option<AnonPipe>,
+                 _: Option<AnonPipe>) -> io::Result<Process> {
+        Err(nacl_permission_denied())
+    }
+
+    #[cfg(not(target_os = "nacl"))]
     pub fn spawn(cfg: &Command,
                  in_fd: Option<AnonPipe>, out_fd: Option<AnonPipe>, err_fd: Option<AnonPipe>)
                  -> io::Result<Process>
     {
         use libc::funcs::posix88::unistd::{fork, dup2, close, chdir, execvp};
-        use libc::funcs::bsd44::getdtablesize;
 
         mod rustrt {
             extern {
@@ -152,6 +167,16 @@ impl Process {
         unsafe fn set_cloexec(fd: c_int) {
             let ret = c::ioctl(fd, c::FIOCLEX);
             assert_eq!(ret, 0);
+        }
+
+        #[cfg(all(target_os = "android", target_arch = "aarch64"))]
+        unsafe fn getdtablesize() -> c_int {
+            libc::sysconf(libc::consts::os::sysconf::_SC_OPEN_MAX) as c_int
+        }
+
+        #[cfg(not(all(target_os = "android", target_arch = "aarch64")))]
+        unsafe fn getdtablesize() -> c_int {
+            libc::funcs::bsd44::getdtablesize()
         }
 
         let dirp = cfg.cwd.as_ref().map(|c| c.as_ptr()).unwrap_or(ptr::null());
@@ -345,12 +370,21 @@ impl Process {
         })
     }
 
+    #[cfg(target_os = "nacl")]
+    pub fn wait(&self) -> io::Result<ExitStatus> {
+        Err(nacl_permission_denied())
+    }
+    #[cfg(target_os = "nacl")]
+    pub fn try_wait(&self) -> Option<ExitStatus> { None }
+
+    #[cfg(not(target_os = "nacl"))]
     pub fn wait(&self) -> io::Result<ExitStatus> {
         let mut status = 0 as c_int;
         try!(cvt(retry(|| unsafe { c::waitpid(self.pid, &mut status, 0) })));
         Ok(translate_status(status))
     }
 
+    #[cfg(not(target_os = "nacl"))]
     pub fn try_wait(&self) -> Option<ExitStatus> {
         let mut status = 0 as c_int;
         match retry(|| unsafe {
@@ -417,6 +451,7 @@ fn with_envp<T, F>(env: Option<&HashMap<OsString, OsString>>, cb: F) -> T
     }
 }
 
+#[cfg(not(target_os = "nacl"))]
 fn translate_status(status: c_int) -> ExitStatus {
     #![allow(non_snake_case)]
     #[cfg(any(target_os = "linux", target_os = "android"))]

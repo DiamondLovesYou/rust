@@ -342,12 +342,15 @@ impl Builder {
     }
 }
 
-/// Spawn a new, returning a join handle for it.
+/// Spawn a new thread, returning a `JoinHandle` for it.
 ///
-/// The child thread may outlive the parent (unless the parent thread
-/// is the main thread; the whole process is terminated when the main
-/// thread finishes.) The join handle can be used to block on
-/// termination of the child thread, including recovering its panics.
+/// The join handle will implicitly *detach* the child thread upon being
+/// dropped. In this case, the child thread may outlive the parent (unless
+/// the parent thread is the main thread; the whole process is terminated when
+/// the main thread finishes.) Additionally, the join handle provides a `join`
+/// method that can be used to join the child thread. If the child thread
+/// panics, `join` will return an `Err` containing the argument given to
+/// `panic`.
 ///
 /// # Panics
 ///
@@ -465,16 +468,16 @@ impl Thread {
         }
     }
 
-    /// Deprecated: use module-level free fucntion.
-    #[deprecated(since = "1.0.0", reason = "use module-level free fucntion")]
+    /// Deprecated: use module-level free function.
+    #[deprecated(since = "1.0.0", reason = "use module-level free function")]
     #[unstable(feature = "std_misc",
                reason = "may change with specifics of new Send semantics")]
     pub fn spawn<F>(f: F) -> Thread where F: FnOnce(), F: Send + 'static {
         Builder::new().spawn(f).unwrap().thread().clone()
     }
 
-    /// Deprecated: use module-level free fucntion.
-    #[deprecated(since = "1.0.0", reason = "use module-level free fucntion")]
+    /// Deprecated: use module-level free function.
+    #[deprecated(since = "1.0.0", reason = "use module-level free function")]
     #[unstable(feature = "std_misc",
                reason = "may change with specifics of new Send semantics")]
     pub fn scoped<'a, T, F>(f: F) -> JoinGuard<'a, T> where
@@ -483,30 +486,30 @@ impl Thread {
         Builder::new().scoped(f).unwrap()
     }
 
-    /// Deprecated: use module-level free fucntion.
-    #[deprecated(since = "1.0.0", reason = "use module-level free fucntion")]
+    /// Deprecated: use module-level free function.
+    #[deprecated(since = "1.0.0", reason = "use module-level free function")]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn current() -> Thread {
         thread_info::current_thread()
     }
 
-    /// Deprecated: use module-level free fucntion.
-    #[deprecated(since = "1.0.0", reason = "use module-level free fucntion")]
+    /// Deprecated: use module-level free function.
+    #[deprecated(since = "1.0.0", reason = "use module-level free function")]
     #[unstable(feature = "std_misc", reason = "name may change")]
     pub fn yield_now() {
         unsafe { imp::yield_now() }
     }
 
-    /// Deprecated: use module-level free fucntion.
-    #[deprecated(since = "1.0.0", reason = "use module-level free fucntion")]
+    /// Deprecated: use module-level free function.
+    #[deprecated(since = "1.0.0", reason = "use module-level free function")]
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn panicking() -> bool {
         unwind::panicking()
     }
 
-    /// Deprecated: use module-level free fucntion.
-    #[deprecated(since = "1.0.0", reason = "use module-level free fucntion")]
+    /// Deprecated: use module-level free function.
+    #[deprecated(since = "1.0.0", reason = "use module-level free function")]
     #[unstable(feature = "std_misc", reason = "recently introduced")]
     pub fn park() {
         let thread = current();
@@ -517,8 +520,8 @@ impl Thread {
         *guard = false;
     }
 
-    /// Deprecated: use module-level free fucntion.
-    #[deprecated(since = "1.0.0", reason = "use module-level free fucntion")]
+    /// Deprecated: use module-level free function.
+    #[deprecated(since = "1.0.0", reason = "use module-level free function")]
     #[unstable(feature = "std_misc", reason = "recently introduced")]
     pub fn park_timeout(dur: Duration) {
         let thread = current();
@@ -702,7 +705,7 @@ mod test {
     use boxed::BoxAny;
     use result;
     use std::old_io::{ChanReader, ChanWriter};
-    use super::{Thread, Builder};
+    use super::{Builder};
     use thread;
     use thunk::Thunk;
     use time::Duration;
@@ -767,7 +770,7 @@ mod test {
     #[test]
     #[should_fail]
     fn test_scoped_implicit_panic() {
-        thread::scoped(|| panic!());
+        let _ = thread::scoped(|| panic!());
     }
 
     #[test]

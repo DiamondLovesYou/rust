@@ -105,15 +105,16 @@ impl<T : ?Sized> Box<T> {
     /// After this function call, pointer is owned by resulting box.
     /// In particular, it means that `Box` destructor calls destructor
     /// of `T` and releases memory. Since the way `Box` allocates and
-    /// releases memory is unspecified, so the only valid pointer to
-    /// pass to this function is the one taken from another `Box` with
-    /// `box::into_raw` function.
+    /// releases memory is unspecified, the only valid pointer to pass
+    /// to this function is the one taken from another `Box` with
+    /// `boxed::into_raw` function.
     ///
     /// Function is unsafe, because improper use of this function may
     /// lead to memory problems like double-free, for example if the
     /// function is called twice on the same raw pointer.
     #[unstable(feature = "alloc",
                reason = "may be renamed or moved out of Box scope")]
+    #[inline]
     pub unsafe fn from_raw(raw: *mut T) -> Self {
         mem::transmute(raw)
     }
@@ -141,6 +142,7 @@ impl<T : ?Sized> Box<T> {
 /// ```
 #[unstable(feature = "alloc",
            reason = "may be renamed")]
+#[inline]
 pub unsafe fn into_raw<T : ?Sized>(b: Box<T>) -> *mut T {
     mem::transmute(b)
 }
@@ -220,14 +222,6 @@ impl<T: ?Sized + Ord> Ord for Box<T> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T: ?Sized + Eq> Eq for Box<T> {}
 
-#[cfg(stage0)]
-impl<S: hash::Hasher, T: ?Sized + Hash<S>> Hash<S> for Box<T> {
-    #[inline]
-    fn hash(&self, state: &mut S) {
-        (**self).hash(state);
-    }
-}
-#[cfg(not(stage0))]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T: ?Sized + Hash> Hash for Box<T> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
@@ -256,11 +250,12 @@ impl BoxAny for Box<Any> {
         if self.is::<T>() {
             unsafe {
                 // Get the raw representation of the trait object
+                let raw = into_raw(self);
                 let to: TraitObject =
-                    mem::transmute::<Box<Any>, TraitObject>(self);
+                    mem::transmute::<*mut Any, TraitObject>(raw);
 
                 // Extract the data pointer
-                Ok(mem::transmute(to.data))
+                Ok(Box::from_raw(to.data as *mut T))
             }
         } else {
             Err(self)

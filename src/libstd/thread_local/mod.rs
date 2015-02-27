@@ -74,7 +74,7 @@ pub mod __impl {
 /// use std::cell::RefCell;
 /// use std::thread;
 ///
-/// thread_local!(static FOO: RefCell<uint> = RefCell::new(1));
+/// thread_local!(static FOO: RefCell<u32> = RefCell::new(1));
 ///
 /// FOO.with(|f| {
 ///     assert_eq!(*f.borrow(), 1);
@@ -391,6 +391,7 @@ mod imp {
     // Due to rust-lang/rust#18804, make sure this is not generic!
     #[cfg(any(target_os = "linux", target_os = "nacl"))]
     unsafe fn register_dtor(t: *mut u8, dtor: unsafe extern fn(*mut u8)) {
+        use boxed;
         use mem;
         use libc;
         use sys_common::thread_local as os;
@@ -425,14 +426,14 @@ mod imp {
         type List = Vec<(*mut u8, unsafe extern fn(*mut u8))>;
         if DTORS.get().is_null() {
             let v: Box<List> = box Vec::new();
-            DTORS.set(mem::transmute(v));
+            DTORS.set(boxed::into_raw(v) as *mut u8);
         }
         let list: &mut List = &mut *(DTORS.get() as *mut List);
         list.push((t, dtor));
 
         unsafe extern fn run_dtors(mut ptr: *mut u8) {
             while !ptr.is_null() {
-                let list: Box<List> = mem::transmute(ptr);
+                let list: Box<List> = Box::from_raw(ptr as *mut List);
                 for &(ptr, dtor) in &*list {
                     dtor(ptr);
                 }
@@ -471,6 +472,7 @@ mod imp {
 mod imp {
     use prelude::v1::*;
 
+    use alloc::boxed;
     use cell::UnsafeCell;
     use mem;
     use ptr;
@@ -505,7 +507,7 @@ mod imp {
         unsafe fn ptr(&'static self) -> Option<*mut T> {
             let ptr = self.os.get() as *mut Value<T>;
             if !ptr.is_null() {
-                if ptr as uint == 1 {
+                if ptr as usize == 1 {
                     return None
                 }
                 return Some(&mut (*ptr).value as *mut T);
@@ -521,7 +523,7 @@ mod imp {
                 key: self,
                 value: mem::transmute_copy(&self.inner),
             };
-            let ptr: *mut Value<T> = mem::transmute(ptr);
+            let ptr: *mut Value<T> = boxed::into_raw(ptr);
             self.os.set(ptr as *mut u8);
             Some(&mut (*ptr).value as *mut T)
         }
@@ -537,7 +539,7 @@ mod imp {
         //
         // Note that to prevent an infinite loop we reset it back to null right
         // before we return from the destructor ourselves.
-        let ptr: Box<Value<T>> = mem::transmute(ptr);
+        let ptr: Box<Value<T>> = Box::from_raw(ptr as *mut Value<T>);
         let key = ptr.key;
         key.os.set(1 as *mut u8);
         drop(ptr);
@@ -565,7 +567,7 @@ mod tests {
 
     #[test]
     fn smoke_no_dtor() {
-        thread_local!(static FOO: UnsafeCell<int> = UnsafeCell { value: 1 });
+        thread_local!(static FOO: UnsafeCell<i32> = UnsafeCell { value: 1 });
 
         FOO.with(|f| unsafe {
             assert_eq!(*f.get(), 1);
@@ -634,7 +636,7 @@ mod tests {
         thread_local!(static K2: UnsafeCell<Option<S2>> = UnsafeCell {
             value: None
         });
-        static mut HITS: uint = 0;
+        static mut HITS: u32 = 0;
 
         impl Drop for S1 {
             fn drop(&mut self) {
@@ -725,8 +727,8 @@ mod dynamic_tests {
 
     #[test]
     fn smoke() {
-        fn square(i: int) -> int { i * i }
-        thread_local!(static FOO: int = square(3));
+        fn square(i: i32) -> i32 { i * i }
+        thread_local!(static FOO: i32 = square(3));
 
         FOO.with(|f| {
             assert_eq!(*f, 9);
@@ -735,12 +737,12 @@ mod dynamic_tests {
 
     #[test]
     fn hashmap() {
-        fn map() -> RefCell<HashMap<int, int>> {
+        fn map() -> RefCell<HashMap<i32, i32>> {
             let mut m = HashMap::new();
             m.insert(1, 2);
             RefCell::new(m)
         }
-        thread_local!(static FOO: RefCell<HashMap<int, int>> = map());
+        thread_local!(static FOO: RefCell<HashMap<i32, i32>> = map());
 
         FOO.with(|map| {
             assert_eq!(map.borrow()[1], 2);
@@ -749,7 +751,7 @@ mod dynamic_tests {
 
     #[test]
     fn refcell_vec() {
-        thread_local!(static FOO: RefCell<Vec<uint>> = RefCell::new(vec![1, 2, 3]));
+        thread_local!(static FOO: RefCell<Vec<u32>> = RefCell::new(vec![1, 2, 3]));
 
         FOO.with(|vec| {
             assert_eq!(vec.borrow().len(), 3);

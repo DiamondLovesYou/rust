@@ -22,7 +22,7 @@
 ///
 /// # Implementation
 ///
-/// Oneshots are implemented around one atomic uint variable. This variable
+/// Oneshots are implemented around one atomic usize variable. This variable
 /// indicates both the state of the port/chan but also contains any tasks
 /// blocked on the port. All atomic operations happen on this one word.
 ///
@@ -45,9 +45,9 @@ use core::mem;
 use sync::atomic::{AtomicUsize, Ordering};
 
 // Various states you can find a port in.
-const EMPTY: uint = 0;          // initial state: no data, no blocked receiver
-const DATA: uint = 1;           // data ready for receiver to take
-const DISCONNECTED: uint = 2;   // channel is disconnected OR upgraded
+const EMPTY: usize = 0;          // initial state: no data, no blocked receiver
+const DATA: usize = 1;           // data ready for receiver to take
+const DISCONNECTED: usize = 2;   // channel is disconnected OR upgraded
 // Any other value represents a pointer to a SignalToken value. The
 // protocol ensures that when the state moves *to* a pointer,
 // ownership of the token is given to the packet, and when the state
@@ -88,7 +88,7 @@ enum MyUpgrade<T> {
     GoUp(Receiver<T>),
 }
 
-impl<T: Send + 'static> Packet<T> {
+impl<T: Send> Packet<T> {
     pub fn new() -> Packet<T> {
         Packet {
             data: None,
@@ -123,7 +123,7 @@ impl<T: Send + 'static> Packet<T> {
             // There is a thread waiting on the other end. We leave the 'DATA'
             // state inside so it'll pick it up on the other end.
             ptr => unsafe {
-                SignalToken::cast_from_uint(ptr).signal();
+                SignalToken::cast_from_usize(ptr).signal();
                 Ok(())
             }
         }
@@ -143,7 +143,7 @@ impl<T: Send + 'static> Packet<T> {
         // like we're not empty, then immediately go through to `try_recv`.
         if self.state.load(Ordering::SeqCst) == EMPTY {
             let (wait_token, signal_token) = blocking::tokens();
-            let ptr = unsafe { signal_token.cast_to_uint() };
+            let ptr = unsafe { signal_token.cast_to_usize() };
 
             // race with senders to enter the blocking state
             if self.state.compare_and_swap(EMPTY, ptr, Ordering::SeqCst) == EMPTY {
@@ -151,7 +151,7 @@ impl<T: Send + 'static> Packet<T> {
                 debug_assert!(self.state.load(Ordering::SeqCst) != EMPTY);
             } else {
                 // drop the signal token, since we never blocked
-                drop(unsafe { SignalToken::cast_from_uint(ptr) });
+                drop(unsafe { SignalToken::cast_from_usize(ptr) });
             }
         }
 
@@ -220,7 +220,7 @@ impl<T: Send + 'static> Packet<T> {
             DISCONNECTED => { self.upgrade = prev; UpDisconnected }
 
             // If someone's waiting, we gotta wake them up
-            ptr => UpWoke(unsafe { SignalToken::cast_from_uint(ptr) })
+            ptr => UpWoke(unsafe { SignalToken::cast_from_usize(ptr) })
         }
     }
 
@@ -230,7 +230,7 @@ impl<T: Send + 'static> Packet<T> {
 
             // If someone's waiting, we gotta wake them up
             ptr => unsafe {
-                SignalToken::cast_from_uint(ptr).signal();
+                SignalToken::cast_from_usize(ptr).signal();
             }
         }
     }
@@ -283,15 +283,15 @@ impl<T: Send + 'static> Packet<T> {
     // Attempts to start selection on this port. This can either succeed, fail
     // because there is data, or fail because there is an upgrade pending.
     pub fn start_selection(&mut self, token: SignalToken) -> SelectionResult<T> {
-        let ptr = unsafe { token.cast_to_uint() };
+        let ptr = unsafe { token.cast_to_usize() };
         match self.state.compare_and_swap(EMPTY, ptr, Ordering::SeqCst) {
             EMPTY => SelSuccess,
             DATA => {
-                drop(unsafe { SignalToken::cast_from_uint(ptr) });
+                drop(unsafe { SignalToken::cast_from_usize(ptr) });
                 SelCanceled
             }
             DISCONNECTED if self.data.is_some() => {
-                drop(unsafe { SignalToken::cast_from_uint(ptr) });
+                drop(unsafe { SignalToken::cast_from_usize(ptr) });
                 SelCanceled
             }
             DISCONNECTED => {
@@ -300,7 +300,7 @@ impl<T: Send + 'static> Packet<T> {
                     // propagate upwards whether the upgrade can receive
                     // data
                     GoUp(upgrade) => {
-                        SelUpgraded(unsafe { SignalToken::cast_from_uint(ptr) }, upgrade)
+                        SelUpgraded(unsafe { SignalToken::cast_from_usize(ptr) }, upgrade)
                     }
 
                     // If the other end disconnected without sending an
@@ -308,7 +308,7 @@ impl<T: Send + 'static> Packet<T> {
                     // disconnected).
                     up => {
                         self.upgrade = up;
-                        drop(unsafe { SignalToken::cast_from_uint(ptr) });
+                        drop(unsafe { SignalToken::cast_from_usize(ptr) });
                         SelCanceled
                     }
                 }
@@ -360,7 +360,7 @@ impl<T: Send + 'static> Packet<T> {
 
             // We woke ourselves up from select.
             ptr => unsafe {
-                drop(SignalToken::cast_from_uint(ptr));
+                drop(SignalToken::cast_from_usize(ptr));
                 Ok(false)
             }
         }
@@ -368,7 +368,7 @@ impl<T: Send + 'static> Packet<T> {
 }
 
 #[unsafe_destructor]
-impl<T: Send + 'static> Drop for Packet<T> {
+impl<T: Send> Drop for Packet<T> {
     fn drop(&mut self) {
         assert_eq!(self.state.load(Ordering::SeqCst), DISCONNECTED);
     }

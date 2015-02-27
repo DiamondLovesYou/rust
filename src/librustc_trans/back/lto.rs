@@ -54,7 +54,7 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
             Some(p) => p,
             None => {
                 sess.fatal(&format!("could not find rlib for: `{}`",
-                                   name)[]);
+                                   name));
             }
         };
 
@@ -68,7 +68,7 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
                                   (),
                                   |_| {
                                       archive.read(&format!("{}.{}.bytecode.deflate",
-                                                           file, i)[])
+                                                           file, i))
                                   });
             let bc_encoded = match bc_encoded {
                 Some(data) => data,
@@ -76,7 +76,7 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
                     if i == 0 {
                         // No bitcode was found at all.
                         sess.fatal(&format!("missing compressed bytecode in {}",
-                                           path.display())[]);
+                                           path.display()));
                     }
                     // No more bitcode files to read.
                     break;
@@ -99,12 +99,12 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
                             Some(inflated) => inflated,
                             None => {
                                 sess.fatal(&format!("failed to decompress bc of `{}`",
-                                                   name)[])
+                                                   name))
                             }
                         }
                     } else {
                         sess.fatal(&format!("Unsupported bytecode format version {}",
-                                           version)[])
+                                           version))
                     }
                 })
             } else {
@@ -115,7 +115,7 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
                         Some(bc) => bc,
                         None => {
                             sess.fatal(&format!("failed to decompress bc of `{}`",
-                                               name)[])
+                                               name))
                         }
                     }
                 })
@@ -124,7 +124,7 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
             let ptr = bc_decoded.as_ptr();
             debug!("linking {}, part {}", name, i);
             time(sess.time_passes(),
-                 &format!("ll link {}.{}", name, i)[],
+                 &format!("ll link {}.{}", name, i),
                  (),
                  |()| unsafe {
                 if !llvm::LLVMRustLinkInExternalBitcode(llmod,
@@ -183,7 +183,12 @@ pub fn run_passes<FA, FB>(sess: &session::Session,
 
             pre(pm);
 
-            let opt = sess.opts.cg.opt_level.unwrap_or(0) as libc::c_uint;
+            let opt = match sess.opts.optimize {
+                config::No => 0,
+                config::Less => 1,
+                config::Default => 2,
+                config::Aggressive => 3,
+            };
 
             if sess.opts.optimize != config::No {
                 let builder = llvm::LLVMPassManagerBuilderCreate();

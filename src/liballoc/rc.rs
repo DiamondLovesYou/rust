@@ -143,7 +143,10 @@
 //! ```
 
 #![stable(feature = "rust1", since = "1.0.0")]
-
+#[cfg(not(test))]
+use boxed;
+#[cfg(test)]
+use std::boxed;
 use core::cell::Cell;
 use core::clone::Clone;
 use core::cmp::{PartialEq, PartialOrd, Eq, Ord, Ordering};
@@ -151,7 +154,7 @@ use core::default::Default;
 use core::fmt;
 use core::hash::{Hasher, Hash};
 use core::marker;
-use core::mem::{transmute, min_align_of, size_of, forget};
+use core::mem::{min_align_of, size_of, forget};
 use core::nonzero::NonZero;
 use core::ops::{Deref, Drop};
 use core::option::Option;
@@ -201,7 +204,7 @@ impl<T> Rc<T> {
                 // there is an implicit weak pointer owned by all the strong pointers, which
                 // ensures that the weak destructor never frees the allocation while the strong
                 // destructor is running, even if the weak pointer is stored inside the strong one.
-                _ptr: NonZero::new(transmute(box RcBox {
+                _ptr: NonZero::new(boxed::into_raw(box RcBox {
                     value: value,
                     strong: Cell::new(1),
                     weak: Cell::new(1)
@@ -592,14 +595,6 @@ impl<T: Ord> Ord for Rc<T> {
 }
 
 // FIXME (#18248) Make `T` `Sized?`
-#[cfg(stage0)]
-impl<S: Hasher, T: Hash<S>> Hash<S> for Rc<T> {
-    #[inline]
-    fn hash(&self, state: &mut S) {
-        (**self).hash(state);
-    }
-}
-#[cfg(not(stage0))]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Hash> Hash for Rc<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {

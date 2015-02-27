@@ -54,7 +54,7 @@ fn replace_newline_with_backslash_l(s: String) -> String {
 }
 
 impl<'a, 'ast> dot::Labeller<'a, Node<'a>, Edge<'a>> for LabelledCFG<'a, 'ast> {
-    fn graph_id(&'a self) -> dot::Id<'a> { dot::Id::new(&self.name[]).ok().unwrap() }
+    fn graph_id(&'a self) -> dot::Id<'a> { dot::Id::new(&self.name[..]).ok().unwrap() }
 
     fn node_id(&'a self, &(i,_): &Node<'a>) -> dot::Id<'a> {
         dot::Id::new(format!("N{}", i.node_id())).ok().unwrap()
@@ -65,10 +65,10 @@ impl<'a, 'ast> dot::Labeller<'a, Node<'a>, Edge<'a>> for LabelledCFG<'a, 'ast> {
             dot::LabelText::LabelStr("entry".into_cow())
         } else if i == self.cfg.exit {
             dot::LabelText::LabelStr("exit".into_cow())
-        } else if n.data.id == ast::DUMMY_NODE_ID {
+        } else if n.data.id() == ast::DUMMY_NODE_ID {
             dot::LabelText::LabelStr("(dummy_node)".into_cow())
         } else {
-            let s = self.ast_map.node_to_string(n.data.id);
+            let s = self.ast_map.node_to_string(n.data.id());
             // left-aligns the lines
             let s = replace_newline_with_backslash_l(s);
             dot::LabelText::EscStr(s.into_cow())
@@ -92,7 +92,7 @@ impl<'a, 'ast> dot::Labeller<'a, Node<'a>, Edge<'a>> for LabelledCFG<'a, 'ast> {
             let s = replace_newline_with_backslash_l(s);
             label.push_str(&format!("exiting scope_{} {}",
                                    i,
-                                   &s[..])[]);
+                                   &s[..]));
         }
         dot::LabelText::EscStr(label.into_cow())
     }

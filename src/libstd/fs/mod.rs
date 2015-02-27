@@ -25,6 +25,10 @@ use sys::fs2 as fs_imp;
 use sys_common::{AsInnerMut, FromInner, AsInner};
 use vec::Vec;
 
+pub use self::tempdir::TempDir;
+
+mod tempdir;
+
 /// A reference to an open file on the filesystem.
 ///
 /// An instance of a `File` can be read and/or written depending on what options
@@ -325,6 +329,10 @@ impl FromInner<fs_imp::FilePermissions> for Permissions {
     }
 }
 
+impl AsInner<fs_imp::FilePermissions> for Permissions {
+    fn as_inner(&self) -> &fs_imp::FilePermissions { &self.0 }
+}
+
 impl Iterator for ReadDir {
     type Item = io::Result<DirEntry>;
 
@@ -540,7 +548,14 @@ pub fn create_dir_all<P: AsPath + ?Sized>(path: &P) -> io::Result<()> {
         Some(p) if p != path => try!(create_dir_all(p)),
         _ => {}
     }
-    create_dir(path)
+    // If the file name of the given `path` is blank then the creation of the
+    // parent directory will have taken care of the whole path for us, so we're
+    // good to go.
+    if path.file_name().is_none() {
+        Ok(())
+    } else {
+        create_dir(path)
+    }
 }
 
 /// Remove an existing, empty directory
@@ -744,6 +759,8 @@ pub fn set_permissions<P: AsPath + ?Sized>(path: &P, perm: Permissions)
 
 #[cfg(test)]
 mod tests {
+    #![allow(deprecated)] //rand
+
     use prelude::v1::*;
     use io::prelude::*;
 
@@ -1035,7 +1052,7 @@ mod tests {
             let msg = msg_str.as_bytes();
             check!(w.write(msg));
         }
-        let mut files = check!(fs::read_dir(dir));
+        let files = check!(fs::read_dir(dir));
         let mut mem = [0u8; 4];
         for f in files {
             let f = f.unwrap().path();
@@ -1065,7 +1082,7 @@ mod tests {
         check!(fs::create_dir_all(dir2));
         check!(File::create(&dir2.join("14")));
 
-        let mut files = check!(fs::walk_dir(dir));
+        let files = check!(fs::walk_dir(dir));
         let mut cur = [0u8; 2];
         for f in files {
             let f = f.unwrap().path();
@@ -1497,5 +1514,12 @@ mod tests {
         perm.set_readonly(true);
         check!(fs::set_permissions(&path, perm));
         check!(fs::remove_file(&path));
+    }
+
+    #[test]
+    fn mkdir_trailing_slash() {
+        let tmpdir = tmpdir();
+        let path = tmpdir.join("file");
+        check!(fs::create_dir_all(&path.join("a/")));
     }
 }

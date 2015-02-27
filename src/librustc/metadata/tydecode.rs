@@ -305,7 +305,7 @@ fn parse_bound_region_<F>(st: &mut PState, conv: &mut F) -> ty::BoundRegion wher
         }
         '[' => {
             let def = parse_def_(st, RegionParameter, conv);
-            let ident = token::str_to_ident(&parse_str(st, ']')[]);
+            let ident = token::str_to_ident(&parse_str(st, ']'));
             ty::BrNamed(def, ident.name)
         }
         'f' => {
@@ -344,7 +344,7 @@ fn parse_region_<F>(st: &mut PState, conv: &mut F) -> ty::Region where
         assert_eq!(next(st), '|');
         let index = parse_u32(st);
         assert_eq!(next(st), '|');
-        let nm = token::str_to_ident(&parse_str(st, ']')[]);
+        let nm = token::str_to_ident(&parse_str(st, ']'));
         ty::ReEarlyBound(node_id, space, index, nm.name)
       }
       'f' => {
@@ -485,7 +485,7 @@ fn parse_ty_<'a, 'tcx, F>(st: &mut PState<'a, 'tcx>, conv: &mut F) -> Ty<'tcx> w
         assert_eq!(next(st), '|');
         let space = parse_param_space(st);
         assert_eq!(next(st), '|');
-        let name = token::intern(&parse_str(st, ']')[]);
+        let name = token::intern(&parse_str(st, ']'));
         return ty::mk_param(tcx, space, index, name);
       }
       '~' => return ty::mk_uniq(tcx, parse_ty_(st, conv)),
@@ -822,7 +822,6 @@ fn parse_type_param_def_<'a, 'tcx, F>(st: &mut PState<'a, 'tcx>, conv: &mut F)
     assert_eq!(next(st), '|');
     let index = parse_u32(st);
     assert_eq!(next(st), '|');
-    let bounds = parse_bounds_(st, conv);
     let default = parse_opt(st, |st| parse_ty_(st, conv));
     let object_lifetime_default = parse_object_lifetime_default(st, conv);
 
@@ -831,7 +830,6 @@ fn parse_type_param_def_<'a, 'tcx, F>(st: &mut PState<'a, 'tcx>, conv: &mut F)
         def_id: def_id,
         space: space,
         index: index,
-        bounds: bounds,
         default: default,
         object_lifetime_default: object_lifetime_default,
     }
@@ -924,18 +922,18 @@ fn parse_bounds_<'a, 'tcx, F>(st: &mut PState<'a, 'tcx>, conv: &mut F)
 {
     let builtin_bounds = parse_builtin_bounds_(st, conv);
 
+    let region_bounds = parse_region_bounds_(st, conv);
+
     let mut param_bounds = ty::ParamBounds {
-        region_bounds: Vec::new(),
+        region_bounds: region_bounds,
         builtin_bounds: builtin_bounds,
         trait_bounds: Vec::new(),
         projection_bounds: Vec::new(),
     };
+
+
     loop {
         match next(st) {
-            'R' => {
-                param_bounds.region_bounds.push(
-                    parse_region_(st, conv));
-            }
             'I' => {
                 param_bounds.trait_bounds.push(
                     ty::Binder(parse_trait_ref_(st, conv)));
@@ -953,3 +951,18 @@ fn parse_bounds_<'a, 'tcx, F>(st: &mut PState<'a, 'tcx>, conv: &mut F)
         }
     }
 }
+
+fn parse_region_bounds_<'a, 'tcx, F>(st: &mut PState<'a, 'tcx>, conv: &mut F)
+                              -> Vec<ty::Region> where
+    F: FnMut(DefIdSource, ast::DefId) -> ast::DefId,
+{
+    let mut region_bounds = Vec::new();
+    loop {
+        match next(st) {
+            'R' => { region_bounds.push(parse_region_(st, conv)); }
+            '.' => { return region_bounds; }
+            c => { panic!("parse_bounds: bad bounds ('{}')", c); }
+        }
+    }
+}
+

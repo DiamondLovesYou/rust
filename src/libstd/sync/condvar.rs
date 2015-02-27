@@ -61,9 +61,6 @@ use sync::{mutex, MutexGuard, PoisonError};
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Condvar { inner: Box<StaticCondvar> }
 
-unsafe impl Send for Condvar {}
-unsafe impl Sync for Condvar {}
-
 /// Statically allocated condition variables.
 ///
 /// This structure is identical to `Condvar` except that it is suitable for use
@@ -82,9 +79,6 @@ pub struct StaticCondvar {
     inner: sys::Condvar,
     mutex: AtomicUsize,
 }
-
-unsafe impl Send for StaticCondvar {}
-unsafe impl Sync for StaticCondvar {}
 
 /// Constant initializer for a statically allocated condition variable.
 #[unstable(feature = "std_misc",
@@ -327,7 +321,7 @@ impl StaticCondvar {
     }
 
     fn verify(&self, mutex: &sys_mutex::Mutex) {
-        let addr = mutex as *const _ as uint;
+        let addr = mutex as *const _ as usize;
         match self.mutex.compare_and_swap(0, addr, Ordering::SeqCst) {
             // If we got out 0, then we have successfully bound the mutex to
             // this cvar.
@@ -388,7 +382,7 @@ mod tests {
 
     #[test]
     fn notify_all() {
-        const N: uint = 10;
+        const N: usize = 10;
 
         let data = Arc::new((Mutex::new(0), Condvar::new()));
         let (tx, rx) = channel();
