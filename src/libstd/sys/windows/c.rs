@@ -105,7 +105,7 @@ pub struct WSAPROTOCOL_INFO {
     pub iSecurityScheme: libc::c_int,
     pub dwMessageSize: libc::DWORD,
     pub dwProviderReserved: libc::DWORD,
-    pub szProtocol: [u16; (WSAPROTOCOL_LEN as usize) + 1us],
+    pub szProtocol: [u16; (WSAPROTOCOL_LEN as usize) + 1],
 }
 
 pub type LPWSAPROTOCOL_INFO = *mut WSAPROTOCOL_INFO;
@@ -283,7 +283,7 @@ pub mod compat {
                   fallback: usize) -> usize {
         let mut module: Vec<u16> = module.utf16_units().collect();
         module.push(0);
-        let symbol = CString::from_slice(symbol.as_bytes());
+        let symbol = CString::new(symbol).unwrap();
         let func = unsafe {
             let handle = GetModuleHandleW(module.as_ptr());
             GetProcAddress(handle, symbol.as_ptr()) as usize

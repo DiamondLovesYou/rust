@@ -31,8 +31,9 @@ pub fn bar<T: Foo>(a: T, x: T::A) -> T::A {
 // Using a type via an impl.
 trait C {
     fn f();
+    fn g(&self) { }
 }
-struct B<X>;
+struct B<X>(X);
 impl<T: Foo> C for B<T> {
     fn f() {
         let x: T::A = panic!();
@@ -40,5 +41,5 @@ impl<T: Foo> C for B<T> {
 }
 
 pub fn main() {
-    let z: uint = bar(2, 4u);
+    let z: uint = bar(2, 4_usize);
 }

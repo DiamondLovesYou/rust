@@ -37,7 +37,7 @@ use util::ppaux::{ty_to_string};
 use util::nodemap::{FnvHashMap, NodeSet};
 use lint::{Level, Context, LintPass, LintArray, Lint};
 
-use std::collections::BitvSet;
+use std::collections::BitSet;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::num::SignedInt;
 use std::{cmp, slice};
@@ -494,13 +494,12 @@ pub struct BoxPointers;
 impl BoxPointers {
     fn check_heap_type<'a, 'tcx>(&self, cx: &Context<'a, 'tcx>,
                                  span: Span, ty: Ty<'tcx>) {
-        let mut n_uniq = 0us;
+        let mut n_uniq: usize = 0;
         ty::fold_ty(cx.tcx, ty, |t| {
             match t.sty {
                 ty::ty_uniq(_) => {
                     n_uniq += 1;
                 }
-
                 _ => ()
             };
             t
@@ -509,7 +508,7 @@ impl BoxPointers {
         if n_uniq > 0 {
             let s = ty_to_string(cx.tcx, ty);
             let m = format!("type uses owned (Box type) pointers: {}", s);
-            cx.span_lint(BOX_POINTERS, span, &m[]);
+            cx.span_lint(BOX_POINTERS, span, &m[..]);
         }
     }
 }
@@ -737,7 +736,7 @@ impl LintPass for UnusedResults {
                     }
                 } else {
                     let attrs = csearch::get_item_attrs(&cx.sess().cstore, did);
-                    warned |= check_must_use(cx, &attrs[], s.span);
+                    warned |= check_must_use(cx, &attrs[..], s.span);
                 }
             }
             _ => {}
@@ -804,7 +803,7 @@ impl NonCamelCaseTypes {
             } else {
                 format!("{} `{}` should have a camel case name such as `{}`", sort, s, c)
             };
-            cx.span_lint(NON_CAMEL_CASE_TYPES, span, &m[]);
+            cx.span_lint(NON_CAMEL_CASE_TYPES, span, &m[..]);
         }
     }
 }
@@ -951,7 +950,7 @@ impl NonSnakeCase {
 
         if !is_snake_case(ident) {
             let sc = NonSnakeCase::to_snake_case(&s);
-            if sc != &s[] {
+            if sc != &s[..] {
                 cx.span_lint(NON_SNAKE_CASE, span,
                     &*format!("{} `{}` should have a snake case name such as `{}`",
                             sort, s, sc));
@@ -1034,7 +1033,7 @@ impl NonUpperCaseGlobals {
         if s.chars().any(|c| c.is_lowercase()) {
             let uc: String = NonSnakeCase::to_snake_case(&s).chars()
                                            .map(|c| c.to_uppercase()).collect();
-            if uc != &s[] {
+            if uc != &s[..] {
                 cx.span_lint(NON_UPPER_CASE_GLOBALS, span,
                     &format!("{} `{}` should have an upper case name such as `{}`",
                              sort, s, uc));
@@ -1197,7 +1196,7 @@ impl LintPass for UnusedImportBraces {
                                     let m = format!("braces around {} is unnecessary",
                                                     &token::get_ident(*name));
                                     cx.span_lint(UNUSED_IMPORT_BRACES, item.span,
-                                                 &m[]);
+                                                 &m[..]);
                                 },
                                 _ => ()
                             }
@@ -1475,7 +1474,7 @@ impl LintPass for MissingDoc {
         let doc_hidden = self.doc_hidden() || attrs.iter().any(|attr| {
             attr.check_name("doc") && match attr.meta_item_list() {
                 None => false,
-                Some(l) => attr::contains_name(&l[], "hidden"),
+                Some(l) => attr::contains_name(&l[..], "hidden"),
             }
         });
         self.doc_hidden_stack.push(doc_hidden);
@@ -1703,7 +1702,7 @@ impl Stability {
                 _ => format!("use of {} item", label)
             };
 
-            cx.span_lint(lint, span, &msg[]);
+            cx.span_lint(lint, span, &msg[..]);
         }
     }
 }
@@ -1792,7 +1791,7 @@ impl LintPass for UnconditionalRecursion {
         let mut work_queue = vec![cfg.entry];
         let mut reached_exit_without_self_call = false;
         let mut self_call_spans = vec![];
-        let mut visited = BitvSet::new();
+        let mut visited = BitSet::new();
 
         while let Some(idx) = work_queue.pop() {
             let cfg_id = idx.node_id();

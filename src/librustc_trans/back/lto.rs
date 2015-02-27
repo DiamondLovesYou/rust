@@ -62,7 +62,7 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
         let file = path.filename_str().unwrap();
         let file = &file[3..file.len() - 5]; // chop off lib/.rlib
         debug!("reading {}", file);
-        for i in iter::count(0us, 1) {
+        for i in iter::count(0, 1) {
             let bc_encoded = time(sess.time_passes(),
                                   &format!("check for {}.{}.bytecode.deflate", name, i),
                                   (),
@@ -132,7 +132,7 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
                                                         bc_decoded.len() as libc::size_t) {
                     write::llvm_err(sess.diagnostic().handler(),
                                     format!("failed to load bc of `{}`",
-                                            &name[]));
+                                            &name[..]));
                 }
             });
         }
@@ -140,7 +140,7 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
 
     // Internalize everything but the reachable symbols of the current module
     let cstrs: Vec<CString> = reachable.iter().map(|s| {
-        CString::from_slice(s.as_bytes())
+        CString::new(s.clone()).unwrap()
     }).collect();
     let arr: Vec<*const libc::c_char> = cstrs.iter().map(|c| c.as_ptr()).collect();
     let ptr = arr.as_ptr();

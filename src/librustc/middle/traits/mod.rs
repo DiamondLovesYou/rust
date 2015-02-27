@@ -15,9 +15,9 @@ pub use self::FulfillmentErrorCode::*;
 pub use self::Vtable::*;
 pub use self::ObligationCauseCode::*;
 
-use middle::mem_categorization::Typer;
 use middle::subst;
-use middle::ty::{self, Ty};
+use middle::ty::{self, HasProjectionTypes, Ty};
+use middle::ty_fold::TypeFoldable;
 use middle::infer::{self, InferCtxt};
 use std::slice::Iter;
 use std::rc::Rc;
@@ -28,6 +28,7 @@ use util::ppaux::{Repr, UserString};
 pub use self::error_reporting::report_fulfillment_errors;
 pub use self::error_reporting::suggest_new_overflow_limit;
 pub use self::coherence::orphan_check;
+pub use self::coherence::overlapping_impls;
 pub use self::coherence::OrphanCheckErr;
 pub use self::fulfill::{FulfillmentContext, RegionObligation};
 pub use self::project::MismatchedProjectionTypes;
@@ -270,16 +271,6 @@ pub struct VtableObjectData<'tcx> {
     pub object_ty: Ty<'tcx>,
 }
 
-/// True if there exist types that satisfy both of the two given impls.
-pub fn overlapping_impls(infcx: &InferCtxt,
-                         impl1_def_id: ast::DefId,
-                         impl2_def_id: ast::DefId)
-                         -> bool
-{
-    coherence::impl_can_satisfy(infcx, impl1_def_id, impl2_def_id) &&
-    coherence::impl_can_satisfy(infcx, impl2_def_id, impl1_def_id)
-}
-
 /// Creates predicate obligations from the generic bounds.
 pub fn predicates_for_generics<'tcx>(tcx: &ty::ctxt<'tcx>,
                                      cause: ObligationCause<'tcx>,
@@ -432,23 +423,42 @@ pub fn normalize_param_env<'a,'tcx>(param_env: &ty::ParameterEnvironment<'a,'tcx
     debug!("normalize_param_env(param_env={})",
            param_env.repr(tcx));
 
-    let predicates: Vec<ty::Predicate<'tcx>> = {
-        let infcx = infer::new_infer_ctxt(tcx);
-        let mut selcx = &mut SelectionContext::new(&infcx, param_env);
-        let mut fulfill_cx = FulfillmentContext::new();
-        let Normalized { value: predicates, obligations } =
-            project::normalize(selcx, cause, &param_env.caller_bounds);
-        for obligation in obligations {
-            fulfill_cx.register_predicate_obligation(selcx.infcx(), obligation);
-        }
-        try!(fulfill_cx.select_all_or_error(selcx.infcx(), param_env));
-        predicates.iter().map(|p| infcx.resolve_type_vars_if_possible(p)).collect()
-    };
+    let infcx = infer::new_infer_ctxt(tcx);
+    let predicates = try!(fully_normalize(&infcx, param_env, cause, &param_env.caller_bounds));
 
     debug!("normalize_param_env: predicates={}",
            predicates.repr(tcx));
 
     Ok(param_env.with_caller_bounds(predicates))
+}
+
+pub fn fully_normalize<'a,'tcx,T>(infcx: &InferCtxt<'a,'tcx>,
+                                  closure_typer: &ty::ClosureTyper<'tcx>,
+                                  cause: ObligationCause<'tcx>,
+                                  value: &T)
+                                  -> Result<T, Vec<FulfillmentError<'tcx>>>
+    where T : TypeFoldable<'tcx> + HasProjectionTypes + Clone + Repr<'tcx>
+{
+    let tcx = closure_typer.tcx();
+
+    debug!("normalize_param_env(value={})",
+           value.repr(tcx));
+
+    let mut selcx = &mut SelectionContext::new(infcx, closure_typer);
+    let mut fulfill_cx = FulfillmentContext::new();
+    let Normalized { value: normalized_value, obligations } =
+        project::normalize(selcx, cause, value);
+    debug!("normalize_param_env: normalized_value={} obligations={}",
+           normalized_value.repr(tcx),
+           obligations.repr(tcx));
+    for obligation in obligations {
+        fulfill_cx.register_predicate_obligation(selcx.infcx(), obligation);
+    }
+    try!(fulfill_cx.select_all_or_error(infcx, closure_typer));
+    let resolved_value = infcx.resolve_type_vars_if_possible(&normalized_value);
+    debug!("normalize_param_env: resolved_value={}",
+           resolved_value.repr(tcx));
+    Ok(resolved_value)
 }
 
 impl<'tcx,O> Obligation<'tcx,O> {

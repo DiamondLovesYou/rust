@@ -202,7 +202,7 @@ fn filter_masks(masks: &mut Vec<Vec<Vec<u64>>>) {
     for i in 0..masks.len() {
         for j in 0..(*masks)[i].len() {
             masks[i][j] =
-                (*masks)[i][j].iter().map(|&m| m)
+                (*masks)[i][j].iter().cloned()
                 .filter(|&m| !is_board_unfeasible(m, masks))
                 .collect();
         }
@@ -222,7 +222,7 @@ fn to_vec(raw_sol: &List<u64>) -> Vec<u8> {
     let mut sol = repeat('.' as u8).take(50).collect::<Vec<_>>();
     for &m in raw_sol.iter() {
         let id = '0' as u8 + get_id(m);
-        for i in 0us..50 {
+        for i in 0..50 {
             if m & 1 << i != 0 {
                 sol[i] = id;
             }
@@ -270,7 +270,7 @@ fn handle_sol(raw_sol: &List<u64>, data: &mut Data) {
     // reverse order, i.e. the board rotated by half a turn.
     data.nb += 2;
     let sol1 = to_vec(raw_sol);
-    let sol2: Vec<u8> = sol1.iter().rev().map(|x| *x).collect();
+    let sol2: Vec<u8> = sol1.iter().rev().cloned().collect();
 
     if data.nb == 2 {
         data.min = sol1.clone();
@@ -297,7 +297,7 @@ fn search(
     let masks_at = &masks[i];
 
     // for every unused piece
-    for id in (0us..10).filter(|&id| board & (1 << (id + 50)) == 0) {
+    for id in (0..10).filter(|&id| board & (1 << (id + 50)) == 0) {
         // for each mask that fits on the board
         for m in masks_at[id].iter().filter(|&m| board & *m == 0) {
             // This check is too costly.

@@ -168,7 +168,7 @@ pub fn mk_printer(out: Box<old_io::Writer+'static>, linewidth: usize) -> Printer
     debug!("mk_printer {}", linewidth);
     let token: Vec<Token> = repeat(Token::Eof).take(n).collect();
     let size: Vec<isize> = repeat(0).take(n).collect();
-    let scan_stack: Vec<usize> = repeat(0us).take(n).collect();
+    let scan_stack: Vec<usize> = repeat(0).take(n).collect();
     Printer {
         out: out,
         buf_len: n,
@@ -539,8 +539,8 @@ impl Printer {
     pub fn print(&mut self, token: Token, l: isize) -> old_io::IoResult<()> {
         debug!("print {} {} (remaining line space={})", tok_str(&token), l,
                self.space);
-        debug!("{}", buf_str(&self.token[],
-                             &self.size[],
+        debug!("{}", buf_str(&self.token,
+                             &self.size,
                              self.left,
                              self.right,
                              6));
@@ -607,7 +607,7 @@ impl Printer {
             assert_eq!(l, len);
             // assert!(l <= space);
             self.space -= len;
-            self.print_str(&s[])
+            self.print_str(&s[..])
           }
           Token::Eof => {
             // Eof should never get here.

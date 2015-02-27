@@ -13,7 +13,7 @@
 use std::cell::RefCell;
 
 fn main() {
-    let mut y = 1us;
+    let mut y = 1_usize;
     let c = RefCell::new(vec![]);
     c.push(box || y = 0);
     c.push(box || y = 0);
@@ -21,11 +21,12 @@ fn main() {
 }
 
 fn ufcs() {
-    let mut y = 1us;
+    let mut y = 1_usize;
     let c = RefCell::new(vec![]);
 
     Push::push(&c, box || y = 0);
     Push::push(&c, box || y = 0);
+//~^ ERROR cannot borrow `y` as mutable more than once at a time
 }
 
 trait Push<'c> {

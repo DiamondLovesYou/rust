@@ -22,7 +22,7 @@ use syntax::codemap;
 use syntax::diagnostic;
 use syntax::diagnostic::{Emitter, Handler, Level, mk_handler};
 
-use std::ffi::{self, CString};
+use std::ffi::{CStr, CString};
 use std::old_io::Command;
 use std::old_io::fs;
 use std::iter::Unfold;
@@ -47,14 +47,14 @@ pub fn llvm_err(handler: &diagnostic::Handler, msg: String) -> ! {
     unsafe {
         let cstr = llvm::LLVMRustGetLastError();
         if cstr == ptr::null() {
-            handler.fatal(&msg[]);
+            handler.fatal(&msg[..]);
         } else {
-            let err = ffi::c_str_to_bytes(&cstr);
+            let err = CStr::from_ptr(cstr).to_bytes();
             let err = String::from_utf8_lossy(err).to_string();
             libc::free(cstr as *mut _);
             handler.fatal(&format!("{}: {}",
-                                  &msg[],
-                                  &err[])[]);
+                                  &msg[..],
+                                  &err[..])[]);
         }
     }
 }
@@ -67,7 +67,7 @@ pub fn write_output_file(
         output: &Path,
         file_type: llvm::FileType) {
     unsafe {
-        let output_c = CString::from_slice(output.as_vec());
+        let output_c = CString::new(output.as_vec()).unwrap();
         let result = llvm::LLVMRustWriteOutputFile(
                 target, pm, m, output_c.as_ptr(), file_type);
         if !result {
@@ -105,7 +105,7 @@ impl SharedEmitter {
                 Some(ref code) => {
                     handler.emit_with_code(None,
                                            &diag.msg[],
-                                           &code[],
+                                           &code[..],
                                            diag.lvl);
                 },
                 None => {
@@ -165,7 +165,7 @@ fn get_llvm_opt_level(optimize: config::OptLevel) -> llvm::CodeGenOptLevel {
 
 pub fn create_target_machine(sess: &Session) -> TargetMachineRef {
     let reloc_model_arg = match sess.opts.cg.relocation_model {
-        Some(ref s) => &s[],
+        Some(ref s) => &s[..],
         None => &sess.target.target.options.relocation_model[]
     };
     let reloc_model = match reloc_model_arg {
@@ -198,7 +198,7 @@ pub fn create_target_machine(sess: &Session) -> TargetMachineRef {
     let fdata_sections = ffunction_sections;
 
     let code_model_arg = match sess.opts.cg.code_model {
-        Some(ref s) => &s[],
+        Some(ref s) => &s[..],
         None => &sess.target.target.options.code_model[]
     };
 
@@ -227,13 +227,13 @@ pub fn create_target_machine(sess: &Session) -> TargetMachineRef {
     };
 
     let tm = unsafe {
-        let triple = CString::from_slice(triple.as_bytes());
+        let triple = CString::new(triple.as_bytes()).unwrap();
         let cpu = match sess.opts.cg.target_cpu {
             Some(ref s) => &**s,
             None => &*sess.target.target.options.cpu
         };
-        let cpu = CString::from_slice(cpu.as_bytes());
-        let features = CString::from_slice(target_feature(sess).as_bytes());
+        let cpu = CString::new(cpu.as_bytes()).unwrap();
+        let features = CString::new(target_feature(sess).as_bytes()).unwrap();
         llvm::LLVMRustCreateTargetMachine(
             triple.as_ptr(), cpu.as_ptr(), features.as_ptr(),
             code_model,
@@ -371,7 +371,7 @@ unsafe extern "C" fn inline_asm_handler(diag: SMDiagnosticRef,
     let msg = llvm::build_string(|s| llvm::LLVMWriteSMDiagnosticToString(diag, s))
         .expect("non-UTF8 SMDiagnostic");
 
-    report_inline_asm(cgcx, &msg[], cookie);
+    report_inline_asm(cgcx, &msg[..], cookie);
 }
 
 unsafe extern "C" fn diagnostic_handler(info: DiagnosticInfoRef, user: *mut c_void) {
@@ -386,7 +386,7 @@ unsafe extern "C" fn diagnostic_handler(info: DiagnosticInfoRef, user: *mut c_vo
         }
 
         llvm::diagnostic::Optimization(opt) => {
-            let pass_name = str::from_utf8(ffi::c_str_to_bytes(&opt.pass_name))
+            let pass_name = str::from_utf8(CStr::from_ptr(opt.pass_name).to_bytes())
                                 .ok()
                                 .expect("got a non-UTF8 pass name from LLVM");
             let enabled = match cgcx.remark {
@@ -430,7 +430,7 @@ unsafe fn optimize_and_codegen(cgcx: &CodegenContext,
     if config.emit_no_opt_bc {
         let ext = format!("{}.no-opt.bc", name_extra);
         let out = output_names.with_extension(&ext);
-        let out = CString::from_slice(out.as_vec());
+        let out = CString::new(out.as_vec()).unwrap();
         llvm::LLVMWriteBitcodeToFile(llmod, out.as_ptr());
     }
 
@@ -446,7 +446,7 @@ unsafe fn optimize_and_codegen(cgcx: &CodegenContext,
             // If we're verifying or linting, add them to the function pass
             // manager.
             let addpass = |pass: &str| {
-                let pass = CString::from_slice(pass.as_bytes());
+                let pass = CString::new(pass).unwrap();
                 llvm::LLVMRustAddPass(fpm, pass.as_ptr())
             };
             if !config.no_verify { assert!(addpass("verify")); }
@@ -459,7 +459,7 @@ unsafe fn optimize_and_codegen(cgcx: &CodegenContext,
             }
 
             for pass in &config.passes {
-                let pass = CString::from_slice(pass.as_bytes());
+                let pass = CString::new(pass.clone()).unwrap();
                 if !llvm::LLVMRustAddPass(mpm, pass.as_ptr()) {
                     cgcx.handler.warn(&format!("unknown pass {:?}, ignoring", pass));
                 }
@@ -483,7 +483,7 @@ unsafe fn optimize_and_codegen(cgcx: &CodegenContext,
                     if config.emit_lto_bc {
                         let name = format!("{}.lto.bc", name_extra);
                         let out = output_names.with_extension(&name);
-                        let out = CString::from_slice(out.as_vec());
+                        let out = CString::new(out.as_vec()).unwrap();
                         llvm::LLVMWriteBitcodeToFile(llmod, out.as_ptr());
                     }
                 },
@@ -517,7 +517,7 @@ unsafe fn optimize_and_codegen(cgcx: &CodegenContext,
     if config.emit_bc {
         let ext = format!("{}.bc", name_extra);
         let out = output_names.with_extension(&ext);
-        let out = CString::from_slice(out.as_vec());
+        let out = CString::new(out.as_vec()).unwrap();
         llvm::LLVMWriteBitcodeToFile(llmod, out.as_ptr());
     }
 
@@ -525,7 +525,7 @@ unsafe fn optimize_and_codegen(cgcx: &CodegenContext,
         if config.emit_ir {
             let ext = format!("{}.ll", name_extra);
             let out = output_names.with_extension(&ext);
-            let out = CString::from_slice(out.as_vec());
+            let out = CString::new(out.as_vec()).unwrap();
             with_codegen(tm, llmod, config.no_builtins, |cpm| {
                 llvm::LLVMRustPrintModule(cpm, llmod, out.as_ptr());
             })
@@ -914,7 +914,7 @@ pub fn run_passes(sess: &Session,
             };
 
         let pname = get_cc_prog(sess);
-        let mut cmd = Command::new(&pname[]);
+        let mut cmd = Command::new(&pname[..]);
 
         cmd.args(&sess.target.target.options.pre_link_args[]);
         cmd.arg("-nostdlib");
@@ -1032,12 +1032,12 @@ pub fn run_passes(sess: &Session,
         for i in 0..trans.modules.len() {
             if modules_config.emit_obj {
                 let ext = format!("{}.o", i);
-                remove(sess, &crate_output.with_extension(&ext[]));
+                remove(sess, &crate_output.with_extension(&ext[..]));
             }
 
             if modules_config.emit_bc && !keep_numbered_bitcode {
                 let ext = format!("{}.bc", i);
-                remove(sess, &crate_output.with_extension(&ext[]));
+                remove(sess, &crate_output.with_extension(&ext[..]));
             }
         }
 
@@ -1168,7 +1168,7 @@ fn run_work_multithreaded(sess: &Session,
 
 pub fn run_assembler(sess: &Session, outputs: &OutputFilenames) {
     let pname = get_cc_prog(sess);
-    let mut cmd = Command::new(&pname[]);
+    let mut cmd = Command::new(&pname[..]);
 
     cmd.arg("-c").arg("-o").arg(outputs.path(config::OutputTypeObject))
                            .arg(outputs.temp_path(config::OutputTypeAssembly));
@@ -1183,7 +1183,7 @@ pub fn run_assembler(sess: &Session, outputs: &OutputFilenames) {
                 sess.note(&format!("{:?}", &cmd)[]);
                 let mut note = prog.error.clone();
                 note.push_all(&prog.output[]);
-                sess.note(str::from_utf8(&note[]).unwrap());
+                sess.note(str::from_utf8(&note[..]).unwrap());
                 sess.abort_if_errors();
             }
         },
@@ -1214,7 +1214,7 @@ unsafe fn configure_llvm(sess: &Session) {
     let mut llvm_args = Vec::new();
     {
         let mut add = |arg: &str| {
-            let s = CString::from_slice(arg.as_bytes());
+            let s = CString::new(arg).unwrap();
             llvm_args.push(s.as_ptr());
             llvm_c_strs.push(s);
         };

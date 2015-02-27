@@ -8,15 +8,15 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use std::marker::MarkerTrait;
 
-
-pub trait AbstractRenderer {}
+pub trait AbstractRenderer : MarkerTrait {}
 
 fn _create_render(_: &()) ->
     AbstractRenderer
 //~^ ERROR: the trait `core::marker::Sized` is not implemented
 {
-    match 0us {
+    match 0_usize {
         _ => unimplemented!()
     }
 }

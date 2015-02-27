@@ -16,7 +16,7 @@
 unsafe fn next_power_of_2(n: u32) -> u32 {
     let mut tmp = n;
     asm!("dec $0" : "+rm"(tmp) :: "cc");
-    let mut shift = 1u;
+    let mut shift = 1_usize;
     while shift <= 16 {
         asm!(
             "shr %cl, $2
@@ -44,7 +44,7 @@ pub fn main() {
             "shl $2, $1
             add $3, $1
             mov $1, $0"
-            : "=r"(x), "+r"(y) : "i"(3u), "ir"(7u) : "cc"
+            : "=r"(x), "+r"(y) : "i"(3_usize), "ir"(7_usize) : "cc"
         );
     }
     assert_eq!(x, 47);

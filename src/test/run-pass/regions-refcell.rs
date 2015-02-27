@@ -18,15 +18,15 @@ use std::cell::RefCell;
 // This version does not yet work (associated type issues)...
 #[cfg(cannot_use_this_yet)]
 fn foo<'a>(map: RefCell<HashMap<&'static str, &'a [u8]>>) {
-    let one = [1u];
-    assert_eq!(map.borrow().get("one"), Some(&one[]));
+    let one = [1_usize];
+    assert_eq!(map.borrow().get("one"), Some(&one[..]));
 }
 
 #[cfg(cannot_use_this_yet_either)]
 // ... and this version does not work (the lifetime of `one` is
 // supposed to match the lifetime `'a`) ...
 fn foo<'a>(map: RefCell<HashMap<&'static str, &'a [u8]>>) {
-    let one = [1u];
+    let one = [1_usize];
     assert_eq!(map.borrow().get("one"), Some(&one.as_slice()));
 }
 
@@ -45,9 +45,9 @@ fn main() {
     let one = [1u8];
     let two = [2u8];
     let mut map = HashMap::new();
-    map.insert("zero", &zer[]);
-    map.insert("one",  &one[]);
-    map.insert("two",  &two[]);
+    map.insert("zero", &zer[..]);
+    map.insert("one",  &one[..]);
+    map.insert("two",  &two[..]);
     let map = RefCell::new(map);
     foo(map);
 }

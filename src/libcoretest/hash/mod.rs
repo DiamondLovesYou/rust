@@ -9,7 +9,7 @@
 // except according to those terms.
 
 use std::mem;
-use std::hash::{Hash, Hasher, Writer};
+use std::hash::{Hash, Hasher};
 use std::default::Default;
 
 struct MyHasher {
@@ -22,41 +22,35 @@ impl Default for MyHasher {
     }
 }
 
-impl Writer for MyHasher {
-    // Most things we'll just add up the bytes.
+impl Hasher for MyHasher {
     fn write(&mut self, buf: &[u8]) {
         for byte in buf {
             self.hash += *byte as u64;
         }
     }
-}
-
-impl Hasher for MyHasher {
-    type Output = u64;
-    fn reset(&mut self) { self.hash = 0; }
     fn finish(&self) -> u64 { self.hash }
 }
 
 
 #[test]
 fn test_writer_hasher() {
-    fn hash<T: Hash<MyHasher>>(t: &T) -> u64 {
+    fn hash<T: Hash>(t: &T) -> u64 {
         ::std::hash::hash::<_, MyHasher>(t)
     }
 
     assert_eq!(hash(&()), 0);
 
-    assert_eq!(hash(&5u8), 5);
-    assert_eq!(hash(&5u16), 5);
-    assert_eq!(hash(&5u32), 5);
-    assert_eq!(hash(&5u64), 5);
-    assert_eq!(hash(&5us), 5);
+    assert_eq!(hash(&5_u8), 5);
+    assert_eq!(hash(&5_u16), 5);
+    assert_eq!(hash(&5_u32), 5);
+    assert_eq!(hash(&5_u64), 5);
+    assert_eq!(hash(&5_usize), 5);
 
-    assert_eq!(hash(&5i8), 5);
-    assert_eq!(hash(&5i16), 5);
-    assert_eq!(hash(&5i32), 5);
-    assert_eq!(hash(&5i64), 5);
-    assert_eq!(hash(&5is), 5);
+    assert_eq!(hash(&5_i8), 5);
+    assert_eq!(hash(&5_i16), 5);
+    assert_eq!(hash(&5_i32), 5);
+    assert_eq!(hash(&5_i64), 5);
+    assert_eq!(hash(&5_isize), 5);
 
     assert_eq!(hash(&false), 0);
     assert_eq!(hash(&true), 1);
@@ -76,12 +70,12 @@ fn test_writer_hasher() {
     // FIXME (#18248) Add tests for hashing Rc<str> and Rc<[T]>
 
     unsafe {
-        let ptr: *const i32 = mem::transmute(5us);
+        let ptr: *const i32 = mem::transmute(5_usize);
         assert_eq!(hash(&ptr), 5);
     }
 
     unsafe {
-        let ptr: *mut i32 = mem::transmute(5us);
+        let ptr: *mut i32 = mem::transmute(5_usize);
         assert_eq!(hash(&ptr), 5);
     }
 }
@@ -90,9 +84,9 @@ struct Custom { hash: u64 }
 struct CustomHasher { output: u64 }
 
 impl Hasher for CustomHasher {
-    type Output = u64;
-    fn reset(&mut self) { self.output = 0; }
     fn finish(&self) -> u64 { self.output }
+    fn write(&mut self, data: &[u8]) { panic!() }
+    fn write_u64(&mut self, data: u64) { self.output = data; }
 }
 
 impl Default for CustomHasher {
@@ -101,15 +95,15 @@ impl Default for CustomHasher {
     }
 }
 
-impl Hash<CustomHasher> for Custom {
-    fn hash(&self, state: &mut CustomHasher) {
-        state.output = self.hash;
+impl Hash for Custom {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.hash);
     }
 }
 
 #[test]
 fn test_custom_state() {
-    fn hash<T: Hash<CustomHasher>>(t: &T) -> u64 {
+    fn hash<T: Hash>(t: &T) -> u64 {
         ::std::hash::hash::<_, CustomHasher>(t)
     }
 

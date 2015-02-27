@@ -1,21 +1,25 @@
 # The Rust Programming Language
 
 This is a compiler for Rust, including standard libraries, tools and
-documentation. In contrast to
-[Rust proper](https://github.com/rust-lang/rust.git), this Rust can target
-PNaCl/NaCl, including ```le32-unknown-nacl```, ```x86_64-unknown-nacl```,
-```i686-unknown-nacl```(WIP), and ```arm-unknown-nacl```(WIP).
+documentation. Rust is a systems programming language that is fast,
+memory safe and multithreaded, but does not employ a garbage collector
+or otherwise impose significant runtime overhead.
+
+In contrast to [Rust proper](https://github.com/rust-lang/rust.git), this
+Rust can target PNaCl/NaCl, including ```le32-unknown-nacl```,
+```x86_64-unknown-nacl```, ```i686-unknown-nacl```(WIP), and
+```arm-unknown-nacl```(WIP).
 
 ## Quick Start
 
-Read ["Installing Rust"][install] from [The Book][trpl].
+Read ["Installing Rust"] from [The Book].
 If you'd like to cross compile to a (P)NaCl target, you'll need to build from
 source. I (Richard Diamond) am working on creating some build infrastructure so
 I may offer nightly downloads, however that isn't finished yet.
 
 
-[install]: http://doc.rust-lang.org/book/installing-rust.html
-[trpl]: http://doc.rust-lang.org/book/index.html
+["Installing Rust"]: http://doc.rust-lang.org/book/installing-rust.html
+[The Book]: http://doc.rust-lang.org/book/index.html
 
 ## Building from Source
 
@@ -26,15 +30,12 @@ I may offer nightly downloads, however that isn't finished yet.
     * `curl`
     * `git`
     * `pepper_39` or newer from the [NaCl SDK](https://developer.chrome.com/native-client).
-2. Download and build Rust:
-
-    Currently, this fork don't offer prebuilt nightlies, so one has to build from source:
+2. Clone the [source] with `git`:
 
         $ git clone https://github.com/DiamondLovesYou/rust.git
         $ cd rust
 
-    Now that you have Rust's source code, you can configure and build it for
-    PNaCl with (add `x86_64-unknown-nacl` if you'd like to target NaCl):
+3. Build and install:
 
         $ ./configure --target=le32-unknown-nacl --nacl-cross-path=path/to/pepper_39
         $ make && make install
@@ -47,7 +48,11 @@ I may offer nightly downloads, however that isn't finished yet.
     When complete, `make install` will place several programs into
     `/usr/local/bin`: `rustc`, the Rust compiler, `rustdoc`, the
     API-documentation tool, and `rust-pnacl-trans`, the PNaCl bitcode to NaCl
-    nexe translator (like `pnacl-trans`).
+    nexe translator (like `pnacl-trans`). This install does not include [Cargo],
+    Rust's package manager, which you may also want to build.
+
+[Cargo]: https://github.com/rust-lang/cargo
+
 4. Compile with:
 
         $ NACL_SDK_ROOT=path/to/pepper rustc --target=le32-unknown-nacl
@@ -85,9 +90,6 @@ $ pacman -S base-devel
         $ ./configure
         $ make && make install
 
-[repo]: https://github.com/rust-lang/rust
-[tarball]: https://static.rust-lang.org/dist/rustc-nightly-src.tar.gz
-
 ## Notes
 
 Since the Rust compiler is written in Rust, it must be built by a
@@ -107,9 +109,9 @@ supported build environments that are most likely to work.
 Rust currently needs about 1.5 GiB of RAM to build without swapping; if it hits
 swap, it will take a very long time to build.
 
-There is a lot more documentation in the [wiki].
+There is more advice about hacking on Rust in [CONTRIBUTING.md].
 
-[wiki]: https://github.com/rust-lang/rust/wiki
+[CONTRIBUTING.md]: https://github.com/rust-lang/rust/blob/master/CONTRIBUTING.md
 
 ## PNaCl/NaCl Notes
 
@@ -140,6 +142,14 @@ The Rust community congregates in a few places:
 ## Contributing
 
 To contribute to Rust, please see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Rust has an [IRC] culture and most real-time collaboration happens in a
+variety of channels on Mozilla's IRC network, irc.mozilla.org. The
+most popular channel is [#rust], a venue for general discussion about
+Rust, and a good place to ask for help,
+
+[IRC]: https://en.wikipedia.org/wiki/Internet_Relay_Chat
+[#rust]: irc://irc.mozilla.org/rust
 
 ## License
 

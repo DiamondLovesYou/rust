@@ -465,13 +465,9 @@ An _integer literal_ has one of four forms:
 
 Like any literal, an integer literal may be followed (immediately,
 without any spaces) by an _integer suffix_, which forcibly sets the
-type of the literal. There are 10 valid values for an integer suffix:
-
-* Each of the signed and unsigned machine types `u8`, `i8`,
-  `u16`, `i16`, `u32`, `i32`, `u64` and `i64`
-  give the literal the corresponding machine type.
-* The `is` and `us` suffixes give the literal type `isize` or `usize`,
-  respectively.
+type of the literal. The integer suffix must be the name of one of the
+integral types: `u8`, `i8`, `u16`, `i16`, `u32`, `i32`, `u64`, `i64`,
+`isize`, or `usize`.
 
 The type of an _unsuffixed_ integer literal is determined by type inference.
 If an integer type can be _uniquely_ determined from the surrounding program
@@ -489,7 +485,7 @@ Examples of integer literals of various forms:
 0xff_u8;                           // type u8
 0o70_i16;                          // type i16
 0b1111_1111_1001_0000_i32;         // type i32
-0us;                               // type usize
+0usize;                            // type usize
 ```
 
 ##### Floating-point literals
@@ -576,7 +572,7 @@ the final namespace qualifier is omitted.
 Two examples of paths with type arguments:
 
 ```
-# struct HashMap<K, V>;
+# struct HashMap<K, V>(K,V);
 # fn f() {
 # fn id<T>(t: T) -> T { t }
 type T = HashMap<i32,String>; // Type arguments used in a type expression
@@ -1001,8 +997,8 @@ fn foo<T>(_: T){}
 fn bar(map1: HashMap<String, usize>, map2: hash_map::HashMap<String, usize>){}
 
 fn main() {
-    // Equivalent to 'std::iter::range_step(0us, 10, 2);'
-    range_step(0us, 10, 2);
+    // Equivalent to 'std::iter::range_step(0, 10, 2);'
+    range_step(0, 10, 2);
 
     // Equivalent to 'foo(vec![std::option::Option::Some(1.0f64),
     // std::option::Option::None]);'
@@ -1603,7 +1599,7 @@ pointer values (pointing to a type for which an implementation of the given
 trait is in scope) to pointers to the trait name, used as a type.
 
 ```
-# trait Shape { }
+# trait Shape { fn dummy(&self) { } }
 # impl Shape for i32 { }
 # let mycircle = 0i32;
 let myshape: Box<Shape> = Box::new(mycircle) as Box<Shape>;
@@ -1634,8 +1630,8 @@ let x: f64 = Num::from_i32(42);
 Traits may inherit from other traits. For example, in
 
 ```
-trait Shape { fn area() -> f64; }
-trait Circle : Shape { fn radius() -> f64; }
+trait Shape { fn area(&self) -> f64; }
+trait Circle : Shape { fn radius(&self) -> f64; }
 ```
 
 the syntax `Circle : Shape` means that types that implement `Circle` must also
@@ -1729,7 +1725,7 @@ type parameters taken by the trait it implements. Implementation parameters
 are written after the `impl` keyword.
 
 ```
-# trait Seq<T> { }
+# trait Seq<T> { fn dummy(&self, _: T) { } }
 impl<T> Seq<T> for Vec<T> {
    /* ... */
 }
@@ -3126,7 +3122,7 @@ conditional expression evaluates to `false`, the `while` expression completes.
 An example:
 
 ```
-let mut i = 0us;
+let mut i = 0;
 
 while i < 10 {
     println!("hello");
@@ -3206,7 +3202,7 @@ An example of a for loop over a series of integers:
 
 ```
 # fn bar(b:usize) { }
-for i in 0us..256 {
+for i in 0..256 {
     bar(i);
 }
 ```
@@ -3587,7 +3583,7 @@ An example of each kind:
 ```{rust}
 let vec: Vec<i32> = vec![1, 2, 3];
 let arr: [i32; 3] = [1, 2, 3];
-let s: &[i32] = &vec[];
+let s: &[i32] = &vec[..];
 ```
 
 As you can see, the `vec!` macro allows you to create a `Vec<T>` easily. The

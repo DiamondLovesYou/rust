@@ -8,21 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test that a type whose lifetime parameters is never used is
-// inferred to be bivariant.
+// Test that we report an error for unused type parameters in types.
 
-use std::marker;
+struct SomeStruct<'a> { x: u32 } //~ ERROR parameter `'a` is never used
+enum SomeEnum<'a> { Nothing } //~ ERROR parameter `'a` is never used
+trait SomeTrait<'a> { fn foo(&self); } //~ ERROR parameter `'a` is never used
 
-struct Bivariant<'a>;
-
-fn use1<'short,'long>(c: Bivariant<'short>,
-                      _where:Option<&'short &'long ()>) {
-    let _: Bivariant<'long> = c;
-}
-
-fn use2<'short,'long>(c: Bivariant<'long>,
-                      _where:Option<&'short &'long ()>) {
-    let _: Bivariant<'short> = c;
-}
-
-pub fn main() {}
+fn main() {}

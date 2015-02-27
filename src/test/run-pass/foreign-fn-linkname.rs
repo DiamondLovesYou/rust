@@ -24,7 +24,7 @@ mod mlibc {
 
 fn strlen(str: String) -> uint {
     // C string is terminated with a zero
-    let s = CString::from_slice(str.as_bytes());
+    let s = CString::new(str).unwrap();
     unsafe {
         mlibc::my_strlen(s.as_ptr()) as uint
     }
@@ -32,5 +32,5 @@ fn strlen(str: String) -> uint {
 
 pub fn main() {
     let len = strlen("Rust".to_string());
-    assert_eq!(len, 4u);
+    assert_eq!(len, 4_usize);
 }

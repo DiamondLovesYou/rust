@@ -100,9 +100,18 @@ impl FromStr for Path {
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct ParsePathError;
 
+#[cfg(stage0)]
 impl<S: hash::Writer + hash::Hasher> hash::Hash<S> for Path {
     #[inline]
     fn hash(&self, state: &mut S) {
+        self.repr.hash(state)
+    }
+}
+#[cfg(not(stage0))]
+#[stable(feature = "rust1", since = "1.0.0")]
+impl hash::Hash for Path {
+    #[inline]
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.repr.hash(state)
     }
 }
@@ -409,7 +418,7 @@ fn normalize_helper<'a>(v: &'a [u8], is_abs: bool) -> Option<Vec<&'a [u8]>> {
         return None;
     }
     let mut comps: Vec<&'a [u8]> = vec![];
-    let mut n_up = 0u;
+    let mut n_up = 0;
     let mut changed = false;
     for comp in v.split(is_sep_byte) {
         if comp.is_empty() { changed = true }
@@ -1172,7 +1181,7 @@ mod tests {
                     let exp: &[&[u8]] = &[$($exp),*];
                     assert_eq!(comps, exp);
                     let comps = path.components().rev().collect::<Vec<&[u8]>>();
-                    let exp = exp.iter().rev().map(|&x|x).collect::<Vec<&[u8]>>();
+                    let exp = exp.iter().rev().cloned().collect::<Vec<&[u8]>>();
                     assert_eq!(comps, exp)
                 }
             )
@@ -1204,7 +1213,7 @@ mod tests {
                     let exp: &[Option<&str>] = &$exp;
                     assert_eq!(comps, exp);
                     let comps = path.str_components().rev().collect::<Vec<Option<&str>>>();
-                    let exp = exp.iter().rev().map(|&x|x).collect::<Vec<Option<&str>>>();
+                    let exp = exp.iter().rev().cloned().collect::<Vec<Option<&str>>>();
                     assert_eq!(comps, exp);
                 }
             )

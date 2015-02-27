@@ -55,7 +55,7 @@ impl UnixStream {
     /// stream.write(&[1, 2, 3]);
     /// ```
     pub fn connect<P: BytesContainer>(path: P) -> IoResult<UnixStream> {
-        let path = CString::from_slice(path.container_as_bytes());
+        let path = try!(CString::new(path.container_as_bytes()));
         UnixStreamImp::connect(&path, None)
             .map(|inner| UnixStream { inner: inner })
     }
@@ -77,7 +77,7 @@ impl UnixStream {
             return Err(standard_error(TimedOut));
         }
 
-        let path = CString::from_slice(path.container_as_bytes());
+        let path = try!(CString::new(path.container_as_bytes()));
         UnixStreamImp::connect(&path, Some(timeout.num_milliseconds() as u64))
             .map(|inner| UnixStream { inner: inner })
     }
@@ -184,7 +184,7 @@ impl UnixListener {
     /// # }
     /// ```
     pub fn bind<P: BytesContainer>(path: P) -> IoResult<UnixListener> {
-        let path = CString::from_slice(path.container_as_bytes());
+        let path = try!(CString::new(path.container_as_bytes()));
         UnixListenerImp::bind(&path)
             .map(|inner| UnixListener { inner: inner })
     }
@@ -390,7 +390,7 @@ mod tests {
         };
 
         let _t = thread::spawn(move|| {
-            for _ in 0u..times {
+            for _ in 0..times {
                 let mut stream = UnixStream::connect(&path2);
                 match stream.write(&[100]) {
                     Ok(..) => {}
@@ -555,7 +555,7 @@ mod tests {
             tx.send(UnixStream::connect(&addr2).unwrap()).unwrap();
         });
         let l = rx.recv().unwrap();
-        for i in 0u..1001 {
+        for i in 0..1001 {
             match a.accept() {
                 Ok(..) => break,
                 Err(ref e) if e.kind == TimedOut => {}
@@ -683,7 +683,7 @@ mod tests {
         assert_eq!(s.read(&mut [0]).err().unwrap().kind, TimedOut);
 
         s.set_timeout(Some(20));
-        for i in 0u..1001 {
+        for i in 0..1001 {
             match s.write(&[0; 128 * 1024]) {
                 Ok(()) | Err(IoError { kind: ShortWrite(..), .. }) => {},
                 Err(IoError { kind: TimedOut, .. }) => break,
@@ -727,7 +727,7 @@ mod tests {
         assert_eq!(s.read(&mut [0]).err().unwrap().kind, TimedOut);
 
         tx.send(()).unwrap();
-        for _ in 0u..100 {
+        for _ in 0..100 {
             assert!(s.write(&[0;128 * 1024]).is_ok());
         }
     }
@@ -746,7 +746,7 @@ mod tests {
 
         let mut s = a.accept().unwrap();
         s.set_write_timeout(Some(20));
-        for i in 0u..1001 {
+        for i in 0..1001 {
             match s.write(&[0; 128 * 1024]) {
                 Ok(()) | Err(IoError { kind: ShortWrite(..), .. }) => {},
                 Err(IoError { kind: TimedOut, .. }) => break,

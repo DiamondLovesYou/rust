@@ -78,7 +78,7 @@ pub fn num_cpus() -> uint {
     }
 }
 
-pub const TMPBUF_SZ : uint = 1000u;
+pub const TMPBUF_SZ : uint = 1000;
 
 /// Returns the current working directory as a `Path`.
 ///
@@ -574,10 +574,11 @@ pub fn get_exit_status() -> int {
 #[cfg(target_os = "macos")]
 unsafe fn load_argc_and_argv(argc: int,
                              argv: *const *const c_char) -> Vec<Vec<u8>> {
+    use ffi::CStr;
     use iter::range;
 
-    (0..argc as uint).map(|i| {
-        ffi::c_str_to_bytes(&*argv.offset(i as int)).to_vec()
+    (0..argc).map(|i| {
+        CStr::from_ptr(*argv.offset(i)).to_bytes().to_vec()
     }).collect()
 }
 
@@ -1520,7 +1521,7 @@ mod tests {
 
     fn make_rand_name() -> String {
         let mut rng = rand::thread_rng();
-        let n = format!("TEST{}", rng.gen_ascii_chars().take(10u)
+        let n = format!("TEST{}", rng.gen_ascii_chars().take(10)
                                      .collect::<String>());
         assert!(getenv(&n).is_none());
         n
@@ -1600,7 +1601,7 @@ mod tests {
     #[ignore]
     fn test_env_getenv() {
         let e = env();
-        assert!(e.len() > 0u);
+        assert!(e.len() > 0);
         for p in &e {
             let (n, v) = (*p).clone();
             debug!("{}", n);

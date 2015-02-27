@@ -87,7 +87,7 @@ pub fn llvm_warn<T: Str>(msg: T) {
         if cstr == ptr::null() {
             warn(msg);
         } else {
-            let err = ffi::c_str_to_bytes(&cstr);
+            let err = ffi::CStr::from_ptr(cstr).to_bytes();
             let err = String::from_utf8_lossy(err.as_slice()).to_string();
             warn(format!("{}: {}",
                          msg.as_slice(),

@@ -177,10 +177,11 @@
 #![omit_gdb_pretty_printer_section]
 
 use self::Enum1::{Variant1_1, Variant1_2};
+use std::marker::PhantomData;
 use std::ptr;
 
 struct Struct1;
-struct GenericStruct<T1, T2>;
+struct GenericStruct<T1, T2>(PhantomData<(T1,T2)>);
 
 enum Enum1 {
     Variant1_1,
@@ -207,8 +208,8 @@ mod Mod1 {
     }
 }
 
-trait Trait1 { }
-trait Trait2<T1, T2> { }
+trait Trait1 { fn dummy(&self) { } }
+trait Trait2<T1, T2> { fn dummy(&self, _: T1, _:T2) { } }
 
 impl Trait1 for isize {}
 impl<T1, T2> Trait2<T1, T2> for isize {}
@@ -240,8 +241,10 @@ fn main() {
 
     // Structs
     let simple_struct = Struct1;
-    let generic_struct1: GenericStruct<Mod1::Struct2, Mod1::Mod2::Struct3> = GenericStruct;
-    let generic_struct2: GenericStruct<Struct1, extern "fastcall" fn(isize) -> usize> = GenericStruct;
+    let generic_struct1: GenericStruct<Mod1::Struct2, Mod1::Mod2::Struct3> =
+        GenericStruct(PhantomData);
+    let generic_struct2: GenericStruct<Struct1, extern "fastcall" fn(isize) -> usize> =
+        GenericStruct(PhantomData);
     let mod_struct = Mod1::Struct2;
 
     // Enums
@@ -262,10 +265,10 @@ fn main() {
 
     // References
     let ref1 = (&Struct1, 0i32);
-    let ref2 = (&GenericStruct::<char, Struct1>, 0i32);
+    let ref2 = (&GenericStruct::<char, Struct1>(PhantomData), 0i32);
 
     let mut mut_struct1 = Struct1;
-    let mut mut_generic_struct = GenericStruct::<Mod1::Enum2, f64>;
+    let mut mut_generic_struct = GenericStruct::<Mod1::Enum2, f64>(PhantomData);
     let mut_ref1 = (&mut mut_struct1, 0i32);
     let mut_ref2 = (&mut mut_generic_struct, 0i32);
 
@@ -280,9 +283,9 @@ fn main() {
 
     // Vectors
     let fixed_size_vec1 = ([Struct1, Struct1, Struct1], 0i16);
-    let fixed_size_vec2 = ([0u, 1u, 2u], 0i16);
+    let fixed_size_vec2 = ([0_usize, 1, 2], 0i16);
 
-    let vec1 = vec![0u, 2u, 3u];
+    let vec1 = vec![0_usize, 2, 3];
     let slice1 = &*vec1;
     let vec2 = vec![Mod1::Variant2_2(Struct1)];
     let slice2 = &*vec2;
@@ -301,20 +304,20 @@ fn main() {
         &mut Trait2<Mod1::Mod2::Struct3, GenericStruct<usize, isize>>;
 
     // Bare Functions
-    let rust_fn = (rust_fn, 0u);
-    let extern_c_fn = (extern_c_fn, 0u);
-    let unsafe_fn = (unsafe_fn, 0u);
-    let extern_stdcall_fn = (extern_stdcall_fn, 0u);
+    let rust_fn = (rust_fn, 0_usize);
+    let extern_c_fn = (extern_c_fn, 0_usize);
+    let unsafe_fn = (unsafe_fn, 0_usize);
+    let extern_stdcall_fn = (extern_stdcall_fn, 0_usize);
 
-    let rust_fn_with_return_value = (rust_fn_with_return_value, 0u);
-    let extern_c_fn_with_return_value = (extern_c_fn_with_return_value, 0u);
-    let unsafe_fn_with_return_value = (unsafe_fn_with_return_value, 0u);
-    let extern_stdcall_fn_with_return_value = (extern_stdcall_fn_with_return_value, 0u);
+    let rust_fn_with_return_value = (rust_fn_with_return_value, 0_usize);
+    let extern_c_fn_with_return_value = (extern_c_fn_with_return_value, 0_usize);
+    let unsafe_fn_with_return_value = (unsafe_fn_with_return_value, 0_usize);
+    let extern_stdcall_fn_with_return_value = (extern_stdcall_fn_with_return_value, 0_usize);
 
-    let generic_function_int = (generic_function::<isize>, 0u);
-    let generic_function_struct3 = (generic_function::<Mod1::Mod2::Struct3>, 0u);
+    let generic_function_int = (generic_function::<isize>, 0_usize);
+    let generic_function_struct3 = (generic_function::<Mod1::Mod2::Struct3>, 0_usize);
 
-    let variadic_function = (printf, 0u);
+    let variadic_function = (printf, 0_usize);
 
     // Closures
     // I (mw) am a bit unclear about the current state of closures, their
@@ -322,8 +325,8 @@ fn main() {
     // how that maps to rustc's internal representation of these forms.
     // Once closures have reached their 1.0 form, the tests below should
     // probably be expanded.
-    let closure1 = (|x:isize| {}, 0u);
-    let closure2 = (|x:i8, y: f32| { (x as f32) + y }, 0u);
+    let closure1 = (|x:isize| {}, 0_usize);
+    let closure2 = (|x:i8, y: f32| { (x as f32) + y }, 0_usize);
 
     zzz(); // #break
 }

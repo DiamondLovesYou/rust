@@ -462,9 +462,9 @@ impl<'a, 'tcx> FunctionContext<'a, 'tcx> {
 
     pub fn env_arg_pos(&self) -> uint {
         if self.caller_expects_out_pointer {
-            1u
+            1
         } else {
-            0u
+            0
         }
     }
 
@@ -507,7 +507,7 @@ impl<'a, 'tcx> FunctionContext<'a, 'tcx> {
                      opt_node_id: Option<ast::NodeId>)
                      -> Block<'a, 'tcx> {
         unsafe {
-            let name = CString::from_slice(name.as_bytes());
+            let name = CString::new(name).unwrap();
             let llbb = llvm::LLVMAppendBasicBlockInContext(self.ccx.llcx(),
                                                            self.llfn,
                                                            name.as_ptr());
@@ -656,10 +656,6 @@ impl<'blk, 'tcx> BlockS<'blk, 'tcx> {
 }
 
 impl<'blk, 'tcx> mc::Typer<'tcx> for BlockS<'blk, 'tcx> {
-    fn tcx<'a>(&'a self) -> &'a ty::ctxt<'tcx> {
-        self.tcx()
-    }
-
     fn node_ty(&self, id: ast::NodeId) -> mc::McResult<Ty<'tcx>> {
         Ok(node_id_type(self, id))
     }
@@ -780,7 +776,7 @@ pub fn C_integral(t: Type, u: u64, sign_extend: bool) -> ValueRef {
 
 pub fn C_floating(s: &str, t: Type) -> ValueRef {
     unsafe {
-        let s = CString::from_slice(s.as_bytes());
+        let s = CString::new(s).unwrap();
         llvm::LLVMConstRealOfString(t.to_ref(), s.as_ptr())
     }
 }
@@ -858,7 +854,8 @@ pub fn C_cstr(cx: &CrateContext, s: InternedString, null_terminated: bool) -> Va
                                                 !null_terminated as Bool);
 
         let gsym = token::gensym("str");
-        let buf = CString::from_vec(format!("str{}", gsym.usize()).into_bytes());
+        let buf = CString::new(format!("str{}", gsym.usize()));
+        let buf = buf.unwrap();
         let g = llvm::LLVMAddGlobal(cx.llmod(), val_ty(sc).to_ref(), buf.as_ptr());
         llvm::LLVMSetInitializer(g, sc);
         llvm::LLVMSetGlobalConstant(g, True);
@@ -1184,8 +1181,8 @@ pub fn langcall(bcx: Block,
         Err(s) => {
             let msg = format!("{} {}", msg, s);
             match span {
-                Some(span) => bcx.tcx().sess.span_fatal(span, &msg[]),
-                None => bcx.tcx().sess.fatal(&msg[]),
+                Some(span) => bcx.tcx().sess.span_fatal(span, &msg[..]),
+                None => bcx.tcx().sess.fatal(&msg[..]),
             }
         }
     }

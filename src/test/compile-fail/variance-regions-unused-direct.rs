@@ -8,7 +8,18 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// Test that disallow lifetime parameters that are unused.
 
-enum list_cell<T> { cons(Box<list_cell<T>>), nil }
+use std::marker;
 
-pub fn main() { }
+struct Bivariant<'a>; //~ ERROR parameter `'a` is never used
+
+struct Struct<'a, 'd> { //~ ERROR parameter `'d` is never used
+    field: &'a [i32]
+}
+
+trait Trait<'a, 'd> { //~ ERROR parameter `'d` is never used
+    fn method(&'a self);
+}
+
+fn main() {}

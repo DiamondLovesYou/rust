@@ -252,7 +252,7 @@ use error::Error;
 use fmt;
 use isize;
 use iter::{Iterator, IteratorExt};
-use marker::Sized;
+use marker::{PhantomFn, Sized};
 use mem::transmute;
 use ops::FnOnce;
 use option::Option;
@@ -433,7 +433,7 @@ pub enum IoErrorKind {
 }
 
 /// A trait that lets you add a `detail` to an IoError easily
-trait UpdateIoError<T> {
+trait UpdateIoError {
     /// Returns an IoError with updated description and detail
     fn update_err<D>(self, desc: &'static str, detail: D) -> Self where
         D: FnOnce(&IoError) -> String;
@@ -446,7 +446,7 @@ trait UpdateIoError<T> {
     fn update_desc(self, desc: &'static str) -> Self;
 }
 
-impl<T> UpdateIoError<T> for IoResult<T> {
+impl<T> UpdateIoError for IoResult<T> {
     fn update_err<D>(self, desc: &'static str, detail: D) -> IoResult<T> where
         D: FnOnce(&IoError) -> String,
     {
@@ -1120,37 +1120,37 @@ pub trait Writer {
     /// Write a big-endian u64 (8 bytes).
     #[inline]
     fn write_be_u64(&mut self, n: u64) -> IoResult<()> {
-        extensions::u64_to_be_bytes(n, 8u, |v| self.write_all(v))
+        extensions::u64_to_be_bytes(n, 8, |v| self.write_all(v))
     }
 
     /// Write a big-endian u32 (4 bytes).
     #[inline]
     fn write_be_u32(&mut self, n: u32) -> IoResult<()> {
-        extensions::u64_to_be_bytes(n as u64, 4u, |v| self.write_all(v))
+        extensions::u64_to_be_bytes(n as u64, 4, |v| self.write_all(v))
     }
 
     /// Write a big-endian u16 (2 bytes).
     #[inline]
     fn write_be_u16(&mut self, n: u16) -> IoResult<()> {
-        extensions::u64_to_be_bytes(n as u64, 2u, |v| self.write_all(v))
+        extensions::u64_to_be_bytes(n as u64, 2, |v| self.write_all(v))
     }
 
     /// Write a big-endian i64 (8 bytes).
     #[inline]
     fn write_be_i64(&mut self, n: i64) -> IoResult<()> {
-        extensions::u64_to_be_bytes(n as u64, 8u, |v| self.write_all(v))
+        extensions::u64_to_be_bytes(n as u64, 8, |v| self.write_all(v))
     }
 
     /// Write a big-endian i32 (4 bytes).
     #[inline]
     fn write_be_i32(&mut self, n: i32) -> IoResult<()> {
-        extensions::u64_to_be_bytes(n as u64, 4u, |v| self.write_all(v))
+        extensions::u64_to_be_bytes(n as u64, 4, |v| self.write_all(v))
     }
 
     /// Write a big-endian i16 (2 bytes).
     #[inline]
     fn write_be_i16(&mut self, n: i16) -> IoResult<()> {
-        extensions::u64_to_be_bytes(n as u64, 2u, |v| self.write_all(v))
+        extensions::u64_to_be_bytes(n as u64, 2, |v| self.write_all(v))
     }
 
     /// Write a big-endian IEEE754 double-precision floating-point (8 bytes).
@@ -1172,37 +1172,37 @@ pub trait Writer {
     /// Write a little-endian u64 (8 bytes).
     #[inline]
     fn write_le_u64(&mut self, n: u64) -> IoResult<()> {
-        extensions::u64_to_le_bytes(n, 8u, |v| self.write_all(v))
+        extensions::u64_to_le_bytes(n, 8, |v| self.write_all(v))
     }
 
     /// Write a little-endian u32 (4 bytes).
     #[inline]
     fn write_le_u32(&mut self, n: u32) -> IoResult<()> {
-        extensions::u64_to_le_bytes(n as u64, 4u, |v| self.write_all(v))
+        extensions::u64_to_le_bytes(n as u64, 4, |v| self.write_all(v))
     }
 
     /// Write a little-endian u16 (2 bytes).
     #[inline]
     fn write_le_u16(&mut self, n: u16) -> IoResult<()> {
-        extensions::u64_to_le_bytes(n as u64, 2u, |v| self.write_all(v))
+        extensions::u64_to_le_bytes(n as u64, 2, |v| self.write_all(v))
     }
 
     /// Write a little-endian i64 (8 bytes).
     #[inline]
     fn write_le_i64(&mut self, n: i64) -> IoResult<()> {
-        extensions::u64_to_le_bytes(n as u64, 8u, |v| self.write_all(v))
+        extensions::u64_to_le_bytes(n as u64, 8, |v| self.write_all(v))
     }
 
     /// Write a little-endian i32 (4 bytes).
     #[inline]
     fn write_le_i32(&mut self, n: i32) -> IoResult<()> {
-        extensions::u64_to_le_bytes(n as u64, 4u, |v| self.write_all(v))
+        extensions::u64_to_le_bytes(n as u64, 4, |v| self.write_all(v))
     }
 
     /// Write a little-endian i16 (2 bytes).
     #[inline]
     fn write_le_i16(&mut self, n: i16) -> IoResult<()> {
-        extensions::u64_to_le_bytes(n as u64, 2u, |v| self.write_all(v))
+        extensions::u64_to_le_bytes(n as u64, 2, |v| self.write_all(v))
     }
 
     /// Write a little-endian IEEE754 double-precision floating-point
@@ -1572,7 +1572,9 @@ pub trait Seek {
 /// connections.
 ///
 /// Doing so produces some sort of Acceptor.
-pub trait Listener<T, A: Acceptor<T>> {
+pub trait Listener<T, A: Acceptor<T>>
+    : PhantomFn<T,T> // FIXME should be an assoc type anyhow
+{
     /// Spin up the listener and start queuing incoming connections
     ///
     /// # Error
