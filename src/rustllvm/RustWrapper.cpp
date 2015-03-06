@@ -531,19 +531,8 @@ extern "C" LLVMMetadataRef LLVMDIBuilderGetOrCreateArray(
     DIBuilderRef Builder,
     LLVMMetadataRef* Ptr,
     unsigned Count) {
-#if false
-  // This is upstream:
     return wrap(Builder->getOrCreateArray(
         ArrayRef<Metadata*>(unwrap(Ptr), Count)));
-#else
-    std::vector<Value*> Vals;
-    Vals.reserve(Count);
-    for(unsigned I = 0; I < Count; ++I) {
-      Metadata **P = unwrap(Ptr) + I;
-      Vals.push_back(cast_or_null<Value>(*P));
-    }
-    return wrap(Builder->getOrCreateArray(Vals));
-#endif
 }
 
 extern "C" LLVMValueRef LLVMDIBuilderInsertDeclareAtEnd(
@@ -708,7 +697,7 @@ extern "C" void LLVMDICompositeTypeSetTypeArray(
     LLVMMetadataRef CompositeType,
     LLVMMetadataRef TypeArray)
 {
-#if LLVM_VERSION_MINOR >= 5 && false
+#if LLVM_VERSION_MINOR >= 5
     DICompositeType tmp = unwrapDI<DICompositeType>(CompositeType);
     Builder->replaceArrays(tmp, unwrapDI<DIArray>(TypeArray));
 #else
@@ -730,7 +719,7 @@ extern "C" LLVMValueRef LLVMDIBuilderCreateDebugLocation(
                                        unwrapDI<MDNode*>(Scope),
                                        unwrapDI<MDNode*>(InlinedAt));
 
-#if LLVM_VERSION_MINOR >= 6 && false
+#if LLVM_VERSION_MINOR >= 6
     return wrap(MetadataAsValue::get(context, debug_loc.getAsMDNode(context)));
 #else
     return wrap(cast_or_null<Value>(debug_loc.getAsMDNode(context)));
