@@ -215,10 +215,7 @@ pub fn wouldblock() -> bool {
 }
 
 #[cfg(target_libc = "newlib")]
-pub fn set_nonblocking(_fd: sock_t, _nb: bool) -> IoResult<()> {
-    use sys_common;
-    Err(sys_common::unimpl())
-}
+pub fn set_nonblocking(_fd: sock_t, _nb: bool) { }
 #[cfg(not(target_libc = "newlib"))]
 pub fn set_nonblocking(fd: sock_t, nb: bool) {
     let set = nb as libc::c_int;
