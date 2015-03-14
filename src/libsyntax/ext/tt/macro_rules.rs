@@ -15,7 +15,7 @@ use ext::base::{NormalTT, TTMacroExpander};
 use ext::tt::macro_parser::{Success, Error, Failure};
 use ext::tt::macro_parser::{NamedMatch, MatchedSeq, MatchedNonterminal};
 use ext::tt::macro_parser::{parse, parse_or_else};
-use parse::lexer::{new_tt_reader, new_tt_reader_with_doc_flag};
+use parse::lexer::new_tt_reader;
 use parse::parser::Parser;
 use parse::attr::ParserAttr;
 use parse::token::{self, special_idents, gensym_ident, NtTT, Token};
@@ -154,15 +154,8 @@ fn generic_extension<'cx>(cx: &'cx ExtCtxt,
                 TtDelimited(_, ref delim) => &delim.tts[..],
                 _ => cx.span_fatal(sp, "malformed macro lhs")
             };
-            // `None` is because we're not interpolating
-            let arg_rdr = new_tt_reader_with_doc_flag(&cx.parse_sess().span_diagnostic,
-                                                      None,
-                                                      None,
-                                                      arg.iter()
-                                                         .cloned()
-                                                         .collect(),
-                                                      true);
-            match parse(cx.parse_sess(), cx.cfg(), arg_rdr, lhs_tt) {
+
+            match TokenTree::parse(cx, lhs_tt, arg) {
               Success(named_matches) => {
                 let rhs = match *rhses[i] {
                     // okay, what's your transcriber?
@@ -180,7 +173,7 @@ fn generic_extension<'cx>(cx: &'cx ExtCtxt,
                                            Some(named_matches),
                                            imported_from,
                                            rhs);
-                let mut p = Parser::new(cx.parse_sess(), cx.cfg(), box trncbr);
+                let mut p = Parser::new(cx.parse_sess(), cx.cfg(), Box::new(trncbr));
                 p.check_unknown_macro_variable();
                 // Let the context choose how to interpret the result.
                 // Weird, but useful for X-macros.
@@ -267,14 +260,14 @@ pub fn compile<'cx>(cx: &'cx mut ExtCtxt,
         _ => cx.span_bug(def.span, "wrong-structured rhs")
     };
 
-    let exp = box MacroRulesMacroExpander {
+    let exp: Box<_> = box MacroRulesMacroExpander {
         name: def.ident,
         imported_from: def.imported_from,
         lhses: lhses,
         rhses: rhses,
     };
 
-    NormalTT(exp, Some(def.span))
+    NormalTT(exp, Some(def.span), def.allow_internal_unstable)
 }
 
 fn check_lhs_nt_follows(cx: &mut ExtCtxt, lhs: &NamedMatch, sp: Span) {
@@ -334,6 +327,10 @@ fn check_matcher<'a, I>(cx: &mut ExtCtxt, matcher: I, follow: &Token)
                 let tok = if let TtToken(_, ref tok) = *token { tok } else { unreachable!() };
                 // If T' is in the set FOLLOW(NT), continue. Else, reject.
                 match (&next_token, is_in_follow(cx, &next_token, frag_spec.as_str())) {
+                    (_, Err(msg)) => {
+                        cx.span_err(sp, &msg);
+                        continue
+                    }
                     (&Eof, _) => return Some((sp, tok.clone())),
                     (_, Ok(true)) => continue,
                     (next, Ok(false)) => {
@@ -343,10 +340,6 @@ fn check_matcher<'a, I>(cx: &mut ExtCtxt, matcher: I, follow: &Token)
                                                  token_to_string(next)));
                         continue
                     },
-                    (_, Err(msg)) => {
-                        cx.span_err(sp, &msg);
-                        continue
-                    }
                 }
             },
             TtSequence(sp, ref seq) => {

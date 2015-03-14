@@ -19,7 +19,7 @@ pub use self::EntryOrExit::*;
 use middle::cfg;
 use middle::cfg::CFGIndex;
 use middle::ty;
-use std::old_io;
+use std::io;
 use std::usize;
 use std::iter::repeat;
 use syntax::ast;
@@ -103,7 +103,7 @@ impl<'a, 'tcx, O:DataFlowOperator> DataFlowContext<'a, 'tcx, O> {
 impl<'a, 'tcx, O:DataFlowOperator> pprust::PpAnn for DataFlowContext<'a, 'tcx, O> {
     fn pre(&self,
            ps: &mut pprust::State,
-           node: pprust::AnnNode) -> old_io::IoResult<()> {
+           node: pprust::AnnNode) -> io::Result<()> {
         let id = match node {
             pprust::NodeIdent(_) | pprust::NodeName(_) => 0,
             pprust::NodeExpr(expr) => expr.id,
@@ -205,7 +205,7 @@ impl<'a, 'tcx, O:DataFlowOperator> DataFlowContext<'a, 'tcx, O> {
                oper: O,
                id_range: IdRange,
                bits_per_id: uint) -> DataFlowContext<'a, 'tcx, O> {
-        let words_per_id = (bits_per_id + usize::BITS - 1) / usize::BITS;
+        let words_per_id = (bits_per_id + usize::BITS as usize - 1) / usize::BITS as usize;
         let num_nodes = cfg.graph.all_nodes().len();
 
         debug!("DataFlowContext::new(analysis_name: {}, id_range={:?}, \
@@ -377,7 +377,7 @@ impl<'a, 'tcx, O:DataFlowOperator> DataFlowContext<'a, 'tcx, O> {
 
         for (word_index, &word) in words.iter().enumerate() {
             if word != 0 {
-                let base_index = word_index * usize::BITS;
+                let base_index = word_index * usize::BITS as usize;
                 for offset in 0..usize::BITS {
                     let bit = 1 << offset;
                     if (word & bit) != 0 {
@@ -390,7 +390,7 @@ impl<'a, 'tcx, O:DataFlowOperator> DataFlowContext<'a, 'tcx, O> {
                         // whether the bit_index is greater than the
                         // actual value the user specified and stop
                         // iterating if so.
-                        let bit_index = base_index + offset;
+                        let bit_index = base_index + offset as usize;
                         if bit_index >= self.bits_per_id {
                             return true;
                         } else if !f(bit_index) {
@@ -485,13 +485,15 @@ impl<'a, 'tcx, O:DataFlowOperator+Clone+'static> DataFlowContext<'a, 'tcx, O> {
 
         debug!("Dataflow result for {}:", self.analysis_name);
         debug!("{}", {
-            self.pretty_print_to(box old_io::stderr(), blk).unwrap();
+            let mut v = Vec::new();
+            self.pretty_print_to(box &mut v, blk).unwrap();
+            println!("{}", String::from_utf8(v).unwrap());
             ""
         });
     }
 
-    fn pretty_print_to(&self, wr: Box<old_io::Writer+'static>,
-                       blk: &ast::Block) -> old_io::IoResult<()> {
+    fn pretty_print_to<'b>(&self, wr: Box<io::Write + 'b>,
+                           blk: &ast::Block) -> io::Result<()> {
         let mut ps = pprust::rust_printer_annotated(wr, self);
         try!(ps.cbox(pprust::indent_unit));
         try!(ps.ibox(0));
@@ -609,8 +611,8 @@ fn bitwise<Op:BitwiseOperator>(out_vec: &mut [uint],
 fn set_bit(words: &mut [uint], bit: uint) -> bool {
     debug!("set_bit: words={} bit={}",
            mut_bits_to_string(words), bit_str(bit));
-    let word = bit / usize::BITS;
-    let bit_in_word = bit % usize::BITS;
+    let word = bit / usize::BITS as usize;
+    let bit_in_word = bit % usize::BITS as usize;
     let bit_mask = 1 << bit_in_word;
     debug!("word={} bit_in_word={} bit_mask={}", word, bit_in_word, word);
     let oldv = words[word];

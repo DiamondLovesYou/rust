@@ -21,7 +21,6 @@ mod i8;
 mod i16;
 mod i32;
 mod i64;
-mod int;
 
 #[macro_use]
 mod uint_macros;
@@ -30,7 +29,6 @@ mod u8;
 mod u16;
 mod u32;
 mod u64;
-mod uint;
 
 /// Helper function for testing numeric operations
 pub fn test_num<T>(ten: T, two: T) where
@@ -90,35 +88,35 @@ mod test {
 
     #[test]
     fn test_int_from_str_overflow() {
-        let mut i8_val: i8 = 127_i8;
+        let mut i8_val: i8 = 127;
         assert_eq!("127".parse::<i8>().ok(), Some(i8_val));
         assert_eq!("128".parse::<i8>().ok(), None);
 
-        i8_val += 1 as i8;
+        i8_val = i8_val.wrapping_add(1);
         assert_eq!("-128".parse::<i8>().ok(), Some(i8_val));
         assert_eq!("-129".parse::<i8>().ok(), None);
 
-        let mut i16_val: i16 = 32_767_i16;
+        let mut i16_val: i16 = 32_767;
         assert_eq!("32767".parse::<i16>().ok(), Some(i16_val));
         assert_eq!("32768".parse::<i16>().ok(), None);
 
-        i16_val += 1 as i16;
+        i16_val = i16_val.wrapping_add(1);
         assert_eq!("-32768".parse::<i16>().ok(), Some(i16_val));
         assert_eq!("-32769".parse::<i16>().ok(), None);
 
-        let mut i32_val: i32 = 2_147_483_647_i32;
+        let mut i32_val: i32 = 2_147_483_647;
         assert_eq!("2147483647".parse::<i32>().ok(), Some(i32_val));
         assert_eq!("2147483648".parse::<i32>().ok(), None);
 
-        i32_val += 1 as i32;
+        i32_val = i32_val.wrapping_add(1);
         assert_eq!("-2147483648".parse::<i32>().ok(), Some(i32_val));
         assert_eq!("-2147483649".parse::<i32>().ok(), None);
 
-        let mut i64_val: i64 = 9_223_372_036_854_775_807_i64;
+        let mut i64_val: i64 = 9_223_372_036_854_775_807;
         assert_eq!("9223372036854775807".parse::<i64>().ok(), Some(i64_val));
         assert_eq!("9223372036854775808".parse::<i64>().ok(), None);
 
-        i64_val += 1 as i64;
+        i64_val = i64_val.wrapping_add(1);
         assert_eq!("-9223372036854775808".parse::<i64>().ok(), Some(i64_val));
         assert_eq!("-9223372036854775809".parse::<i64>().ok(), None);
     }

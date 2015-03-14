@@ -45,7 +45,7 @@ use syntax::ast_util::PostExpansionMethod;
 use syntax::codemap::DUMMY_SP;
 
 // drop_glue pointer, size, align.
-static VTABLE_OFFSET: uint = 3;
+const VTABLE_OFFSET: uint = 3;
 
 /// The main "translation" pass for methods.  Generates code
 /// for non-monomorphized methods only.  Other methods will
@@ -300,7 +300,10 @@ pub fn trans_static_method_callee<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                                   .position(|item| item.def_id() == method_id)
                                   .unwrap();
             let (llfn, ty) =
-                trans_object_shim(ccx, data.object_ty, trait_id, method_offset_in_trait);
+                trans_object_shim(ccx,
+                                  data.object_ty,
+                                  data.upcast_trait_ref.clone(),
+                                  method_offset_in_trait);
             immediate_rvalue(llfn, ty)
         }
         _ => {
@@ -386,7 +389,10 @@ fn trans_monomorphized_callee<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
             Callee { bcx: bcx, data: Fn(llfn) }
         }
         traits::VtableObject(ref data) => {
-            let (llfn, _) = trans_object_shim(bcx.ccx(), data.object_ty, trait_id, n_method);
+            let (llfn, _) = trans_object_shim(bcx.ccx(),
+                                              data.object_ty,
+                                              data.upcast_trait_ref.clone(),
+                                              n_method);
             Callee { bcx: bcx, data: Fn(llfn) }
         }
         traits::VtableBuiltin(..) |
@@ -454,7 +460,7 @@ fn trans_trait_callee<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let self_datum = unpack_datum!(
         bcx, expr::trans(bcx, self_expr));
 
-    let llval = if type_needs_drop(bcx.tcx(), self_datum.ty) {
+    let llval = if bcx.fcx.type_needs_drop(self_datum.ty) {
         let self_datum = unpack_datum!(
             bcx, self_datum.to_rvalue_datum(bcx, "trait_callee"));
 
@@ -551,16 +557,17 @@ pub fn trans_trait_callee_from_llval<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 pub fn trans_object_shim<'a, 'tcx>(
     ccx: &'a CrateContext<'a, 'tcx>,
     object_ty: Ty<'tcx>,
-    trait_id: ast::DefId,
+    upcast_trait_ref: ty::PolyTraitRef<'tcx>,
     method_offset_in_trait: uint)
     -> (ValueRef, Ty<'tcx>)
 {
     let _icx = push_ctxt("trans_object_shim");
     let tcx = ccx.tcx();
+    let trait_id = upcast_trait_ref.def_id();
 
-    debug!("trans_object_shim(object_ty={}, trait_id={}, method_offset_in_trait={})",
+    debug!("trans_object_shim(object_ty={}, upcast_trait_ref={}, method_offset_in_trait={})",
            object_ty.repr(tcx),
-           trait_id.repr(tcx),
+           upcast_trait_ref.repr(tcx),
            method_offset_in_trait);
 
     let object_trait_ref =
@@ -575,7 +582,6 @@ pub fn trans_object_shim<'a, 'tcx>(
         };
 
     // Upcast to the trait in question and extract out the substitutions.
-    let upcast_trait_ref = traits::upcast(ccx.tcx(), object_trait_ref.clone(), trait_id).unwrap();
     let upcast_trait_ref = ty::erase_late_bound_regions(tcx, &upcast_trait_ref);
     let object_substs = upcast_trait_ref.substs.clone().erase_regions();
     debug!("trans_object_shim: object_substs={}", object_substs.repr(tcx));
@@ -589,15 +595,16 @@ pub fn trans_object_shim<'a, 'tcx>(
     };
     let fty = monomorphize::apply_param_substs(tcx, &object_substs, &method_ty.fty);
     let fty = tcx.mk_bare_fn(fty);
-    debug!("trans_object_shim: fty={}", fty.repr(tcx));
+    let method_ty = opaque_method_ty(tcx, fty);
+    debug!("trans_object_shim: fty={} method_ty={}", fty.repr(tcx), method_ty.repr(tcx));
 
     //
-    let method_bare_fn_ty =
-        ty::mk_bare_fn(tcx, None, fty);
+    let shim_fn_ty = ty::mk_bare_fn(tcx, None, fty);
+    let method_bare_fn_ty = ty::mk_bare_fn(tcx, None, method_ty);
     let function_name =
-        link::mangle_internal_name_by_type_and_seq(ccx, method_bare_fn_ty, "object_shim");
+        link::mangle_internal_name_by_type_and_seq(ccx, shim_fn_ty, "object_shim");
     let llfn =
-        decl_internal_rust_fn(ccx, method_bare_fn_ty, &function_name);
+        decl_internal_rust_fn(ccx, shim_fn_ty, &function_name);
 
     let sig = ty::erase_late_bound_regions(ccx.tcx(), &fty.sig);
 
@@ -865,4 +872,21 @@ pub fn trans_trait_cast<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     Store(bcx, vtable, llvtabledest);
 
     bcx
+}
+
+/// Replace the self type (&Self or Box<Self>) with an opaque pointer.
+pub fn opaque_method_ty<'tcx>(tcx: &ty::ctxt<'tcx>, method_ty: &ty::BareFnTy<'tcx>)
+        -> &'tcx ty::BareFnTy<'tcx> {
+    let mut inputs = method_ty.sig.0.inputs.clone();
+    inputs[0] = ty::mk_mut_ptr(tcx, ty::mk_mach_int(tcx, ast::TyI8));
+
+    tcx.mk_bare_fn(ty::BareFnTy {
+        unsafety: method_ty.unsafety,
+        abi: method_ty.abi,
+        sig: ty::Binder(ty::FnSig {
+            inputs: inputs,
+            output: method_ty.sig.0.output,
+            variadic: method_ty.sig.0.variadic,
+        }),
+    })
 }

@@ -65,6 +65,7 @@ pub struct Key<T> { #[doc(hidden)] pub inner: __impl::KeyInner<T> }
 /// This macro declares a `static` item on which methods are used to get and
 /// set the value stored within.
 #[macro_export]
+#[allow_internal_unstable]
 macro_rules! scoped_thread_local {
     (static $name:ident: $t:ty) => (
         __scoped_thread_local_inner!(static $name: $t);
@@ -76,6 +77,7 @@ macro_rules! scoped_thread_local {
 
 #[macro_export]
 #[doc(hidden)]
+#[allow_internal_unstable]
 macro_rules! __scoped_thread_local_inner {
     (static $name:ident: $t:ty) => (
         #[cfg_attr(not(any(windows,
@@ -119,7 +121,7 @@ macro_rules! __scoped_thread_local_inner {
         const _INIT: __Key<$t> = __Key {
             inner: ::std::thread_local::scoped::__impl::KeyInner {
                 inner: ::std::thread_local::scoped::__impl::OS_INIT,
-                marker: ::std::marker::InvariantType,
+                marker: ::std::marker::PhantomData::<::std::cell::Cell<$t>>,
             }
         };
 
@@ -244,12 +246,13 @@ mod imp {
           target_arch = "aarch64"))]
 mod imp {
     use marker;
+    use std::cell::Cell;
     use sys_common::thread_local::StaticKey as OsStaticKey;
 
     #[doc(hidden)]
     pub struct KeyInner<T> {
         pub inner: OsStaticKey,
-        pub marker: marker::InvariantType<T>,
+        pub marker: marker::PhantomData<Cell<T>>,
     }
 
     unsafe impl<T> ::marker::Sync for KeyInner<T> { }

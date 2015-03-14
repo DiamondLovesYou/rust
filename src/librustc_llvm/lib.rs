@@ -28,10 +28,10 @@
 #![feature(int_uint)]
 #![feature(libc)]
 #![feature(link_args)]
-#![feature(old_path)]
 #![feature(staged_api)]
 #![feature(std_misc)]
 #![feature(rustc_private)]
+#![feature(path)]
 
 extern crate libc;
 #[macro_use] #[no_link] extern crate rustc_bitflags;
@@ -2005,11 +2005,11 @@ extern {
     pub fn LLVMInitializeMipsTargetMC();
     pub fn LLVMInitializeMipsAsmPrinter();
     pub fn LLVMInitializeMipsAsmParser();
-    /*pub fn LLVMInitializePowerPCTargetInfo();
+    pub fn LLVMInitializePowerPCTargetInfo();
     pub fn LLVMInitializePowerPCTarget();
     pub fn LLVMInitializePowerPCTargetMC();
     pub fn LLVMInitializePowerPCAsmPrinter();
-    pub fn LLVMInitializePowerPCAsmParser();*/
+    pub fn LLVMInitializePowerPCAsmParser();
 
     pub fn LLVMRustAddPass(PM: PassManagerRef, Pass: *const c_char) -> bool;
     pub fn LLVMRustCreateTargetMachine(Triple: *const c_char,

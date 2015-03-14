@@ -12,6 +12,7 @@
 
 use core::prelude::*;
 use core::num::Int;
+use core::num::wrapping::WrappingOps;
 use {Rng, SeedableRng, Rand};
 
 const KEY_WORDS    : uint =  8; // 8 words for the 256-bit key
@@ -43,10 +44,10 @@ static EMPTY: ChaChaRng = ChaChaRng {
 
 macro_rules! quarter_round{
     ($a: expr, $b: expr, $c: expr, $d: expr) => {{
-        $a += $b; $d ^= $a; $d = $d.rotate_left(16);
-        $c += $d; $b ^= $c; $b = $b.rotate_left(12);
-        $a += $b; $d ^= $a; $d = $d.rotate_left( 8);
-        $c += $d; $b ^= $c; $b = $b.rotate_left( 7);
+        $a = $a.wrapping_add($b); $d = $d ^ $a; $d = $d.rotate_left(16);
+        $c = $c.wrapping_add($d); $b = $b ^ $c; $b = $b.rotate_left(12);
+        $a = $a.wrapping_add($b); $d = $d ^ $a; $d = $d.rotate_left( 8);
+        $c = $c.wrapping_add($d); $b = $b ^ $c; $b = $b.rotate_left( 7);
     }}
 }
 
@@ -74,7 +75,7 @@ fn core(output: &mut [u32; STATE_WORDS], input: &[u32; STATE_WORDS]) {
     }
 
     for i in 0..STATE_WORDS {
-        output[i] += input[i];
+        output[i] = output[i].wrapping_add(input[i]);
     }
 }
 
@@ -172,7 +173,7 @@ impl<'a> SeedableRng<&'a [u32]> for ChaChaRng {
 
     fn reseed(&mut self, seed: &'a [u32]) {
         // reset state
-        self.init(&[0u32; KEY_WORDS]);
+        self.init(&[0; KEY_WORDS]);
         // set key in place
         let key = &mut self.state[4 .. 4+KEY_WORDS];
         for (k, s) in key.iter_mut().zip(seed.iter()) {
@@ -244,7 +245,7 @@ mod test {
     fn test_rng_true_values() {
         // Test vectors 1 and 2 from
         // http://tools.ietf.org/html/draft-nir-cfrg-chacha20-poly1305-04
-        let seed : &[_] = &[0u32; 8];
+        let seed : &[_] = &[0; 8];
         let mut ra: ChaChaRng = SeedableRng::from_seed(seed);
 
         let v = (0..16).map(|_| ra.next_u32()).collect::<Vec<_>>();
@@ -284,7 +285,7 @@ mod test {
 
     #[test]
     fn test_rng_clone() {
-        let seed : &[_] = &[0u32; 8];
+        let seed : &[_] = &[0; 8];
         let mut rng: ChaChaRng = SeedableRng::from_seed(seed);
         let mut clone = rng.clone();
         for _ in 0..16 {

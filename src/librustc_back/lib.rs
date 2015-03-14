@@ -33,15 +33,18 @@
 #![feature(box_syntax)]
 #![feature(collections)]
 #![feature(core)]
+#![feature(old_fs)]
+#![feature(fs)]
 #![feature(hash)]
 #![feature(int_uint)]
+#![feature(io)]
 #![feature(old_io)]
-#![feature(os)]
 #![feature(old_path)]
+#![feature(os)]
+#![feature(path)]
 #![feature(rustc_private)]
 #![feature(staged_api)]
-#![feature(env)]
-#![feature(path)]
+#![feature(tempdir)]
 
 extern crate syntax;
 extern crate serialize;

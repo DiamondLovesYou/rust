@@ -1,4 +1,4 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -28,6 +28,7 @@ use fold::Folder;
 
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::default::Default;
 
 pub trait ItemDecorator {
     fn expand(&self,
@@ -226,9 +227,17 @@ impl<F> IdentMacroExpander for F
     }
 }
 
+// Use a macro because forwarding to a simple function has type system issues
+macro_rules! make_stmt_default {
+    ($me:expr) => {
+        $me.make_expr().map(|e| {
+            P(codemap::respan(e.span, ast::StmtExpr(e, ast::DUMMY_NODE_ID)))
+        })
+    }
+}
+
 /// The result of a macro expansion. The return values of the various
-/// methods are spliced into the AST at the callsite of the macro (or
-/// just into the compiler's internal macro table, for `make_def`).
+/// methods are spliced into the AST at the callsite of the macro.
 pub trait MacResult {
     /// Create an expression.
     fn make_expr(self: Box<Self>) -> Option<P<ast::Expr>> {
@@ -254,63 +263,76 @@ pub trait MacResult {
     /// By default this attempts to create an expression statement,
     /// returning None if that fails.
     fn make_stmt(self: Box<Self>) -> Option<P<ast::Stmt>> {
-        self.make_expr()
-            .map(|e| P(codemap::respan(e.span, ast::StmtExpr(e, ast::DUMMY_NODE_ID))))
+        make_stmt_default!(self)
     }
 }
 
-/// A convenience type for macros that return a single expression.
-pub struct MacExpr {
-    e: P<ast::Expr>
-}
-impl MacExpr {
-    pub fn new(e: P<ast::Expr>) -> Box<MacResult+'static> {
-        box MacExpr { e: e } as Box<MacResult+'static>
-    }
-}
-impl MacResult for MacExpr {
-    fn make_expr(self: Box<MacExpr>) -> Option<P<ast::Expr>> {
-        Some(self.e)
-    }
-    fn make_pat(self: Box<MacExpr>) -> Option<P<ast::Pat>> {
-        match self.e.node {
-            ast::ExprLit(_) => Some(P(ast::Pat {
-                id: ast::DUMMY_NODE_ID,
-                span: self.e.span,
-                node: ast::PatLit(self.e)
-            })),
-            _ => None
+macro_rules! make_MacEager {
+    ( $( $fld:ident: $t:ty, )* ) => {
+        /// `MacResult` implementation for the common case where you've already
+        /// built each form of AST that you might return.
+        #[derive(Default)]
+        pub struct MacEager {
+            $(
+                pub $fld: Option<$t>,
+            )*
+        }
+
+        impl MacEager {
+            $(
+                pub fn $fld(v: $t) -> Box<MacResult> {
+                    box MacEager {
+                        $fld: Some(v),
+                        ..Default::default()
+                    } as Box<MacResult>
+                }
+            )*
         }
     }
 }
-/// A convenience type for macros that return a single pattern.
-pub struct MacPat {
-    p: P<ast::Pat>
-}
-impl MacPat {
-    pub fn new(p: P<ast::Pat>) -> Box<MacResult+'static> {
-        box MacPat { p: p } as Box<MacResult+'static>
-    }
-}
-impl MacResult for MacPat {
-    fn make_pat(self: Box<MacPat>) -> Option<P<ast::Pat>> {
-        Some(self.p)
-    }
-}
-/// A type for macros that return multiple items.
-pub struct MacItems {
-    items: SmallVector<P<ast::Item>>
+
+make_MacEager! {
+    expr: P<ast::Expr>,
+    pat: P<ast::Pat>,
+    items: SmallVector<P<ast::Item>>,
+    methods: SmallVector<P<ast::Method>>,
+    stmt: P<ast::Stmt>,
 }
 
-impl MacItems {
-    pub fn new<I: Iterator<Item=P<ast::Item>>>(it: I) -> Box<MacResult+'static> {
-        box MacItems { items: it.collect() } as Box<MacResult+'static>
+impl MacResult for MacEager {
+    fn make_expr(self: Box<Self>) -> Option<P<ast::Expr>> {
+        self.expr
     }
-}
 
-impl MacResult for MacItems {
-    fn make_items(self: Box<MacItems>) -> Option<SmallVector<P<ast::Item>>> {
-        Some(self.items)
+    fn make_items(self: Box<Self>) -> Option<SmallVector<P<ast::Item>>> {
+        self.items
+    }
+
+    fn make_methods(self: Box<Self>) -> Option<SmallVector<P<ast::Method>>> {
+        self.methods
+    }
+
+    fn make_stmt(self: Box<Self>) -> Option<P<ast::Stmt>> {
+        match self.stmt {
+            None => make_stmt_default!(self),
+            s => s,
+        }
+    }
+
+    fn make_pat(self: Box<Self>) -> Option<P<ast::Pat>> {
+        if let Some(p) = self.pat {
+            return Some(p);
+        }
+        if let Some(e) = self.expr {
+            if let ast::ExprLit(_) = e.node {
+                return Some(P(ast::Pat {
+                    id: ast::DUMMY_NODE_ID,
+                    span: e.span,
+                    node: ast::PatLit(e),
+                }));
+            }
+        }
+        None
     }
 }
 
@@ -408,12 +430,15 @@ pub enum SyntaxExtension {
     /// A normal, function-like syntax extension.
     ///
     /// `bytes!` is a `NormalTT`.
-    NormalTT(Box<TTMacroExpander + 'static>, Option<Span>),
+    ///
+    /// The `bool` dictates whether the contents of the macro can
+    /// directly use `#[unstable]` things (true == yes).
+    NormalTT(Box<TTMacroExpander + 'static>, Option<Span>, bool),
 
     /// A function-like syntax extension that has an extra ident before
     /// the block.
     ///
-    IdentTT(Box<IdentMacroExpander + 'static>, Option<Span>),
+    IdentTT(Box<IdentMacroExpander + 'static>, Option<Span>, bool),
 
     /// Represents `macro_rules!` itself.
     MacroRulesTT,
@@ -443,14 +468,14 @@ fn initial_syntax_expander_table<'feat>(ecfg: &expand::ExpansionConfig<'feat>)
                                         -> SyntaxEnv {
     // utility function to simplify creating NormalTT syntax extensions
     fn builtin_normal_expander(f: MacroExpanderFn) -> SyntaxExtension {
-        NormalTT(box f, None)
+        NormalTT(Box::new(f), None, false)
     }
 
     let mut syntax_expanders = SyntaxEnv::new();
     syntax_expanders.insert(intern("macro_rules"), MacroRulesTT);
     syntax_expanders.insert(intern("format_args"),
-                            builtin_normal_expander(
-                                ext::format::expand_format_args));
+                            // format_args uses `unstable` things internally.
+                            NormalTT(Box::new(ext::format::expand_format_args), None, true));
     syntax_expanders.insert(intern("env"),
                             builtin_normal_expander(
                                     ext::env::expand_env));
@@ -467,9 +492,9 @@ fn initial_syntax_expander_table<'feat>(ecfg: &expand::ExpansionConfig<'feat>)
                             builtin_normal_expander(
                                     ext::log_syntax::expand_syntax_ext));
     syntax_expanders.insert(intern("derive"),
-                            Decorator(box ext::deriving::expand_meta_derive));
+                            Decorator(Box::new(ext::deriving::expand_meta_derive)));
     syntax_expanders.insert(intern("deriving"),
-                            Decorator(box ext::deriving::expand_deprecated_deriving));
+                            Decorator(Box::new(ext::deriving::expand_deprecated_deriving)));
 
     if ecfg.enable_quotes() {
         // Quasi-quoting expanders
@@ -497,6 +522,12 @@ fn initial_syntax_expander_table<'feat>(ecfg: &expand::ExpansionConfig<'feat>)
         syntax_expanders.insert(intern("quote_stmt"),
                            builtin_normal_expander(
                                 ext::quote::expand_quote_stmt));
+        syntax_expanders.insert(intern("quote_matcher"),
+                           builtin_normal_expander(
+                                ext::quote::expand_quote_matcher));
+        syntax_expanders.insert(intern("quote_attr"),
+                           builtin_normal_expander(
+                                ext::quote::expand_quote_attr));
     }
 
     syntax_expanders.insert(intern("line"),
@@ -724,6 +755,10 @@ impl<'a> ExtCtxt<'a> {
     pub fn span_help(&self, sp: Span, msg: &str) {
         self.print_backtrace();
         self.parse_sess.span_diagnostic.span_help(sp, msg);
+    }
+    pub fn fileline_help(&self, sp: Span, msg: &str) {
+        self.print_backtrace();
+        self.parse_sess.span_diagnostic.fileline_help(sp, msg);
     }
     pub fn bug(&self, msg: &str) -> ! {
         self.print_backtrace();

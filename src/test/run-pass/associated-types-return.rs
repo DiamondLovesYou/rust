@@ -16,7 +16,7 @@ pub trait Foo {
 }
 
 #[derive(PartialEq)]
-struct Bar;
+pub struct Bar;
 
 impl Foo for int {
     type A = uint;
@@ -43,7 +43,7 @@ fn foo2<I: Foo>(x: I) -> <I as Foo>::A {
 
 pub fn main() {
     let a = 42;
-    assert!(foo2(a) == 42_usize);
+    assert!(foo2(a) == 42);
 
     let a = Bar;
     assert!(foo2(a) == 43);

@@ -603,7 +603,18 @@ pub fn trans_method_call<'a, 'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let _icx = push_ctxt("trans_method_call");
     debug!("trans_method_call(call_expr={})", call_expr.repr(bcx.tcx()));
     let method_call = MethodCall::expr(call_expr.id);
-    let method_ty = (*bcx.tcx().method_map.borrow())[method_call].ty;
+    let method_ty = match bcx.tcx().method_map.borrow().get(&method_call) {
+        Some(method) => match method.origin {
+            ty::MethodTraitObject(_) => match method.ty.sty {
+                ty::ty_bare_fn(_, ref fty) => {
+                    ty::mk_bare_fn(bcx.tcx(), None, meth::opaque_method_ty(bcx.tcx(), fty))
+                }
+                _ => method.ty
+            },
+            _ => method.ty
+        },
+        None => panic!("method not found in trans_method_call")
+    };
     trans_call_inner(
         bcx,
         call_expr.debug_loc(),
@@ -734,7 +745,7 @@ pub fn trans_call_inner<'a, 'blk, 'tcx, F>(bcx: Block<'blk, 'tcx>,
             };
             if !is_rust_fn ||
               type_of::return_uses_outptr(ccx, ret_ty) ||
-              common::type_needs_drop(bcx.tcx(), ret_ty) {
+              bcx.fcx.type_needs_drop(ret_ty) {
                 // Push the out-pointer if we use an out-pointer for this
                 // return type, otherwise push "undef".
                 if common::type_is_zero_size(ccx, ret_ty) {
@@ -927,20 +938,21 @@ fn trans_args_under_call_abi<'blk, 'tcx>(
                                                           tuple_expr.id));
             let repr = adt::represent_type(bcx.ccx(), tuple_type);
             let repr_ptr = &*repr;
-            for i in 0..field_types.len() {
+            llargs.extend(field_types.iter().enumerate().map(|(i, field_type)| {
                 let arg_datum = tuple_lvalue_datum.get_element(
                     bcx,
-                    field_types[i],
+                    field_type,
                     |srcval| {
                         adt::trans_field_ptr(bcx, repr_ptr, srcval, 0, i)
-                    });
-                let arg_datum = arg_datum.to_expr_datum();
-                let arg_datum =
-                    unpack_datum!(bcx, arg_datum.to_rvalue_datum(bcx, "arg"));
-                let arg_datum =
-                    unpack_datum!(bcx, arg_datum.to_appropriate_datum(bcx));
-                llargs.push(arg_datum.add_clean(bcx.fcx, arg_cleanup_scope));
-            }
+                    }).to_expr_datum();
+                unpack_result!(bcx, trans_arg_datum(
+                    bcx,
+                    field_type,
+                    arg_datum,
+                    arg_cleanup_scope,
+                    DontAutorefArg)
+                )
+            }));
         }
         _ => {
             bcx.sess().span_bug(tuple_expr.span,

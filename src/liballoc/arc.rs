@@ -69,6 +69,8 @@
 //! }
 //! ```
 
+use boxed::Box;
+
 use core::prelude::*;
 
 use core::atomic;
@@ -139,6 +141,13 @@ pub struct Weak<T> {
 unsafe impl<T: Sync + Send> Send for Weak<T> { }
 unsafe impl<T: Sync + Send> Sync for Weak<T> { }
 
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<T: fmt::Debug> fmt::Debug for Weak<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "(Weak)")
+    }
+}
+
 struct ArcInner<T> {
     strong: atomic::AtomicUsize,
     weak: atomic::AtomicUsize,
@@ -163,7 +172,7 @@ impl<T> Arc<T> {
     pub fn new(data: T) -> Arc<T> {
         // Start the weak pointer count as 1 which is the weak pointer that's
         // held by all the strong pointers (kinda), see std/rc.rs for more info
-        let x = box ArcInner {
+        let x: Box<_> = box ArcInner {
             strong: atomic::AtomicUsize::new(1),
             weak: atomic::AtomicUsize::new(1),
             data: data,
@@ -194,10 +203,11 @@ impl<T> Arc<T> {
 impl<T> Arc<T> {
     #[inline]
     fn inner(&self) -> &ArcInner<T> {
-        // This unsafety is ok because while this arc is alive we're guaranteed that the inner
-        // pointer is valid. Furthermore, we know that the `ArcInner` structure itself is `Sync`
-        // because the inner data is `Sync` as well, so we're ok loaning out an immutable pointer
-        // to these contents.
+        // This unsafety is ok because while this arc is alive we're guaranteed
+        // that the inner pointer is valid. Furthermore, we know that the
+        // `ArcInner` structure itself is `Sync` because the inner data is
+        // `Sync` as well, so we're ok loaning out an immutable pointer to these
+        // contents.
         unsafe { &**self._ptr }
     }
 }
@@ -229,13 +239,15 @@ impl<T> Clone for Arc<T> {
     /// ```
     #[inline]
     fn clone(&self) -> Arc<T> {
-        // Using a relaxed ordering is alright here, as knowledge of the original reference
-        // prevents other threads from erroneously deleting the object.
+        // Using a relaxed ordering is alright here, as knowledge of the
+        // original reference prevents other threads from erroneously deleting
+        // the object.
         //
-        // As explained in the [Boost documentation][1], Increasing the reference counter can
-        // always be done with memory_order_relaxed: New references to an object can only be formed
-        // from an existing reference, and passing an existing reference from one thread to another
-        // must already provide any required synchronization.
+        // As explained in the [Boost documentation][1], Increasing the
+        // reference counter can always be done with memory_order_relaxed: New
+        // references to an object can only be formed from an existing
+        // reference, and passing an existing reference from one thread to
+        // another must already provide any required synchronization.
         //
         // [1]: (www.boost.org/doc/libs/1_55_0/doc/html/atomic/usage_examples.html)
         self.inner().strong.fetch_add(1, Relaxed);

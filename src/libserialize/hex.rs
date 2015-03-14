@@ -24,7 +24,7 @@ pub trait ToHex {
     fn to_hex(&self) -> String;
 }
 
-static CHARS: &'static[u8] = b"0123456789abcdef";
+const CHARS: &'static [u8] = b"0123456789abcdef";
 
 impl ToHex for [u8] {
     /// Turn a vector of `u8` bytes into a hexadecimal string.
@@ -117,7 +117,7 @@ impl FromHex for str {
         // This may be an overestimate if there is any whitespace
         let mut b = Vec::with_capacity(self.len() / 2);
         let mut modulus = 0;
-        let mut buf = 0u8;
+        let mut buf = 0;
 
         for (idx, byte) in self.bytes().enumerate() {
             buf <<= 4;

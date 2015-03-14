@@ -17,6 +17,7 @@
 #![feature(box_syntax)]
 
 use std::fmt;
+use std::usize;
 
 struct A;
 struct B;
@@ -137,6 +138,13 @@ pub fn main() {
     t!(format!("{:+10.3e}", 1.2345e6f64),  "  +1.234e6");
     t!(format!("{:+10.3e}", -1.2345e6f64), "  -1.234e6");
 
+    // Test that pointers don't get truncated.
+    {
+        let val = usize::MAX;
+        let exp = format!("{:#x}", val);
+        t!(format!("{:p}", val as *const isize), exp);
+    }
+
     // Escaping
     t!(format!("{{"), "{");
     t!(format!("}}"), "}");
@@ -146,7 +154,7 @@ pub fn main() {
     test_order();
 
     // make sure that format! doesn't move out of local variables
-    let a = box 3;
+    let a: Box<_> = box 3;
     format!("{}", a);
     format!("{}", a);
 

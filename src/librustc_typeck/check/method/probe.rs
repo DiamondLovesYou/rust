@@ -278,7 +278,7 @@ impl<'a,'tcx> ProbeContext<'a,'tcx> {
             }
             ty::ty_enum(did, _) |
             ty::ty_struct(did, _) |
-            ty::ty_closure(did, _, _) => {
+            ty::ty_closure(did, _) => {
                 self.assemble_inherent_impl_candidates_for_type(did);
             }
             ty::ty_uniq(_) => {
@@ -456,13 +456,7 @@ impl<'a,'tcx> ProbeContext<'a,'tcx> {
         debug!("elaborate_bounds(bounds={})", bounds.repr(self.tcx()));
 
         let tcx = self.tcx();
-        let mut cache = HashSet::new();
         for bound_trait_ref in traits::transitive_bounds(tcx, bounds) {
-            // Already visited this trait, skip it.
-            if !cache.insert(bound_trait_ref.def_id()) {
-                continue;
-            }
-
             let (pos, method) = match trait_method(tcx,
                                                    bound_trait_ref.def_id(),
                                                    self.method_name) {
@@ -641,8 +635,8 @@ impl<'a,'tcx> ProbeContext<'a,'tcx> {
         // If so, add "synthetic impls".
         let steps = self.steps.clone();
         for step in &*steps {
-            let (closure_def_id, _, _) = match step.self_ty.sty {
-                ty::ty_closure(a, b, ref c) => (a, b, c),
+            let closure_def_id = match step.self_ty.sty {
+                ty::ty_closure(a, _) => a,
                 _ => continue,
             };
 
@@ -1269,9 +1263,11 @@ impl<'tcx> Candidate<'tcx> {
 
     fn to_trait_data(&self) -> Option<(ast::DefId,MethodIndex)> {
         match self.kind {
-            InherentImplCandidate(..) |
-            ObjectCandidate(..) => {
+            InherentImplCandidate(..) => {
                 None
+            }
+            ObjectCandidate(trait_def_id, method_num, _) => {
+                Some((trait_def_id, method_num))
             }
             ClosureCandidate(trait_def_id, method_num) => {
                 Some((trait_def_id, method_num))

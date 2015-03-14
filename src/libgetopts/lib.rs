@@ -93,6 +93,7 @@
 #![feature(int_uint)]
 #![feature(staged_api)]
 #![feature(str_words)]
+#![feature(core)]
 #![cfg_attr(test, feature(rustc_private))]
 
 #[cfg(test)] #[macro_use] extern crate log;
@@ -963,7 +964,7 @@ fn test_split_within() {
         "little lamb".to_string(),
         "Little lamb".to_string()
     ]);
-    t("\nMary had a little lamb\nLittle lamb\n", ::std::uint::MAX,
+    t("\nMary had a little lamb\nLittle lamb\n", ::std::usize::MAX,
         &["Mary had a little lamb\nLittle lamb".to_string()]);
 }
 

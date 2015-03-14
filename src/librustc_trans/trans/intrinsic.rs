@@ -156,6 +156,8 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
     let ccx = fcx.ccx;
     let tcx = bcx.tcx();
 
+    let _icx = push_ctxt("trans_intrinsic_call");
+
     let ret_ty = match callee_ty.sty {
         ty::ty_bare_fn(_, ref f) => {
             ty::erase_late_bound_regions(bcx.tcx(), &f.sig.output())
@@ -376,7 +378,8 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
         }
         (_, "needs_drop") => {
             let tp_ty = *substs.types.get(FnSpace, 0);
-            C_bool(ccx, type_needs_drop(ccx.tcx(), tp_ty))
+
+            C_bool(ccx, bcx.fcx.type_needs_drop(tp_ty))
         }
         (_, "owns_managed") => {
             let tp_ty = *substs.types.get(FnSpace, 0);
@@ -657,6 +660,11 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
                                     llargs[0],
                                     llargs[1],
                                     call_debug_location),
+
+        (_, "overflowing_add") => Add(bcx, llargs[0], llargs[1], call_debug_location),
+        (_, "overflowing_sub") => Sub(bcx, llargs[0], llargs[1], call_debug_location),
+        (_, "overflowing_mul") => Mul(bcx, llargs[0], llargs[1], call_debug_location),
+
         (_, "return_address") => {
             if !fcx.caller_expects_out_pointer {
                 tcx.sess.span_err(call_info.span,

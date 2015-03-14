@@ -119,7 +119,7 @@ impl FixedBuffer64 {
     /// Create a new FixedBuffer64
     fn new() -> FixedBuffer64 {
         return FixedBuffer64 {
-            buffer: [0u8; 64],
+            buffer: [0; 64],
             buffer_idx: 0
         };
     }
@@ -258,7 +258,7 @@ pub trait Digest {
     /// Convenience function that retrieves the result of a digest as a
     /// newly allocated vec of bytes.
     fn result_bytes(&mut self) -> Vec<u8> {
-        let mut buf: Vec<u8> = repeat(0u8).take((self.output_bits()+7)/8).collect();
+        let mut buf: Vec<u8> = repeat(0).take((self.output_bits()+7)/8).collect();
         self.result(&mut buf);
         buf
     }
@@ -342,22 +342,24 @@ impl Engine256State {
         let mut g = self.h6;
         let mut h = self.h7;
 
-        let mut w = [0u32; 64];
+        let mut w = [0; 64];
 
         // Sha-512 and Sha-256 use basically the same calculations which are implemented
         // by these macros. Inlining the calculations seems to result in better generated code.
         macro_rules! schedule_round { ($t:expr) => (
-                w[$t] = sigma1(w[$t - 2]) + w[$t - 7] + sigma0(w[$t - 15]) + w[$t - 16];
-                )
+            w[$t] = sigma1(w[$t - 2]).wrapping_add(w[$t - 7])
+                .wrapping_add(sigma0(w[$t - 15])).wrapping_add(w[$t - 16]);
+            )
         }
 
         macro_rules! sha2_round {
             ($A:ident, $B:ident, $C:ident, $D:ident,
              $E:ident, $F:ident, $G:ident, $H:ident, $K:ident, $t:expr) => (
                 {
-                    $H += sum1($E) + ch($E, $F, $G) + $K[$t] + w[$t];
-                    $D += $H;
-                    $H += sum0($A) + maj($A, $B, $C);
+                    $H = $H.wrapping_add(sum1($E)).wrapping_add(ch($E, $F, $G))
+                        .wrapping_add($K[$t]).wrapping_add(w[$t]);
+                    $D = $D.wrapping_add($H);
+                    $H = $H.wrapping_add(sum0($A)).wrapping_add(maj($A, $B, $C));
                 }
              )
         }
@@ -397,14 +399,14 @@ impl Engine256State {
             sha2_round!(b, c, d, e, f, g, h, a, K32, t + 7);
         }
 
-        self.h0 += a;
-        self.h1 += b;
-        self.h2 += c;
-        self.h3 += d;
-        self.h4 += e;
-        self.h5 += f;
-        self.h6 += g;
-        self.h7 += h;
+        self.h0 = self.h0.wrapping_add(a);
+        self.h1 = self.h1.wrapping_add(b);
+        self.h2 = self.h2.wrapping_add(c);
+        self.h3 = self.h3.wrapping_add(d);
+        self.h4 = self.h4.wrapping_add(e);
+        self.h5 = self.h5.wrapping_add(f);
+        self.h6 = self.h6.wrapping_add(g);
+        self.h7 = self.h7.wrapping_add(h);
     }
 }
 
@@ -604,7 +606,7 @@ mod tests {
 
         let tests = wikipedia_tests;
 
-        let mut sh = box Sha256::new();
+        let mut sh: Box<_> = box Sha256::new();
 
         test_hash(&mut *sh, &tests);
     }
@@ -658,7 +660,7 @@ mod bench {
     #[bench]
     pub fn sha256_10(b: &mut Bencher) {
         let mut sh = Sha256::new();
-        let bytes = [1u8; 10];
+        let bytes = [1; 10];
         b.iter(|| {
             sh.input(&bytes);
         });
@@ -668,7 +670,7 @@ mod bench {
     #[bench]
     pub fn sha256_1k(b: &mut Bencher) {
         let mut sh = Sha256::new();
-        let bytes = [1u8; 1024];
+        let bytes = [1; 1024];
         b.iter(|| {
             sh.input(&bytes);
         });
@@ -678,7 +680,7 @@ mod bench {
     #[bench]
     pub fn sha256_64k(b: &mut Bencher) {
         let mut sh = Sha256::new();
-        let bytes = [1u8; 65536];
+        let bytes = [1; 65536];
         b.iter(|| {
             sh.input(&bytes);
         });

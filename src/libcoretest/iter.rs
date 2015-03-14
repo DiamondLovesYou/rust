@@ -12,7 +12,7 @@ use core::iter::*;
 use core::iter::order::*;
 use core::iter::MinMaxResult::*;
 use core::num::SignedInt;
-use core::uint;
+use core::usize;
 use core::cmp;
 
 use test::Bencher;
@@ -292,7 +292,7 @@ fn test_unfoldr() {
 fn test_cycle() {
     let cycle_len = 3;
     let it = count(0, 1).take(cycle_len).cycle();
-    assert_eq!(it.size_hint(), (uint::MAX, None));
+    assert_eq!(it.size_hint(), (usize::MAX, None));
     for (i, x) in it.take(100).enumerate() {
         assert_eq!(i % cycle_len, x);
     }
@@ -365,19 +365,19 @@ fn test_iterator_size_hint() {
     let v2 = &[10, 11, 12];
     let vi = v.iter();
 
-    assert_eq!(c.size_hint(), (uint::MAX, None));
+    assert_eq!(c.size_hint(), (usize::MAX, None));
     assert_eq!(vi.clone().size_hint(), (10, Some(10)));
 
     assert_eq!(c.clone().take(5).size_hint(), (5, Some(5)));
     assert_eq!(c.clone().skip(5).size_hint().1, None);
     assert_eq!(c.clone().take_while(|_| false).size_hint(), (0, None));
     assert_eq!(c.clone().skip_while(|_| false).size_hint(), (0, None));
-    assert_eq!(c.clone().enumerate().size_hint(), (uint::MAX, None));
-    assert_eq!(c.clone().chain(vi.clone().cloned()).size_hint(), (uint::MAX, None));
+    assert_eq!(c.clone().enumerate().size_hint(), (usize::MAX, None));
+    assert_eq!(c.clone().chain(vi.clone().cloned()).size_hint(), (usize::MAX, None));
     assert_eq!(c.clone().zip(vi.clone()).size_hint(), (10, Some(10)));
     assert_eq!(c.clone().scan(0, |_,_| Some(0)).size_hint(), (0, None));
     assert_eq!(c.clone().filter(|_| false).size_hint(), (0, None));
-    assert_eq!(c.clone().map(|_| 0).size_hint(), (uint::MAX, None));
+    assert_eq!(c.clone().map(|_| 0).size_hint(), (usize::MAX, None));
     assert_eq!(c.filter_map(|_| Some(0)).size_hint(), (0, None));
 
     assert_eq!(vi.clone().take(5).size_hint(), (5, Some(5)));
@@ -404,7 +404,8 @@ fn test_collect() {
 
 #[test]
 fn test_all() {
-    let v: Box<[int]> = box [1, 2, 3, 4, 5];
+    // FIXME (#22405): Replace `Box::new` with `box` here when/if possible.
+    let v: Box<[int]> = Box::new([1, 2, 3, 4, 5]);
     assert!(v.iter().all(|&x| x < 10));
     assert!(!v.iter().all(|&x| x % 2 == 0));
     assert!(!v.iter().all(|&x| x > 100));
@@ -413,7 +414,8 @@ fn test_all() {
 
 #[test]
 fn test_any() {
-    let v: Box<[int]> = box [1, 2, 3, 4, 5];
+    // FIXME (#22405): Replace `Box::new` with `box` here when/if possible.
+    let v: Box<[int]> = Box::new([1, 2, 3, 4, 5]);
     assert!(v.iter().any(|&x| x < 10));
     assert!(v.iter().any(|&x| x % 2 == 0));
     assert!(!v.iter().any(|&x| x > 100));
@@ -581,8 +583,9 @@ fn test_rposition() {
 #[test]
 #[should_fail]
 fn test_rposition_panic() {
-    let v = [(box 0, box 0), (box 0, box 0),
-             (box 0, box 0), (box 0, box 0)];
+    let v: [(Box<_>, Box<_>); 4] =
+        [(box 0, box 0), (box 0, box 0),
+         (box 0, box 0), (box 0, box 0)];
     let mut i = 0;
     v.iter().rposition(|_elt| {
         if i == 2 {
@@ -753,7 +756,7 @@ fn test_range() {
 
     assert_eq!((0..100).size_hint(), (100, Some(100)));
     // this test is only meaningful when sizeof uint < sizeof u64
-    assert_eq!((uint::MAX - 1..uint::MAX).size_hint(), (1, Some(1)));
+    assert_eq!((usize::MAX - 1..usize::MAX).size_hint(), (1, Some(1)));
     assert_eq!((-10..-1).size_hint(), (9, Some(9)));
     assert_eq!((-1..-10).size_hint(), (0, Some(0)));
 }
@@ -775,9 +778,9 @@ fn test_range_step() {
     assert_eq!(range_step(0, 20, 5).collect::<Vec<int>>(), [0, 5, 10, 15]);
     assert_eq!(range_step(20, 0, -5).collect::<Vec<int>>(), [20, 15, 10, 5]);
     assert_eq!(range_step(20, 0, -6).collect::<Vec<int>>(), [20, 14, 8, 2]);
-    assert_eq!(range_step(200u8, 255, 50).collect::<Vec<u8>>(), [200u8, 250]);
-    assert_eq!(range_step(200i, -5, 1).collect::<Vec<int>>(), []);
-    assert_eq!(range_step(200i, 200, 1).collect::<Vec<int>>(), []);
+    assert_eq!(range_step(200, 255, 50).collect::<Vec<u8>>(), [200, 250]);
+    assert_eq!(range_step(200, -5, 1).collect::<Vec<int>>(), []);
+    assert_eq!(range_step(200, 200, 1).collect::<Vec<int>>(), []);
 }
 
 #[test]
@@ -785,7 +788,7 @@ fn test_range_step_inclusive() {
     assert_eq!(range_step_inclusive(0, 20, 5).collect::<Vec<int>>(), [0, 5, 10, 15, 20]);
     assert_eq!(range_step_inclusive(20, 0, -5).collect::<Vec<int>>(), [20, 15, 10, 5, 0]);
     assert_eq!(range_step_inclusive(20, 0, -6).collect::<Vec<int>>(), [20, 14, 8, 2]);
-    assert_eq!(range_step_inclusive(200u8, 255, 50).collect::<Vec<u8>>(), [200u8, 250]);
+    assert_eq!(range_step_inclusive(200, 255, 50).collect::<Vec<u8>>(), [200, 250]);
     assert_eq!(range_step_inclusive(200, -5, 1).collect::<Vec<int>>(), []);
     assert_eq!(range_step_inclusive(200, 200, 1).collect::<Vec<int>>(), [200]);
 }

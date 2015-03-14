@@ -15,9 +15,6 @@ macro_rules! panic {
         panic!("explicit panic")
     );
     ($msg:expr) => ({
-        #[cfg(stage0)]
-        static _MSG_FILE_LINE: (&'static str, &'static str, usize) = ($msg, file!(), line!());
-        #[cfg(not(stage0))]
         static _MSG_FILE_LINE: (&'static str, &'static str, u32) = ($msg, file!(), line!());
         ::core::panicking::panic(&_MSG_FILE_LINE)
     });
@@ -26,9 +23,6 @@ macro_rules! panic {
         // used inside a dead function. Just `#[allow(dead_code)]` is
         // insufficient, since the user may have
         // `#[forbid(dead_code)]` and which cannot be overridden.
-        #[cfg(stage0)]
-        static _FILE_LINE: (&'static str, usize) = (file!(), line!());
-        #[cfg(not(stage0))]
         static _FILE_LINE: (&'static str, u32) = (file!(), line!());
         ::core::panicking::panic_fmt(format_args!($fmt, $($arg)*), &_FILE_LINE)
     });
@@ -233,7 +227,7 @@ macro_rules! writeln {
 ///
 /// ```rust
 /// fn divide_by_three(x: u32) -> u32 { // one of the poorest implementations of x/3
-///     for i in std::iter::count(0_u32, 1) {
+///     for i in std::iter::count(0, 1) {
 ///         if 3*i < i { panic!("u32 overflow"); }
 ///         if x < 3*i { return i-1; }
 ///     }

@@ -301,7 +301,7 @@ mod imp {
             libc::realloc(ptr as *mut libc::c_void, size as libc::size_t) as *mut u8
         } else {
             let new_ptr = allocate(size, align);
-            ptr::copy_memory(new_ptr, ptr, cmp::min(size, old_size));
+            ptr::copy(new_ptr, ptr, cmp::min(size, old_size));
             deallocate(ptr, old_size, align);
             new_ptr
         }
@@ -388,6 +388,7 @@ mod test {
     extern crate test;
     use self::test::Bencher;
     use core::ptr::PtrExt;
+    use boxed::Box;
     use heap;
 
     #[test]
@@ -405,7 +406,7 @@ mod test {
     #[bench]
     fn alloc_owned_small(b: &mut Bencher) {
         b.iter(|| {
-            box 10
+            let _: Box<_> = box 10;
         })
     }
 }

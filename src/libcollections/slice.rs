@@ -96,6 +96,7 @@ use core::iter::{range_step, MultiplicativeIterator};
 use core::marker::Sized;
 use core::mem::size_of;
 use core::mem;
+use core::num::wrapping::WrappingOps;
 use core::ops::FnMut;
 use core::option::Option::{self, Some, None};
 use core::ptr::PtrExt;
@@ -1209,10 +1210,14 @@ struct SizeDirection {
 impl Iterator for ElementSwaps {
     type Item = (usize, usize);
 
-    #[inline]
+    // #[inline]
     fn next(&mut self) -> Option<(usize, usize)> {
+        fn new_pos_wrapping(i: usize, s: Direction) -> usize {
+            i.wrapping_add(match s { Pos => 1, Neg => -1 })
+        }
+
         fn new_pos(i: usize, s: Direction) -> usize {
-            i + match s { Pos => 1, Neg => -1 }
+            match s { Pos => i + 1, Neg => i - 1 }
         }
 
         // Find the index of the largest mobile element:
@@ -1220,7 +1225,7 @@ impl Iterator for ElementSwaps {
         // swap should be with a smaller `size` element.
         let max = self.sdir.iter().cloned().enumerate()
                            .filter(|&(i, sd)|
-                                new_pos(i, sd.dir) < self.sdir.len() &&
+                                new_pos_wrapping(i, sd.dir) < self.sdir.len() &&
                                 self.sdir[new_pos(i, sd.dir)].size < sd.size)
                            .max_by(|&(_, sd)| sd.size);
         match max {
@@ -1343,8 +1348,8 @@ fn insertion_sort<T, F>(v: &mut [T], mut compare: F) where F: FnMut(&T, &T) -> O
 
 fn merge_sort<T, F>(v: &mut [T], mut compare: F) where F: FnMut(&T, &T) -> Ordering {
     // warning: this wildly uses unsafe.
-    static BASE_INSERTION: usize = 32;
-    static LARGE_INSERTION: usize = 16;
+    const BASE_INSERTION: usize = 32;
+    const LARGE_INSERTION: usize = 16;
 
     // FIXME #12092: smaller insertion runs seems to make sorting
     // vectors of large elements a little faster on some platforms,
@@ -1504,6 +1509,7 @@ fn merge_sort<T, F>(v: &mut [T], mut compare: F) where F: FnMut(&T, &T) -> Order
 
 #[cfg(test)]
 mod tests {
+    use alloc::boxed::Box;
     use core::cmp::Ordering::{Greater, Less, Equal};
     use core::prelude::{Some, None, Clone};
     use core::prelude::{Iterator, IteratorExt};
@@ -1794,7 +1800,7 @@ mod tests {
     #[test]
     fn test_swap_remove_noncopyable() {
         // Tests that we don't accidentally run destructors twice.
-        let mut v = Vec::new();
+        let mut v: Vec<Box<_>> = Vec::new();
         v.push(box 0u8);
         v.push(box 0u8);
         v.push(box 0u8);
@@ -1823,7 +1829,7 @@ mod tests {
 
     #[test]
     fn test_truncate() {
-        let mut v = vec![box 6,box 5,box 4];
+        let mut v: Vec<Box<_>> = vec![box 6,box 5,box 4];
         v.truncate(1);
         let v = v;
         assert_eq!(v.len(), 1);
@@ -1833,7 +1839,7 @@ mod tests {
 
     #[test]
     fn test_clear() {
-        let mut v = vec![box 6,box 5,box 4];
+        let mut v: Vec<Box<_>> = vec![box 6,box 5,box 4];
         v.clear();
         assert_eq!(v.len(), 0);
         // If the unsafe block didn't drop things properly, we blow up here.
@@ -1858,11 +1864,11 @@ mod tests {
 
     #[test]
     fn test_dedup_unique() {
-        let mut v0 = vec![box 1, box 1, box 2, box 3];
+        let mut v0: Vec<Box<_>> = vec![box 1, box 1, box 2, box 3];
         v0.dedup();
-        let mut v1 = vec![box 1, box 2, box 2, box 3];
+        let mut v1: Vec<Box<_>> = vec![box 1, box 2, box 2, box 3];
         v1.dedup();
-        let mut v2 = vec![box 1, box 2, box 3, box 3];
+        let mut v2: Vec<Box<_>> = vec![box 1, box 2, box 3, box 3];
         v2.dedup();
         /*
          * If the boxed pointers were leaked or otherwise misused, valgrind
@@ -1872,11 +1878,11 @@ mod tests {
 
     #[test]
     fn test_dedup_shared() {
-        let mut v0 = vec![box 1, box 1, box 2, box 3];
+        let mut v0: Vec<Box<_>> = vec![box 1, box 1, box 2, box 3];
         v0.dedup();
-        let mut v1 = vec![box 1, box 2, box 2, box 3];
+        let mut v1: Vec<Box<_>> = vec![box 1, box 2, box 2, box 3];
         v1.dedup();
-        let mut v2 = vec![box 1, box 2, box 3, box 3];
+        let mut v2: Vec<Box<_>> = vec![box 1, box 2, box 3, box 3];
         v2.dedup();
         /*
          * If the pointers were leaked or otherwise misused, valgrind and/or
@@ -2170,8 +2176,8 @@ mod tests {
     fn test_connect() {
         let v: [Vec<i32>; 0] = [];
         assert_eq!(v.connect(&0), []);
-        assert_eq!([vec![1i], vec![2, 3]].connect(&0), [1, 0, 2, 3]);
-        assert_eq!([vec![1i], vec![2], vec![3]].connect(&0), [1, 0, 2, 0, 3]);
+        assert_eq!([vec![1], vec![2, 3]].connect(&0), [1, 0, 2, 3]);
+        assert_eq!([vec![1], vec![2], vec![3]].connect(&0), [1, 0, 2, 0, 3]);
 
         let v: [&[_]; 2] = [&[1], &[2, 3]];
         assert_eq!(v.connect(&0), [1, 0, 2, 3]);
@@ -2249,8 +2255,9 @@ mod tests {
     #[test]
     #[should_fail]
     fn test_permute_fail() {
-        let v = [(box 0, Rc::new(0)), (box 0, Rc::new(0)),
-                 (box 0, Rc::new(0)), (box 0, Rc::new(0))];
+        let v: [(Box<_>, Rc<_>); 4] =
+            [(box 0, Rc::new(0)), (box 0, Rc::new(0)),
+             (box 0, Rc::new(0)), (box 0, Rc::new(0))];
         let mut i = 0;
         for _ in v.permutations() {
             if i == 2 {
@@ -2632,7 +2639,7 @@ mod tests {
     #[test]
     fn test_bytes_set_memory() {
         use slice::bytes::MutableByteVector;
-        let mut values = [1u8,2,3,4,5];
+        let mut values = [1,2,3,4,5];
         values[0..5].set_memory(0xAB);
         assert!(values == [0xAB, 0xAB, 0xAB, 0xAB, 0xAB]);
         values[2..4].set_memory(0xFF);
@@ -2663,7 +2670,7 @@ mod tests {
             let (left, right) = values.split_at_mut(2);
             {
                 let left: &[_] = left;
-                assert!(left[..left.len()] == [1, 2][]);
+                assert!(left[..left.len()] == [1, 2]);
             }
             for p in left {
                 *p += 1;
@@ -2671,7 +2678,7 @@ mod tests {
 
             {
                 let right: &[_] = right;
-                assert!(right[..right.len()] == [3, 4, 5][]);
+                assert!(right[..right.len()] == [3, 4, 5]);
             }
             for p in right {
                 *p += 2;
@@ -2802,26 +2809,26 @@ mod tests {
     fn test_mut_chunks() {
         use core::iter::ExactSizeIterator;
 
-        let mut v = [0u8, 1, 2, 3, 4, 5, 6];
+        let mut v = [0, 1, 2, 3, 4, 5, 6];
         assert_eq!(v.chunks_mut(2).len(), 4);
         for (i, chunk) in v.chunks_mut(3).enumerate() {
             for x in chunk {
                 *x = i as u8;
             }
         }
-        let result = [0u8, 0, 0, 1, 1, 1, 2];
+        let result = [0, 0, 0, 1, 1, 1, 2];
         assert!(v == result);
     }
 
     #[test]
     fn test_mut_chunks_rev() {
-        let mut v = [0u8, 1, 2, 3, 4, 5, 6];
+        let mut v = [0, 1, 2, 3, 4, 5, 6];
         for (i, chunk) in v.chunks_mut(3).rev().enumerate() {
             for x in chunk {
                 *x = i as u8;
             }
         }
-        let result = [2u8, 2, 2, 1, 1, 1, 0];
+        let result = [2, 2, 2, 1, 1, 1, 0];
         assert!(v == result);
     }
 
@@ -2844,7 +2851,7 @@ mod tests {
 
     #[test]
     fn test_to_vec() {
-        let xs = box [1, 2, 3];
+        let xs: Box<_> = box [1, 2, 3];
         let ys = xs.to_vec();
         assert_eq!(ys, [1, 2, 3]);
     }

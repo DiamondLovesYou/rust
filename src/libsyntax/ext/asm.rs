@@ -45,7 +45,7 @@ impl State {
     }
 }
 
-static OPTIONS: &'static [&'static str] = &["volatile", "alignstack", "intel"];
+const OPTIONS: &'static [&'static str] = &["volatile", "alignstack", "intel"];
 
 pub fn expand_asm<'cx>(cx: &'cx mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
                        -> Box<base::MacResult+'cx> {
@@ -214,10 +214,11 @@ pub fn expand_asm<'cx>(cx: &'cx mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
             name: "asm".to_string(),
             format: codemap::MacroBang,
             span: None,
+            allow_internal_unstable: false,
         },
     });
 
-    MacExpr::new(P(ast::Expr {
+    MacEager::expr(P(ast::Expr {
         id: ast::DUMMY_NODE_ID,
         node: ast::ExprInlineAsm(ast::InlineAsm {
             asm: token::intern_and_get_ident(&asm),

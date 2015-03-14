@@ -40,6 +40,7 @@ use cmp::{Ordering, PartialEq, PartialOrd, Eq, Ord};
 use cmp::Ordering::{Less, Equal, Greater};
 use cmp;
 use default::Default;
+use intrinsics::assume;
 use iter::*;
 use ops::{FnMut, self, Index};
 use ops::RangeFull;
@@ -137,6 +138,7 @@ impl<T> SliceExt for [T] {
     fn iter<'a>(&'a self) -> Iter<'a, T> {
         unsafe {
             let p = self.as_ptr();
+            assume(!p.is_null());
             if mem::size_of::<T>() == 0 {
                 Iter {ptr: p,
                       end: (p as usize + self.len()) as *const T,
@@ -276,6 +278,7 @@ impl<T> SliceExt for [T] {
     fn iter_mut<'a>(&'a mut self) -> IterMut<'a, T> {
         unsafe {
             let p = self.as_mut_ptr();
+            assume(!p.is_null());
             if mem::size_of::<T>() == 0 {
                 IterMut {ptr: p,
                          end: (p as usize + self.len()) as *mut T,
@@ -348,6 +351,7 @@ impl<T> SliceExt for [T] {
         ChunksMut { v: self, chunk_size: chunk_size }
     }
 
+    #[inline]
     fn swap(&mut self, a: usize, b: usize) {
         unsafe {
             // Can't take two mutable loans from one vector, so instead just cast
@@ -1164,11 +1168,21 @@ forward_iterator! { SplitNMut: T, &'a mut [T] }
 forward_iterator! { RSplitNMut: T, &'a mut [T] }
 
 /// An iterator over overlapping subslices of length `size`.
-#[derive(Clone)]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Windows<'a, T:'a> {
     v: &'a [T],
     size: usize
+}
+
+// FIXME(#19839) Remove in favor of `#[derive(Clone)]`
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<'a, T> Clone for Windows<'a, T> {
+    fn clone(&self) -> Windows<'a, T> {
+        Windows {
+            v: self.v,
+            size: self.size,
+        }
+    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -1236,11 +1250,21 @@ impl<'a, T> RandomAccessIterator for Windows<'a, T> {
 ///
 /// When the slice len is not evenly divided by the chunk size, the last slice
 /// of the iteration will be the remainder.
-#[derive(Clone)]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Chunks<'a, T:'a> {
     v: &'a [T],
     size: usize
+}
+
+// FIXME(#19839) Remove in favor of `#[derive(Clone)]`
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<'a, T> Clone for Chunks<'a, T> {
+    fn clone(&self) -> Chunks<'a, T> {
+        Chunks {
+            v: self.v,
+            size: self.size,
+        }
+    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]

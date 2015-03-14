@@ -195,24 +195,18 @@ pub fn immediate_rvalue_bcx<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
 /// Allocates temporary space on the stack using alloca() and returns a by-ref Datum pointing to
 /// it. The memory will be dropped upon exit from `scope`. The callback `populate` should
-/// initialize the memory. If `zero` is true, the space will be zeroed when it is allocated; this
-/// is not necessary unless `bcx` does not dominate the end of `scope`.
+/// initialize the memory.
 pub fn lvalue_scratch_datum<'blk, 'tcx, A, F>(bcx: Block<'blk, 'tcx>,
                                               ty: Ty<'tcx>,
                                               name: &str,
-                                              zero: bool,
                                               scope: cleanup::ScopeId,
                                               arg: A,
                                               populate: F)
                                               -> DatumBlock<'blk, 'tcx, Lvalue> where
     F: FnOnce(A, Block<'blk, 'tcx>, ValueRef) -> Block<'blk, 'tcx>,
 {
-    let scratch = if zero {
-        alloca_zeroed(bcx, ty, name)
-    } else {
-        let llty = type_of::type_of(bcx.ccx(), ty);
-        alloca(bcx, llty, name)
-    };
+    let llty = type_of::type_of(bcx.ccx(), ty);
+    let scratch = alloca(bcx, llty, name);
 
     // Subtle. Populate the scratch memory *before* scheduling cleanup.
     let bcx = populate(arg, bcx, scratch);
@@ -311,7 +305,8 @@ impl KindOps for Lvalue {
                               val: ValueRef,
                               ty: Ty<'tcx>)
                               -> Block<'blk, 'tcx> {
-        if type_needs_drop(bcx.tcx(), ty) {
+        let _icx = push_ctxt("<Lvalue as KindOps>::post_store");
+        if bcx.fcx.type_needs_drop(ty) {
             // cancel cleanup of affine values by zeroing out
             let () = zero_mem(bcx, val, ty);
             bcx
@@ -382,7 +377,7 @@ impl<'tcx> Datum<'tcx, Rvalue> {
 
             ByValue => {
                 lvalue_scratch_datum(
-                    bcx, self.ty, name, false, scope, self,
+                    bcx, self.ty, name, scope, self,
                     |this, bcx, llval| this.store_to(bcx, llval))
             }
         }
@@ -656,7 +651,7 @@ impl<'tcx, K: KindOps + fmt::Debug> Datum<'tcx, K> {
     /// scalar-ish (like an int or a pointer) which (1) does not require drop glue and (2) is
     /// naturally passed around by value, and not by reference.
     pub fn to_llscalarish<'blk>(self, bcx: Block<'blk, 'tcx>) -> ValueRef {
-        assert!(!type_needs_drop(bcx.tcx(), self.ty));
+        assert!(!bcx.fcx.type_needs_drop(self.ty));
         assert!(self.appropriate_rvalue_mode(bcx.ccx()) == ByValue);
         if self.kind.is_by_ref() {
             load_ty(bcx, self.val, self.ty)

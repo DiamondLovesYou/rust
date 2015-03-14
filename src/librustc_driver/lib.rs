@@ -26,18 +26,20 @@
 #![feature(box_syntax)]
 #![feature(collections)]
 #![feature(core)]
-#![feature(env)]
 #![feature(int_uint)]
 #![feature(old_io)]
 #![feature(libc)]
 #![feature(os)]
-#![feature(old_path)]
 #![feature(quote)]
 #![feature(rustc_diagnostic_macros)]
 #![feature(rustc_private)]
 #![feature(unsafe_destructor)]
 #![feature(staged_api)]
 #![feature(unicode)]
+#![feature(exit_status)]
+#![feature(path)]
+#![feature(io)]
+#![feature(fs)]
 
 extern crate arena;
 extern crate flate;
@@ -47,6 +49,7 @@ extern crate libc;
 extern crate rustc;
 extern crate rustc_back;
 extern crate rustc_borrowck;
+extern crate rustc_lint;
 extern crate rustc_privacy;
 extern crate rustc_resolve;
 extern crate rustc_trans;
@@ -72,9 +75,10 @@ use rustc::metadata;
 use rustc::util::common::time;
 
 use std::cmp::Ordering::Equal;
-use std::old_io::{self, stdio};
-use std::iter::repeat;
 use std::env;
+use std::iter::repeat;
+use std::old_io::{self, stdio};
+use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::thread;
 
@@ -92,7 +96,7 @@ pub mod driver;
 pub mod pretty;
 
 
-static BUG_REPORT_URL: &'static str =
+const BUG_REPORT_URL: &'static str =
     "https://github.com/rust-lang/rust/blob/master/CONTRIBUTING.md#bug-reports";
 
 
@@ -133,6 +137,7 @@ pub fn run_compiler<'a>(args: &[String],
     };
 
     let mut sess = build_session(sopts, input_file_path, descriptions);
+    rustc_lint::register_builtins(&mut sess.lint_store.borrow_mut(), Some(&sess));
     if sess.unstable_options() {
         sess.opts.show_span = matches.opt_str("show-span");
     }
@@ -157,14 +162,14 @@ pub fn run_compiler<'a>(args: &[String],
 }
 
 // Extract output directory and file from matches.
-fn make_output(matches: &getopts::Matches) -> (Option<Path>, Option<Path>) {
-    let odir = matches.opt_str("out-dir").map(|o| Path::new(o));
-    let ofile = matches.opt_str("o").map(|o| Path::new(o));
+fn make_output(matches: &getopts::Matches) -> (Option<PathBuf>, Option<PathBuf>) {
+    let odir = matches.opt_str("out-dir").map(|o| PathBuf::new(&o));
+    let ofile = matches.opt_str("o").map(|o| PathBuf::new(&o));
     (odir, ofile)
 }
 
 // Extract input (string or file and optional path) from matches.
-fn make_input(free_matches: &[String]) -> Option<(Input, Option<Path>)> {
+fn make_input(free_matches: &[String]) -> Option<(Input, Option<PathBuf>)> {
     if free_matches.len() == 1 {
         let ifile = &free_matches[0][..];
         if ifile == "-" {
@@ -172,7 +177,7 @@ fn make_input(free_matches: &[String]) -> Option<(Input, Option<Path>)> {
             let src = String::from_utf8(contents).unwrap();
             Some((Input::Str(src), None))
         } else {
-            Some((Input::File(Path::new(ifile)), Some(Path::new(ifile))))
+            Some((Input::File(PathBuf::new(ifile)), Some(PathBuf::new(ifile))))
         }
     } else {
         None
@@ -213,14 +218,15 @@ pub trait CompilerCalls<'a> {
                      &getopts::Matches,
                      &Session,
                      &Input,
-                     &Option<Path>,
-                     &Option<Path>)
+                     &Option<PathBuf>,
+                     &Option<PathBuf>)
                      -> Compilation;
 
     // Called after we extract the input from the arguments. Gives the implementer
     // an opportunity to change the inputs or to add some custom input handling.
     // The default behaviour is to simply pass through the inputs.
-    fn some_input(&mut self, input: Input, input_path: Option<Path>) -> (Input, Option<Path>) {
+    fn some_input(&mut self, input: Input, input_path: Option<PathBuf>)
+                  -> (Input, Option<PathBuf>) {
         (input, input_path)
     }
 
@@ -232,10 +238,10 @@ pub trait CompilerCalls<'a> {
     fn no_input(&mut self,
                 &getopts::Matches,
                 &config::Options,
-                &Option<Path>,
-                &Option<Path>,
+                &Option<PathBuf>,
+                &Option<PathBuf>,
                 &diagnostics::registry::Registry)
-                -> Option<(Input, Option<Path>)>;
+                -> Option<(Input, Option<PathBuf>)>;
 
     // Parse pretty printing information from the arguments. The implementer can
     // choose to ignore this (the default will return None) which will skip pretty
@@ -291,19 +297,20 @@ impl<'a> CompilerCalls<'a> for RustcDefaultCalls {
     fn no_input(&mut self,
                 matches: &getopts::Matches,
                 sopts: &config::Options,
-                odir: &Option<Path>,
-                ofile: &Option<Path>,
+                odir: &Option<PathBuf>,
+                ofile: &Option<PathBuf>,
                 descriptions: &diagnostics::registry::Registry)
-                -> Option<(Input, Option<Path>)> {
+                -> Option<(Input, Option<PathBuf>)> {
         match matches.free.len() {
             0 => {
                 if sopts.describe_lints {
                     let mut ls = lint::LintStore::new();
-                    ls.register_builtin(None);
+                    rustc_lint::register_builtins(&mut ls, None);
                     describe_lints(&ls, false);
                     return None;
                 }
                 let sess = build_session(sopts.clone(), None, descriptions.clone());
+                rustc_lint::register_builtins(&mut sess.lint_store.borrow_mut(), Some(&sess));
                 let should_stop = RustcDefaultCalls::print_crate_info(&sess, None, odir, ofile);
                 if should_stop == Compilation::Stop {
                     return None;
@@ -343,8 +350,8 @@ impl<'a> CompilerCalls<'a> for RustcDefaultCalls {
                      matches: &getopts::Matches,
                      sess: &Session,
                      input: &Input,
-                     odir: &Option<Path>,
-                     ofile: &Option<Path>)
+                     odir: &Option<PathBuf>,
+                     ofile: &Option<PathBuf>)
                      -> Compilation {
         RustcDefaultCalls::print_crate_info(sess, Some(input), odir, ofile).and_then(
             || RustcDefaultCalls::list_metadata(sess, matches, input))
@@ -397,11 +404,12 @@ impl RustcDefaultCalls {
         if r.contains(&("ls".to_string())) {
             match input {
                 &Input::File(ref ifile) => {
-                    let mut stdout = old_io::stdout();
                     let path = &(*ifile);
+                    let mut v = Vec::new();
                     metadata::loader::list_file_metadata(sess.target.target.options.is_like_osx,
                                                          path,
-                                                         &mut stdout).unwrap();
+                                                         &mut v).unwrap();
+                    println!("{}", String::from_utf8(v).unwrap());
                 }
                 &Input::Str(_) => {
                     early_error("cannot list metadata for stdin");
@@ -416,8 +424,8 @@ impl RustcDefaultCalls {
 
     fn print_crate_info(sess: &Session,
                         input: Option<&Input>,
-                        odir: &Option<Path>,
-                        ofile: &Option<Path>)
+                        odir: &Option<PathBuf>,
+                        ofile: &Option<PathBuf>)
                         -> Compilation {
         if sess.opts.prints.len() == 0 {
             return Compilation::Continue;
@@ -454,7 +462,8 @@ impl RustcDefaultCalls {
                                                              style,
                                                              &id,
                                                              &t_outputs.with_extension(""));
-                        println!("{}", fname.filename_display());
+                        println!("{}", fname.file_name().unwrap()
+                                            .to_string_lossy());
                     }
                 }
             }
@@ -767,7 +776,7 @@ fn parse_crate_attrs(sess: &Session, input: &Input) ->
 /// The diagnostic emitter yielded to the procedure should be used for reporting
 /// errors of the compiler.
 pub fn monitor<F:FnOnce()+Send+'static>(f: F) {
-    static STACK_SIZE: uint = 8 * 1024 * 1024; // 8MB
+    const STACK_SIZE: uint = 8 * 1024 * 1024; // 8MB
 
     let (tx, rx) = channel();
     let w = old_io::ChanWriter::new(tx);
@@ -844,4 +853,3 @@ pub fn main() {
     let result = run(env::args().collect());
     std::env::set_exit_status(result as i32);
 }
-

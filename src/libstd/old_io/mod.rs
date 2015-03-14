@@ -670,7 +670,7 @@ pub trait Reader {
     fn read_le_uint_n(&mut self, nbytes: uint) -> IoResult<u64> {
         assert!(nbytes > 0 && nbytes <= 8);
 
-        let mut val = 0u64;
+        let mut val = 0;
         let mut pos = 0;
         let mut i = nbytes;
         while i > 0 {
@@ -694,7 +694,7 @@ pub trait Reader {
     fn read_be_uint_n(&mut self, nbytes: uint) -> IoResult<u64> {
         assert!(nbytes > 0 && nbytes <= 8);
 
-        let mut val = 0u64;
+        let mut val = 0;
         let mut i = nbytes;
         while i > 0 {
             i -= 1;
@@ -714,28 +714,28 @@ pub trait Reader {
     ///
     /// The number of bytes returned is system-dependent.
     fn read_le_uint(&mut self) -> IoResult<uint> {
-        self.read_le_uint_n(usize::BYTES).map(|i| i as uint)
+        self.read_le_uint_n(usize::BYTES as usize).map(|i| i as uint)
     }
 
     /// Reads a little-endian integer.
     ///
     /// The number of bytes returned is system-dependent.
     fn read_le_int(&mut self) -> IoResult<int> {
-        self.read_le_int_n(isize::BYTES).map(|i| i as int)
+        self.read_le_int_n(isize::BYTES as usize).map(|i| i as int)
     }
 
     /// Reads a big-endian unsigned integer.
     ///
     /// The number of bytes returned is system-dependent.
     fn read_be_uint(&mut self) -> IoResult<uint> {
-        self.read_be_uint_n(usize::BYTES).map(|i| i as uint)
+        self.read_be_uint_n(usize::BYTES as usize).map(|i| i as uint)
     }
 
     /// Reads a big-endian integer.
     ///
     /// The number of bytes returned is system-dependent.
     fn read_be_int(&mut self) -> IoResult<int> {
-        self.read_be_int_n(isize::BYTES).map(|i| i as int)
+        self.read_be_int_n(isize::BYTES as usize).map(|i| i as int)
     }
 
     /// Reads a big-endian `u64`.
@@ -1078,7 +1078,7 @@ pub trait Writer {
     /// Write a single char, encoded as UTF-8.
     #[inline]
     fn write_char(&mut self, c: char) -> IoResult<()> {
-        let mut buf = [0u8; 4];
+        let mut buf = [0; 4];
         let n = c.encode_utf8(&mut buf).unwrap_or(0);
         self.write_all(&buf[..n])
     }
@@ -1098,25 +1098,25 @@ pub trait Writer {
     /// Write a little-endian uint (number of bytes depends on system).
     #[inline]
     fn write_le_uint(&mut self, n: uint) -> IoResult<()> {
-        extensions::u64_to_le_bytes(n as u64, usize::BYTES, |v| self.write_all(v))
+        extensions::u64_to_le_bytes(n as u64, usize::BYTES as usize, |v| self.write_all(v))
     }
 
     /// Write a little-endian int (number of bytes depends on system).
     #[inline]
     fn write_le_int(&mut self, n: int) -> IoResult<()> {
-        extensions::u64_to_le_bytes(n as u64, isize::BYTES, |v| self.write_all(v))
+        extensions::u64_to_le_bytes(n as u64, isize::BYTES as usize, |v| self.write_all(v))
     }
 
     /// Write a big-endian uint (number of bytes depends on system).
     #[inline]
     fn write_be_uint(&mut self, n: uint) -> IoResult<()> {
-        extensions::u64_to_be_bytes(n as u64, usize::BYTES, |v| self.write_all(v))
+        extensions::u64_to_be_bytes(n as u64, usize::BYTES as usize, |v| self.write_all(v))
     }
 
     /// Write a big-endian int (number of bytes depends on system).
     #[inline]
     fn write_be_int(&mut self, n: int) -> IoResult<()> {
-        extensions::u64_to_be_bytes(n as u64, isize::BYTES, |v| self.write_all(v))
+        extensions::u64_to_be_bytes(n as u64, isize::BYTES as usize, |v| self.write_all(v))
     }
 
     /// Write a big-endian u64 (8 bytes).
@@ -1896,7 +1896,7 @@ mod tests {
     fn test_read_at_least() {
         let mut r = BadReader::new(MemReader::new(b"hello, world!".to_vec()),
                                    vec![GoodBehavior(usize::MAX)]);
-        let buf = &mut [0u8; 5];
+        let buf = &mut [0; 5];
         assert!(r.read_at_least(1, buf).unwrap() >= 1);
         assert!(r.read_exact(5).unwrap().len() == 5); // read_exact uses read_at_least
         assert!(r.read_at_least(0, buf).is_ok());

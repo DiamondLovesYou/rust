@@ -52,7 +52,7 @@ use distributions::{Range, IndependentSample};
 use distributions::range::SampleRange;
 
 #[cfg(test)]
-static RAND_BENCH_N: u64 = 100;
+const RAND_BENCH_N: u64 = 100;
 
 pub mod distributions;
 pub mod isaac;
@@ -149,7 +149,7 @@ pub trait Rng : Sized {
     /// ```rust
     /// use std::rand::{thread_rng, Rng};
     ///
-    /// let mut v = [0u8; 13579];
+    /// let mut v = [0; 13579];
     /// thread_rng().fill_bytes(&mut v);
     /// println!("{:?}", v.as_slice());
     /// ```
@@ -342,7 +342,7 @@ impl<'a, R: Rng> Iterator for AsciiGenerator<'a, R> {
     type Item = char;
 
     fn next(&mut self) -> Option<char> {
-        static GEN_ASCII_STR_CHARSET: &'static [u8] =
+        const GEN_ASCII_STR_CHARSET: &'static [u8] =
             b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
               abcdefghijklmnopqrstuvwxyz\
               0123456789";

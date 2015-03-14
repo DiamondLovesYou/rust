@@ -302,7 +302,7 @@ nonzero_dec: '1' | '2' | '3' | '4'
 
 A _character literal_ is a single Unicode character enclosed within two
 `U+0027` (single-quote) characters, with the exception of `U+0027` itself,
-which must be _escaped_ by a preceding U+005C character (`\`).
+which must be _escaped_ by a preceding `U+005C` character (`\`).
 
 ##### String literals
 
@@ -310,6 +310,19 @@ A _string literal_ is a sequence of any Unicode characters enclosed within two
 `U+0022` (double-quote) characters, with the exception of `U+0022` itself,
 which must be _escaped_ by a preceding `U+005C` character (`\`), or a _raw
 string literal_.
+
+A multi-line string literal may be defined by terminating each line with a
+`U+005C` character (`\`) immediately before the newline. This causes the
+`U+005C` character, the newline, and all whitespace at the beginning of the
+next line to be ignored.
+
+```rust
+let a = "foobar";
+let b = "foo\
+         bar";
+
+assert_eq!(a,b);
+```
 
 ##### Character escapes
 
@@ -751,7 +764,15 @@ usually in [procedural macros](book/plugins.html#syntax-extensions):
 * `quote_pat!`
 * `quote_stmt!`
 * `quote_tokens!`
+* `quote_matcher!`
 * `quote_ty!`
+* `quote_attr!`
+
+Keep in mind that when `$name : ident` appears in the input to
+`quote_tokens!`, the result contains unquoted `name` followed by two tokens.
+However, input of the same form passed to `quote_matcher!` becomes a
+quasiquoted MBE-matcher of a nonterminal. No unquotation happens. Otherwise
+the result of `quote_matcher!` is identical to that of `quote_tokens!`.
 
 Documentation is very limited at the moment.
 
@@ -2482,6 +2503,12 @@ The currently implemented features of the reference compiler are:
 
 * `staged_api` - Allows usage of stability markers and `#![staged_api]` in a crate
 
+* `static_assert` - The `#[static_assert]` functionality is experimental and
+                    unstable. The attribute can be attached to a `static` of
+                    type `bool` and the compiler will error if the `bool` is
+                    `false` at compile time. This version of this functionality
+                    is unintuitive and suboptimal.
+
 * `start` - Allows use of the `#[start]` attribute, which changes the entry point
             into a Rust program. This capabiilty, especially the signature for the
             annotated function, is subject to change.
@@ -2527,6 +2554,14 @@ The currently implemented features of the reference compiler are:
 * `visible_private_types` - Allows public APIs to expose otherwise private
                             types, e.g. as the return type of a public function.
                             This capability may be removed in the future.
+
+* `allow_internal_unstable` - Allows `macro_rules!` macros to be tagged with the
+                              `#[allow_internal_unstable]` attribute, designed
+                              to allow `std` macros to call
+                              `#[unstable]`/feature-gated functionality
+                              internally without imposing on callers
+                              (i.e. making them behave like function calls in
+                              terms of encapsulation).
 
 If a feature is promoted to a language feature, then all existing programs will
 start to receive compilation warnings about #[feature] directives which enabled
@@ -3752,9 +3787,9 @@ An example of creating and calling a closure:
 ```rust
 let captured_var = 10;
 
-let closure_no_args = |&:| println!("captured_var={}", captured_var);
+let closure_no_args = || println!("captured_var={}", captured_var);
 
-let closure_args = |&: arg: i32| -> i32 {
+let closure_args = |arg: i32| -> i32 {
   println!("captured_var={}, arg={}", captured_var, arg);
   arg // Note lack of semicolon after 'arg'
 };

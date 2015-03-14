@@ -13,13 +13,13 @@
 macro_rules! uint_module { ($T:ty, $T_SIGNED:ty, $bits:expr) => (
 
 #[unstable(feature = "core")]
-pub const BITS : uint = $bits;
+pub const BITS : u32 = $bits;
 #[unstable(feature = "core")]
-pub const BYTES : uint = ($bits / 8);
+pub const BYTES : u32 = ($bits / 8);
 
 #[stable(feature = "rust1", since = "1.0.0")]
 pub const MIN: $T = 0 as $T;
 #[stable(feature = "rust1", since = "1.0.0")]
-pub const MAX: $T = 0 as $T - 1 as $T;
+pub const MAX: $T = !0 as $T;
 
 ) }

@@ -17,7 +17,6 @@ pub use self::InferTy::*;
 pub use self::InferRegion::*;
 pub use self::ImplOrTraitItemId::*;
 pub use self::ClosureKind::*;
-pub use self::ast_ty_to_ty_cache_entry::*;
 pub use self::Variance::*;
 pub use self::AutoAdjustment::*;
 pub use self::Representability::*;
@@ -76,7 +75,7 @@ use std::hash::{Hash, SipHasher, Hasher};
 use std::mem;
 use std::ops;
 use std::rc::Rc;
-use std::vec::{CowVec, IntoIter};
+use std::vec::IntoIter;
 use collections::enum_set::{EnumSet, CLike};
 use std::collections::{HashMap, HashSet};
 use syntax::abi;
@@ -264,12 +263,6 @@ pub struct creader_cache_key {
     pub cnum: CrateNum,
     pub pos: uint,
     pub len: uint
-}
-
-#[derive(Copy)]
-pub enum ast_ty_to_ty_cache_entry<'tcx> {
-    atttce_unresolved,  /* not resolved yet */
-    atttce_resolved(Ty<'tcx>)  /* resolved to a type, irrespective of region */
 }
 
 #[derive(Clone, PartialEq, RustcDecodable, RustcEncodable)]
@@ -716,6 +709,14 @@ pub struct ctxt<'tcx> {
     /// associated predicates.
     pub predicates: RefCell<DefIdMap<GenericPredicates<'tcx>>>,
 
+    /// Maps from the def-id of a trait to the list of
+    /// super-predicates. This is a subset of the full list of
+    /// predicates. We store these in a separate map because we must
+    /// evaluate them even during type conversion, often before the
+    /// full predicates are available (note that supertraits have
+    /// additional acyclicity requirements).
+    pub super_predicates: RefCell<DefIdMap<GenericPredicates<'tcx>>>,
+
     /// Maps from node-id of a trait object cast (like `foo as
     /// Box<Trait>`) to the trait reference.
     pub object_cast_map: ObjectCastMap<'tcx>,
@@ -727,7 +728,7 @@ pub struct ctxt<'tcx> {
     pub rcache: RefCell<FnvHashMap<creader_cache_key, Ty<'tcx>>>,
     pub short_names_cache: RefCell<FnvHashMap<Ty<'tcx>, String>>,
     pub tc_cache: RefCell<FnvHashMap<Ty<'tcx>, TypeContents>>,
-    pub ast_ty_to_ty_cache: RefCell<NodeMap<ast_ty_to_ty_cache_entry<'tcx>>>,
+    pub ast_ty_to_ty_cache: RefCell<NodeMap<Ty<'tcx>>>,
     pub enum_var_cache: RefCell<DefIdMap<Rc<Vec<Rc<VariantInfo<'tcx>>>>>>,
     pub ty_param_defs: RefCell<NodeMap<TypeParameterDef<'tcx>>>,
     pub adjustments: RefCell<NodeMap<AutoAdjustment<'tcx>>>,
@@ -1352,7 +1353,7 @@ pub enum sty<'tcx> {
     /// definition and not a concrete use of it. To get the correct `ty_enum`
     /// from the tcx, use the `NodeId` from the `ast::Ty` and look it up in
     /// the `ast_ty_to_ty_cache`. This is probably true for `ty_struct` as
-    /// well.`
+    /// well.
     ty_enum(DefId, &'tcx Substs<'tcx>),
     ty_uniq(Ty<'tcx>),
     ty_str,
@@ -1367,7 +1368,7 @@ pub enum sty<'tcx> {
     ty_trait(Box<TyTrait<'tcx>>),
     ty_struct(DefId, &'tcx Substs<'tcx>),
 
-    ty_closure(DefId, &'tcx Region, &'tcx Substs<'tcx>),
+    ty_closure(DefId, &'tcx Substs<'tcx>),
 
     ty_tup(Vec<Ty<'tcx>>),
 
@@ -1494,6 +1495,27 @@ impl<'tcx> PolyTraitRef<'tcx> {
 /// e.g. `liberate_late_bound_regions`).
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Binder<T>(pub T);
+
+impl<T> Binder<T> {
+    /// Skips the binder and returns the "bound" value. This is a
+    /// risky thing to do because it's easy to get confused about
+    /// debruijn indices and the like. It is usually better to
+    /// discharge the binder using `no_late_bound_regions` or
+    /// `replace_late_bound_regions` or something like
+    /// that. `skip_binder` is only valid when you are either
+    /// extracting data that has nothing to do with bound regions, you
+    /// are doing some sort of test that does not involve bound
+    /// regions, or you are being very careful about your depth
+    /// accounting.
+    ///
+    /// Some examples where `skip_binder` is reasonable:
+    /// - extracting the def-id from a PolyTraitRef;
+    /// - comparing the self type of a PolyTraitRef to see if it is equal to
+    ///   a type parameter `X`, since the type `X`  does not reference any regions
+    pub fn skip_binder(&self) -> &T {
+        &self.0
+    }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum IntVarValue {
@@ -1817,6 +1839,16 @@ impl<'tcx> GenericPredicates<'tcx> {
             predicates: self.predicates.subst(tcx, substs),
         }
     }
+
+    pub fn instantiate_supertrait(&self,
+                                  tcx: &ty::ctxt<'tcx>,
+                                  poly_trait_ref: &ty::PolyTraitRef<'tcx>)
+                                  -> InstantiatedPredicates<'tcx>
+    {
+        InstantiatedPredicates {
+            predicates: self.predicates.map(|pred| pred.subst_supertrait(tcx, poly_trait_ref))
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -1838,6 +1870,93 @@ pub enum Predicate<'tcx> {
     /// where <T as TraitRef>::Name == X, approximately.
     /// See `ProjectionPredicate` struct for details.
     Projection(PolyProjectionPredicate<'tcx>),
+}
+
+impl<'tcx> Predicate<'tcx> {
+    /// Performs a substituion suitable for going from a
+    /// poly-trait-ref to supertraits that must hold if that
+    /// poly-trait-ref holds. This is slightly different from a normal
+    /// substitution in terms of what happens with bound regions.  See
+    /// lengthy comment below for details.
+    pub fn subst_supertrait(&self,
+                            tcx: &ty::ctxt<'tcx>,
+                            trait_ref: &ty::PolyTraitRef<'tcx>)
+                            -> ty::Predicate<'tcx>
+    {
+        // The interaction between HRTB and supertraits is not entirely
+        // obvious. Let me walk you (and myself) through an example.
+        //
+        // Let's start with an easy case. Consider two traits:
+        //
+        //     trait Foo<'a> : Bar<'a,'a> { }
+        //     trait Bar<'b,'c> { }
+        //
+        // Now, if we have a trait reference `for<'x> T : Foo<'x>`, then
+        // we can deduce that `for<'x> T : Bar<'x,'x>`. Basically, if we
+        // knew that `Foo<'x>` (for any 'x) then we also know that
+        // `Bar<'x,'x>` (for any 'x). This more-or-less falls out from
+        // normal substitution.
+        //
+        // In terms of why this is sound, the idea is that whenever there
+        // is an impl of `T:Foo<'a>`, it must show that `T:Bar<'a,'a>`
+        // holds.  So if there is an impl of `T:Foo<'a>` that applies to
+        // all `'a`, then we must know that `T:Bar<'a,'a>` holds for all
+        // `'a`.
+        //
+        // Another example to be careful of is this:
+        //
+        //     trait Foo1<'a> : for<'b> Bar1<'a,'b> { }
+        //     trait Bar1<'b,'c> { }
+        //
+        // Here, if we have `for<'x> T : Foo1<'x>`, then what do we know?
+        // The answer is that we know `for<'x,'b> T : Bar1<'x,'b>`. The
+        // reason is similar to the previous example: any impl of
+        // `T:Foo1<'x>` must show that `for<'b> T : Bar1<'x, 'b>`.  So
+        // basically we would want to collapse the bound lifetimes from
+        // the input (`trait_ref`) and the supertraits.
+        //
+        // To achieve this in practice is fairly straightforward. Let's
+        // consider the more complicated scenario:
+        //
+        // - We start out with `for<'x> T : Foo1<'x>`. In this case, `'x`
+        //   has a De Bruijn index of 1. We want to produce `for<'x,'b> T : Bar1<'x,'b>`,
+        //   where both `'x` and `'b` would have a DB index of 1.
+        //   The substitution from the input trait-ref is therefore going to be
+        //   `'a => 'x` (where `'x` has a DB index of 1).
+        // - The super-trait-ref is `for<'b> Bar1<'a,'b>`, where `'a` is an
+        //   early-bound parameter and `'b' is a late-bound parameter with a
+        //   DB index of 1.
+        // - If we replace `'a` with `'x` from the input, it too will have
+        //   a DB index of 1, and thus we'll have `for<'x,'b> Bar1<'x,'b>`
+        //   just as we wanted.
+        //
+        // There is only one catch. If we just apply the substitution `'a
+        // => 'x` to `for<'b> Bar1<'a,'b>`, the substitution code will
+        // adjust the DB index because we substituting into a binder (it
+        // tries to be so smart...) resulting in `for<'x> for<'b>
+        // Bar1<'x,'b>` (we have no syntax for this, so use your
+        // imagination). Basically the 'x will have DB index of 2 and 'b
+        // will have DB index of 1. Not quite what we want. So we apply
+        // the substitution to the *contents* of the trait reference,
+        // rather than the trait reference itself (put another way, the
+        // substitution code expects equal binding levels in the values
+        // from the substitution and the value being substituted into, and
+        // this trick achieves that).
+
+        let substs = &trait_ref.0.substs;
+        match *self {
+            Predicate::Trait(ty::Binder(ref data)) =>
+                Predicate::Trait(ty::Binder(data.subst(tcx, substs))),
+            Predicate::Equate(ty::Binder(ref data)) =>
+                Predicate::Equate(ty::Binder(data.subst(tcx, substs))),
+            Predicate::RegionOutlives(ty::Binder(ref data)) =>
+                Predicate::RegionOutlives(ty::Binder(data.subst(tcx, substs))),
+            Predicate::TypeOutlives(ty::Binder(ref data)) =>
+                Predicate::TypeOutlives(ty::Binder(data.subst(tcx, substs))),
+            Predicate::Projection(ty::Binder(ref data)) =>
+                Predicate::Projection(ty::Binder(data.subst(tcx, substs))),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -2324,9 +2443,6 @@ pub struct TraitDef<'tcx> {
     /// implements the trait.
     pub generics: Generics<'tcx>,
 
-    /// The "supertrait" bounds.
-    pub bounds: ParamBounds<'tcx>,
-
     pub trait_ref: Rc<ty::TraitRef<'tcx>>,
 
     /// A list of the associated types defined in this trait. Useful
@@ -2451,6 +2567,7 @@ pub fn mk_ctxt<'tcx>(s: Session,
         impl_trait_refs: RefCell::new(NodeMap()),
         trait_defs: RefCell::new(DefIdMap()),
         predicates: RefCell::new(DefIdMap()),
+        super_predicates: RefCell::new(DefIdMap()),
         object_cast_map: RefCell::new(NodeMap()),
         map: map,
         intrinsic_defs: RefCell::new(DefIdMap()),
@@ -2658,8 +2775,7 @@ impl FlagComputation {
                 }
             }
 
-            &ty_closure(_, region, substs) => {
-                self.add_region(*region);
+            &ty_closure(_, substs) => {
                 self.add_substs(substs);
             }
 
@@ -2927,10 +3043,9 @@ pub fn mk_struct<'tcx>(cx: &ctxt<'tcx>, struct_id: ast::DefId,
     mk_t(cx, ty_struct(struct_id, substs))
 }
 
-pub fn mk_closure<'tcx>(cx: &ctxt<'tcx>, closure_id: ast::DefId,
-                        region: &'tcx Region, substs: &'tcx Substs<'tcx>)
+pub fn mk_closure<'tcx>(cx: &ctxt<'tcx>, closure_id: ast::DefId, substs: &'tcx Substs<'tcx>)
                         -> Ty<'tcx> {
-    mk_t(cx, ty_closure(closure_id, region, substs))
+    mk_t(cx, ty_closure(closure_id, substs))
 }
 
 pub fn mk_var<'tcx>(cx: &ctxt<'tcx>, v: TyVid) -> Ty<'tcx> {
@@ -3513,13 +3628,11 @@ pub fn type_contents<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> TypeContents {
                 apply_lang_items(cx, did, res)
             }
 
-            ty_closure(did, r, substs) => {
+            ty_closure(did, substs) => {
                 // FIXME(#14449): `borrowed_contents` below assumes `&mut` closure.
                 let param_env = ty::empty_parameter_environment(cx);
                 let upvars = closure_upvars(&param_env, did, substs).unwrap();
-                TypeContents::union(&upvars,
-                                    |f| tc_ty(cx, &f.ty, cache))
-                    | borrowed_contents(*r, MutMutable)
+                TypeContents::union(&upvars, |f| tc_ty(cx, &f.ty, cache))
             }
 
             ty_tup(ref tys) => {
@@ -3896,7 +4009,7 @@ pub fn is_type_representable<'tcx>(cx: &ctxt<'tcx>, sp: Span, ty: Ty<'tcx>)
                 let types_a = substs_a.types.get_slice(subst::TypeSpace);
                 let types_b = substs_b.types.get_slice(subst::TypeSpace);
 
-                let pairs = types_a.iter().zip(types_b.iter());
+                let mut pairs = types_a.iter().zip(types_b.iter());
 
                 pairs.all(|(&a, &b)| same_type(a, b))
             }
@@ -4297,6 +4410,9 @@ pub fn free_region_from_def(outlives_extent: region::DestructionScopeData,
 // doesn't provide type parameter substitutions.
 pub fn pat_ty<'tcx>(cx: &ctxt<'tcx>, pat: &ast::Pat) -> Ty<'tcx> {
     return node_id_to_type(cx, pat.id);
+}
+pub fn pat_ty_opt<'tcx>(cx: &ctxt<'tcx>, pat: &ast::Pat) -> Option<Ty<'tcx>> {
+    return node_id_to_type_opt(cx, pat.id);
 }
 
 
@@ -5172,7 +5288,7 @@ pub fn ty_to_def_id(ty: Ty) -> Option<ast::DefId> {
             Some(tt.principal_def_id()),
         ty_struct(id, _) |
         ty_enum(id, _) |
-        ty_closure(id, _, _) =>
+        ty_closure(id, _) =>
             Some(id),
         _ =>
             None
@@ -5334,6 +5450,7 @@ pub fn type_is_empty(cx: &ctxt, ty: Ty) -> bool {
 
 pub fn enum_variants<'tcx>(cx: &ctxt<'tcx>, id: ast::DefId)
                            -> Rc<Vec<Rc<VariantInfo<'tcx>>>> {
+    use std::num::Int; // For checked_add
     memoized(&cx.enum_var_cache, id, |id: ast::DefId| {
         if ast::LOCAL_CRATE != id.krate {
             Rc::new(csearch::get_enum_variants(cx, id))
@@ -5350,11 +5467,7 @@ pub fn enum_variants<'tcx>(cx: &ctxt<'tcx>, id: ast::DefId)
                             let mut last_discriminant: Option<Disr> = None;
                             Rc::new(enum_definition.variants.iter().map(|variant| {
 
-                                let mut discriminant = match last_discriminant {
-                                    Some(val) => val + 1,
-                                    None => INITIAL_DISCRIMINANT_VALUE
-                                };
-
+                                let mut discriminant = INITIAL_DISCRIMINANT_VALUE;
                                 if let Some(ref e) = variant.node.disr_expr {
                                     // Preserve all values, and prefer signed.
                                     let ty = Some(cx.types.i64);
@@ -5370,11 +5483,24 @@ pub fn enum_variants<'tcx>(cx: &ctxt<'tcx>, id: ast::DefId)
                                                       "expected signed integer constant");
                                         }
                                         Err(err) => {
-                                            span_err!(cx.sess, e.span, E0305,
-                                                      "expected constant: {}", err);
+                                            span_err!(cx.sess, err.span, E0305,
+                                                      "constant evaluation error: {}",
+                                                      err.description().as_slice());
                                         }
                                     }
-                                };
+                                } else {
+                                    if let Some(val) = last_discriminant {
+                                        if let Some(v) = val.checked_add(1) {
+                                            discriminant = v
+                                        } else {
+                                            cx.sess.span_err(
+                                                variant.span,
+                                                &format!("Discriminant overflowed!"));
+                                        }
+                                    } else {
+                                        discriminant = INITIAL_DISCRIMINANT_VALUE;
+                                    }
+                                }
 
                                 last_discriminant = Some(discriminant);
                                 Rc::new(VariantInfo::from_ast_variant(cx, &**variant,
@@ -5423,7 +5549,7 @@ pub fn lookup_trait_def<'tcx>(cx: &ctxt<'tcx>, did: ast::DefId)
     })
 }
 
-/// Given the did of a trait, returns its full set of predicates.
+/// Given the did of an item, returns its full set of predicates.
 pub fn lookup_predicates<'tcx>(cx: &ctxt<'tcx>, did: ast::DefId)
                                 -> GenericPredicates<'tcx>
 {
@@ -5433,117 +5559,14 @@ pub fn lookup_predicates<'tcx>(cx: &ctxt<'tcx>, did: ast::DefId)
     })
 }
 
-/// Given a reference to a trait, returns the "superbounds" declared
-/// on the trait, with appropriate substitutions applied. Basically,
-/// this applies a filter to the where clauses on the trait, returning
-/// those that have the form:
-///
-///     Self : SuperTrait<...>
-///     Self : 'region
-pub fn predicates_for_trait_ref<'tcx>(tcx: &ctxt<'tcx>,
-                                      trait_ref: &PolyTraitRef<'tcx>)
-                                      -> Vec<ty::Predicate<'tcx>>
+/// Given the did of a trait, returns its superpredicates.
+pub fn lookup_super_predicates<'tcx>(cx: &ctxt<'tcx>, did: ast::DefId)
+                                     -> GenericPredicates<'tcx>
 {
-    let trait_def = lookup_trait_def(tcx, trait_ref.def_id());
-
-    debug!("bounds_for_trait_ref(trait_def={:?}, trait_ref={:?})",
-           trait_def.repr(tcx), trait_ref.repr(tcx));
-
-    // The interaction between HRTB and supertraits is not entirely
-    // obvious. Let me walk you (and myself) through an example.
-    //
-    // Let's start with an easy case. Consider two traits:
-    //
-    //     trait Foo<'a> : Bar<'a,'a> { }
-    //     trait Bar<'b,'c> { }
-    //
-    // Now, if we have a trait reference `for<'x> T : Foo<'x>`, then
-    // we can deduce that `for<'x> T : Bar<'x,'x>`. Basically, if we
-    // knew that `Foo<'x>` (for any 'x) then we also know that
-    // `Bar<'x,'x>` (for any 'x). This more-or-less falls out from
-    // normal substitution.
-    //
-    // In terms of why this is sound, the idea is that whenever there
-    // is an impl of `T:Foo<'a>`, it must show that `T:Bar<'a,'a>`
-    // holds.  So if there is an impl of `T:Foo<'a>` that applies to
-    // all `'a`, then we must know that `T:Bar<'a,'a>` holds for all
-    // `'a`.
-    //
-    // Another example to be careful of is this:
-    //
-    //     trait Foo1<'a> : for<'b> Bar1<'a,'b> { }
-    //     trait Bar1<'b,'c> { }
-    //
-    // Here, if we have `for<'x> T : Foo1<'x>`, then what do we know?
-    // The answer is that we know `for<'x,'b> T : Bar1<'x,'b>`. The
-    // reason is similar to the previous example: any impl of
-    // `T:Foo1<'x>` must show that `for<'b> T : Bar1<'x, 'b>`.  So
-    // basically we would want to collapse the bound lifetimes from
-    // the input (`trait_ref`) and the supertraits.
-    //
-    // To achieve this in practice is fairly straightforward. Let's
-    // consider the more complicated scenario:
-    //
-    // - We start out with `for<'x> T : Foo1<'x>`. In this case, `'x`
-    //   has a De Bruijn index of 1. We want to produce `for<'x,'b> T : Bar1<'x,'b>`,
-    //   where both `'x` and `'b` would have a DB index of 1.
-    //   The substitution from the input trait-ref is therefore going to be
-    //   `'a => 'x` (where `'x` has a DB index of 1).
-    // - The super-trait-ref is `for<'b> Bar1<'a,'b>`, where `'a` is an
-    //   early-bound parameter and `'b' is a late-bound parameter with a
-    //   DB index of 1.
-    // - If we replace `'a` with `'x` from the input, it too will have
-    //   a DB index of 1, and thus we'll have `for<'x,'b> Bar1<'x,'b>`
-    //   just as we wanted.
-    //
-    // There is only one catch. If we just apply the substitution `'a
-    // => 'x` to `for<'b> Bar1<'a,'b>`, the substitution code will
-    // adjust the DB index because we substituting into a binder (it
-    // tries to be so smart...) resulting in `for<'x> for<'b>
-    // Bar1<'x,'b>` (we have no syntax for this, so use your
-    // imagination). Basically the 'x will have DB index of 2 and 'b
-    // will have DB index of 1. Not quite what we want. So we apply
-    // the substitution to the *contents* of the trait reference,
-    // rather than the trait reference itself (put another way, the
-    // substitution code expects equal binding levels in the values
-    // from the substitution and the value being substituted into, and
-    // this trick achieves that).
-
-    // Carefully avoid the binder introduced by each trait-ref by
-    // substituting over the substs, not the trait-refs themselves,
-    // thus achieving the "collapse" described in the big comment
-    // above.
-    let trait_bounds: Vec<_> =
-        trait_def.bounds.trait_bounds
-        .iter()
-        .map(|poly_trait_ref| ty::Binder(poly_trait_ref.0.subst(tcx, trait_ref.substs())))
-        .collect();
-
-    let projection_bounds: Vec<_> =
-        trait_def.bounds.projection_bounds
-        .iter()
-        .map(|poly_proj| ty::Binder(poly_proj.0.subst(tcx, trait_ref.substs())))
-        .collect();
-
-    debug!("bounds_for_trait_ref: trait_bounds={} projection_bounds={}",
-           trait_bounds.repr(tcx),
-           projection_bounds.repr(tcx));
-
-    // The region bounds and builtin bounds do not currently introduce
-    // binders so we can just substitute in a straightforward way here.
-    let region_bounds =
-        trait_def.bounds.region_bounds.subst(tcx, trait_ref.substs());
-    let builtin_bounds =
-        trait_def.bounds.builtin_bounds.subst(tcx, trait_ref.substs());
-
-    let bounds = ty::ParamBounds {
-        trait_bounds: trait_bounds,
-        region_bounds: region_bounds,
-        builtin_bounds: builtin_bounds,
-        projection_bounds: projection_bounds,
-    };
-
-    predicates(tcx, trait_ref.self_ty(), &bounds)
+    memoized(&cx.super_predicates, did, |did: DefId| {
+        assert!(did.krate != ast::LOCAL_CRATE);
+        csearch::get_super_predicates(cx, did)
+    })
 }
 
 pub fn predicates<'tcx>(
@@ -5581,7 +5604,7 @@ pub fn predicates<'tcx>(
 
 /// Get the attributes of a definition.
 pub fn get_attrs<'tcx>(tcx: &'tcx ctxt, did: DefId)
-                       -> CowVec<'tcx, ast::Attribute> {
+                       -> Cow<'tcx, [ast::Attribute]> {
     if is_local(did) {
         let item = tcx.map.expect_item(did.node);
         Cow::Borrowed(&item.attrs)
@@ -5754,22 +5777,22 @@ pub fn closure_upvars<'tcx>(typer: &mc::Typer<'tcx>,
 
 pub fn is_binopable<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>, op: ast::BinOp) -> bool {
     #![allow(non_upper_case_globals)]
-    static tycat_other: int = 0;
-    static tycat_bool: int = 1;
-    static tycat_char: int = 2;
-    static tycat_int: int = 3;
-    static tycat_float: int = 4;
-    static tycat_raw_ptr: int = 6;
+    const tycat_other: int = 0;
+    const tycat_bool: int = 1;
+    const tycat_char: int = 2;
+    const tycat_int: int = 3;
+    const tycat_float: int = 4;
+    const tycat_raw_ptr: int = 6;
 
-    static opcat_add: int = 0;
-    static opcat_sub: int = 1;
-    static opcat_mult: int = 2;
-    static opcat_shift: int = 3;
-    static opcat_rel: int = 4;
-    static opcat_eq: int = 5;
-    static opcat_bit: int = 6;
-    static opcat_logic: int = 7;
-    static opcat_mod: int = 8;
+    const opcat_add: int = 0;
+    const opcat_sub: int = 1;
+    const opcat_mult: int = 2;
+    const opcat_shift: int = 3;
+    const opcat_rel: int = 4;
+    const opcat_eq: int = 5;
+    const opcat_bit: int = 6;
+    const opcat_logic: int = 7;
+    const opcat_mod: int = 8;
 
     fn opcat(op: ast::BinOp) -> int {
         match op.node {
@@ -5808,8 +5831,8 @@ pub fn is_binopable<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>, op: ast::BinOp) -> bool
         }
     }
 
-    static t: bool = true;
-    static f: bool = false;
+    const t: bool = true;
+    const f: bool = false;
 
     let tbl = [
     //           +, -, *, shift, rel, ==, bit, logic, mod
@@ -6298,10 +6321,9 @@ pub fn hash_crate_independent<'tcx>(tcx: &ctxt<'tcx>, ty: Ty<'tcx>, svh: &Svh) -
                 }
                 ty_infer(_) => unreachable!(),
                 ty_err => byte!(21),
-                ty_closure(d, r, _) => {
+                ty_closure(d, _) => {
                     byte!(22);
                     did(state, d);
-                    region(state, *r);
                 }
                 ty_projection(ref data) => {
                     byte!(23);
@@ -6615,8 +6637,7 @@ pub fn accumulate_lifetimes_in_type(accumulator: &mut Vec<ty::Region>,
             ty_struct(_, substs) => {
                 accum_substs(accumulator, substs);
             }
-            ty_closure(_, region, substs) => {
-                accumulator.push(*region);
+            ty_closure(_, substs) => {
                 accum_substs(accumulator, substs);
             }
             ty_bool |

@@ -234,7 +234,7 @@ extern "rust-intrinsic" {
     /// use std::mem;
     ///
     /// let v: &[u8] = unsafe { mem::transmute("L") };
-    /// assert!(v == [76u8]);
+    /// assert!(v == [76]);
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn transmute<T,U>(e: T) -> U;
@@ -245,7 +245,12 @@ extern "rust-intrinsic" {
     /// will trigger a compiler error.
     pub fn return_address() -> *const u8;
 
-    /// Returns `true` if a type requires drop glue.
+    /// Returns `true` if the actual type given as `T` requires drop
+    /// glue; returns `false` if the actual type provided for `T`
+    /// implements `Copy`.
+    ///
+    /// If the actual type neither requires drop glue nor implements
+    /// `Copy`, then may return `true` or `false`.
     pub fn needs_drop<T>() -> bool;
 
     /// Returns `true` if a type is managed (will be allocated on the local heap)
@@ -554,6 +559,17 @@ extern "rust-intrinsic" {
     pub fn u32_mul_with_overflow(x: u32, y: u32) -> (u32, bool);
     /// Performs checked `u64` multiplication.
     pub fn u64_mul_with_overflow(x: u64, y: u64) -> (u64, bool);
+}
+
+// SNAP 880fb89
+#[cfg(not(stage0))]
+extern "rust-intrinsic" {
+    /// Returns (a + b) mod 2^N, where N is the width of N in bits.
+    pub fn overflowing_add<T>(a: T, b: T) -> T;
+    /// Returns (a - b) mod 2^N, where N is the width of N in bits.
+    pub fn overflowing_sub<T>(a: T, b: T) -> T;
+    /// Returns (a * b) mod 2^N, where N is the width of N in bits.
+    pub fn overflowing_mul<T>(a: T, b: T) -> T;
 }
 
 #[cfg(target_os = "nacl")]

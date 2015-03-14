@@ -59,7 +59,6 @@ use middle::ty::{self, RegionEscape, ToPolyTraitRef, Ty};
 use rscope::{self, UnelidableRscope, RegionScope, ElidableRscope,
              ObjectLifetimeDefaultRscope, ShiftedRscope, BindingRscope};
 use util::common::{ErrorReported, FN_OUTPUT_NAME};
-use util::nodemap::DefIdMap;
 use util::ppaux::{self, Repr, UserString};
 
 use std::iter::{repeat, AdditiveIterator};
@@ -73,14 +72,32 @@ use syntax::print::pprust;
 pub trait AstConv<'tcx> {
     fn tcx<'a>(&'a self) -> &'a ty::ctxt<'tcx>;
 
+    /// Identify the type scheme for an item with a type, like a type
+    /// alias, fn, or struct. This allows you to figure out the set of
+    /// type parameters defined on the item.
     fn get_item_type_scheme(&self, span: Span, id: ast::DefId)
                             -> Result<ty::TypeScheme<'tcx>, ErrorReported>;
 
+    /// Returns the `TraitDef` for a given trait. This allows you to
+    /// figure out the set of type parameters defined on the trait.
     fn get_trait_def(&self, span: Span, id: ast::DefId)
                      -> Result<Rc<ty::TraitDef<'tcx>>, ErrorReported>;
 
+    /// Ensure that the super-predicates for the trait with the given
+    /// id are available and also for the transitive set of
+    /// super-predicates.
+    fn ensure_super_predicates(&self, span: Span, id: ast::DefId)
+                               -> Result<(), ErrorReported>;
+
+    /// Returns the set of bounds in scope for the type parameter with
+    /// the given id.
     fn get_type_parameter_bounds(&self, span: Span, def_id: ast::NodeId)
                                  -> Result<Vec<ty::PolyTraitRef<'tcx>>, ErrorReported>;
+
+    /// Returns true if the trait with id `trait_def_id` defines an
+    /// associated type with the name `name`.
+    fn trait_defines_associated_type_named(&self, trait_def_id: ast::DefId, name: ast::Name)
+                                           -> bool;
 
     /// Return an (optional) substitution to convert bound type parameters that
     /// are in scope into free ones. This function should only return Some
@@ -205,25 +222,25 @@ pub fn opt_ast_region_to_region<'tcx>(
 
                                 if len == 2 && i == 0 {
                                     m.push_str(" or ");
-                                } else if i == len - 2 {
+                                } else if i + 2 == len {
                                     m.push_str(", or ");
-                                } else if i != len - 1 {
+                                } else if i + 1 != len {
                                     m.push_str(", ");
                                 }
                             }
                             if len == 1 {
-                                span_help!(this.tcx().sess, default_span,
+                                fileline_help!(this.tcx().sess, default_span,
                                     "this function's return type contains a borrowed value, but \
                                      the signature does not say which {} it is borrowed from",
                                     m);
                             } else if len == 0 {
-                                span_help!(this.tcx().sess, default_span,
+                                fileline_help!(this.tcx().sess, default_span,
                                     "this function's return type contains a borrowed value, but \
                                      there is no value for it to be borrowed from");
-                                span_help!(this.tcx().sess, default_span,
+                                fileline_help!(this.tcx().sess, default_span,
                                     "consider giving it a 'static lifetime");
                             } else {
-                                span_help!(this.tcx().sess, default_span,
+                                fileline_help!(this.tcx().sess, default_span,
                                     "this function's return type contains a borrowed value, but \
                                      the signature does not say whether it is borrowed from {}",
                                     m);
@@ -705,7 +722,7 @@ fn ast_path_to_trait_ref<'a,'tcx>(
                 span_err!(this.tcx().sess, span, E0215,
                                          "angle-bracket notation is not stable when \
                                          used with the `Fn` family of traits, use parentheses");
-                span_help!(this.tcx().sess, span,
+                fileline_help!(this.tcx().sess, span,
                            "add `#![feature(unboxed_closures)]` to \
                             the crate attributes to enable");
             }
@@ -719,7 +736,7 @@ fn ast_path_to_trait_ref<'a,'tcx>(
                 span_err!(this.tcx().sess, span, E0216,
                                          "parenthetical notation is only stable when \
                                          used with the `Fn` family of traits");
-                span_help!(this.tcx().sess, span,
+                fileline_help!(this.tcx().sess, span,
                            "add `#![feature(unboxed_closures)]` to \
                             the crate attributes to enable");
             }
@@ -783,7 +800,7 @@ fn ast_type_binding_to_projection_predicate<'tcx>(
     // We want to produce `<B as SuperTrait<int>>::T == foo`.
 
     // Simple case: X is defined in the current trait.
-    if trait_defines_associated_type_named(this, trait_ref.def_id, binding.item_name) {
+    if this.trait_defines_associated_type_named(trait_ref.def_id, binding.item_name) {
         return Ok(ty::ProjectionPredicate {
             projection_ty: ty::ProjectionTy {
                 trait_ref: trait_ref,
@@ -810,9 +827,11 @@ fn ast_type_binding_to_projection_predicate<'tcx>(
                                               tcx.mk_substs(dummy_substs)));
     }
 
+    try!(this.ensure_super_predicates(binding.span, trait_ref.def_id));
+
     let mut candidates: Vec<ty::PolyTraitRef> =
         traits::supertraits(tcx, trait_ref.to_poly_trait_ref())
-        .filter(|r| trait_defines_associated_type_named(this, r.def_id(), binding.item_name))
+        .filter(|r| this.trait_defines_associated_type_named(r.def_id(), binding.item_name))
         .collect();
 
     // If converting for an object type, then remove the dummy-ty from `Self` now.
@@ -944,14 +963,14 @@ fn ast_ty_to_trait_ref<'tcx>(this: &AstConv<'tcx>,
                       pprust::ty_to_string(ty));
             match ty.node {
                 ast::TyRptr(None, ref mut_ty) => {
-                    span_help!(this.tcx().sess, ty.span,
+                    fileline_help!(this.tcx().sess, ty.span,
                                "perhaps you meant `&{}({} +{})`? (per RFC 438)",
                                ppaux::mutability_to_string(mut_ty.mutbl),
                                pprust::ty_to_string(&*mut_ty.ty),
                                pprust::bounds_to_string(bounds));
                 }
                ast::TyRptr(Some(ref lt), ref mut_ty) => {
-                    span_help!(this.tcx().sess, ty.span,
+                    fileline_help!(this.tcx().sess, ty.span,
                                "perhaps you meant `&{} {}({} +{})`? (per RFC 438)",
                                pprust::lifetime_to_string(lt),
                                ppaux::mutability_to_string(mut_ty.mutbl),
@@ -960,7 +979,7 @@ fn ast_ty_to_trait_ref<'tcx>(this: &AstConv<'tcx>,
                 }
 
                 _ => {
-                    span_help!(this.tcx().sess, ty.span,
+                    fileline_help!(this.tcx().sess, ty.span,
                                "perhaps you forgot parentheses? (per RFC 438)");
                 }
             }
@@ -991,6 +1010,17 @@ fn trait_ref_to_object_type<'tcx>(this: &AstConv<'tcx>,
     result
 }
 
+fn report_ambiguous_associated_type(tcx: &ty::ctxt,
+                                    span: Span,
+                                    type_str: &str,
+                                    trait_str: &str,
+                                    name: &str) {
+    span_err!(tcx.sess, span, E0223,
+              "ambiguous associated type; specify the type using the syntax \
+               `<{} as {}>::{}`",
+              type_str, trait_str, name);
+}
+
 fn associated_path_def_to_ty<'tcx>(this: &AstConv<'tcx>,
                                    span: Span,
                                    ty: Ty<'tcx>,
@@ -1011,23 +1041,26 @@ fn associated_path_def_to_ty<'tcx>(this: &AstConv<'tcx>,
     let ty_param_node_id = if is_param {
         ty_path_def.local_node_id()
     } else {
-        span_err!(tcx.sess, span, E0223,
-                "ambiguous associated type; specify the type using the syntax \
-                `<{} as Trait>::{}`",
-                ty.user_string(tcx), token::get_name(assoc_name));
+        report_ambiguous_associated_type(
+            tcx, span, &ty.user_string(tcx), "Trait", &token::get_name(assoc_name));
         return (tcx.types.err, ty_path_def);
     };
 
     let ty_param_name = tcx.ty_param_defs.borrow()[ty_param_node_id].name;
 
-    // FIXME(#20300) -- search where clauses, not bounds
-    let bounds =
-        this.get_type_parameter_bounds(span, ty_param_node_id)
-            .unwrap_or(Vec::new());
+    let bounds = match this.get_type_parameter_bounds(span, ty_param_node_id) {
+        Ok(v) => v,
+        Err(ErrorReported) => { return (tcx.types.err, ty_path_def); }
+    };
+
+    // ensure the super predicates and stop if we encountered an error
+    if bounds.iter().any(|b| this.ensure_super_predicates(span, b.def_id()).is_err()) {
+        return (this.tcx().types.err, ty_path_def);
+    }
 
     let mut suitable_bounds: Vec<_> =
         traits::transitive_bounds(tcx, &bounds)
-        .filter(|b| trait_defines_associated_type_named(this, b.def_id(), assoc_name))
+        .filter(|b| this.trait_defines_associated_type_named(b.def_id(), assoc_name))
         .collect();
 
     if suitable_bounds.len() == 0 {
@@ -1081,16 +1114,6 @@ fn associated_path_def_to_ty<'tcx>(this: &AstConv<'tcx>,
     (ty, def::DefAssociatedTy(trait_did, item_did))
 }
 
-fn trait_defines_associated_type_named(this: &AstConv,
-                                       trait_def_id: ast::DefId,
-                                       assoc_name: ast::Name)
-                                       -> bool
-{
-    let tcx = this.tcx();
-    let trait_def = ty::lookup_trait_def(tcx, trait_def_id);
-    trait_def.associated_type_names.contains(&assoc_name)
-}
-
 fn qpath_to_ty<'tcx>(this: &AstConv<'tcx>,
                      rscope: &RegionScope,
                      span: Span,
@@ -1109,10 +1132,8 @@ fn qpath_to_ty<'tcx>(this: &AstConv<'tcx>,
         ty
     } else {
         let path_str = ty::item_path_str(tcx, trait_def_id);
-        span_err!(tcx.sess, span, E0223,
-                  "ambiguous associated type; specify the type using the syntax \
-                   `<Type as {}>::{}`",
-                   path_str, &token::get_ident(item_segment.identifier));
+        report_ambiguous_associated_type(
+            tcx, span, "Type", &path_str, &token::get_ident(item_segment.identifier));
         return tcx.types.err;
     };
 
@@ -1226,17 +1247,18 @@ pub fn finish_resolving_def_to_ty<'tcx>(this: &AstConv<'tcx>,
             if segments.is_empty() {
                 opt_self_ty.expect("missing T in <T>::a::b::c")
             } else {
-                tcx.sess.span_bug(span,
-                                  &format!("found module name used as a type: {}",
-                                           tcx.map.node_to_string(id.node)));
+                span_err!(tcx.sess, span, E0247, "found module name used as a type: {}",
+                          tcx.map.node_to_string(id.node));
+                return this.tcx().types.err;
             }
         }
         def::DefPrimTy(prim_ty) => {
             prim_ty_to_ty(tcx, segments, prim_ty)
         }
         _ => {
-            span_fatal!(tcx.sess, span, E0248,
-                        "found value name used as a type: {:?}", *def);
+            span_err!(tcx.sess, span, E0248,
+                      "found value name used as a type: {:?}", *def);
+            return this.tcx().types.err;
         }
     };
 
@@ -1267,19 +1289,9 @@ pub fn ast_ty_to_ty<'tcx>(this: &AstConv<'tcx>,
 
     let tcx = this.tcx();
 
-    let mut ast_ty_to_ty_cache = tcx.ast_ty_to_ty_cache.borrow_mut();
-    match ast_ty_to_ty_cache.get(&ast_ty.id) {
-        Some(&ty::atttce_resolved(ty)) => return ty,
-        Some(&ty::atttce_unresolved) => {
-            span_fatal!(tcx.sess, ast_ty.span, E0246,
-                                "illegal recursive type; insert an enum \
-                                 or struct in the cycle, if this is \
-                                 desired");
-        }
-        None => { /* go on */ }
+    if let Some(&ty) = tcx.ast_ty_to_ty_cache.borrow().get(&ast_ty.id) {
+        return ty;
     }
-    ast_ty_to_ty_cache.insert(ast_ty.id, ty::atttce_unresolved);
-    drop(ast_ty_to_ty_cache);
 
     let typ = match ast_ty.node {
         ast::TyVec(ref ty) => {
@@ -1381,14 +1393,22 @@ pub fn ast_ty_to_ty<'tcx>(this: &AstConv<'tcx>,
                             ty::mk_vec(tcx, ast_ty_to_ty(this, rscope, &**ty),
                                         Some(i as uint)),
                         _ => {
-                            span_fatal!(tcx.sess, ast_ty.span, E0249,
-                                        "expected constant expr for array length");
+                            span_err!(tcx.sess, ast_ty.span, E0249,
+                                      "expected constant expr for array length");
+                            this.tcx().types.err
                         }
                     }
                 }
-                Err(r) => {
-                    span_fatal!(tcx.sess, ast_ty.span, E0250,
-                                "expected constant expr for array length: {}", r);
+                Err(ref r) => {
+                    let subspan  =
+                        ast_ty.span.lo <= r.span.lo && r.span.hi <= ast_ty.span.hi;
+                    span_err!(tcx.sess, r.span, E0250,
+                              "array length constant evaluation error: {}",
+                              r.description().as_slice());
+                    if !subspan {
+                        span_note!(tcx.sess, ast_ty.span, "for array length here")
+                    }
+                    this.tcx().types.err
                 }
             }
         }
@@ -1404,7 +1424,7 @@ pub fn ast_ty_to_ty<'tcx>(this: &AstConv<'tcx>,
         }
     };
 
-    tcx.ast_ty_to_ty_cache.borrow_mut().insert(ast_ty.id, ty::atttce_resolved(typ));
+    tcx.ast_ty_to_ty_cache.borrow_mut().insert(ast_ty.id, typ);
     return typ;
 }
 
@@ -1821,6 +1841,10 @@ fn compute_object_lifetime_bound<'tcx>(
         return ast_region_to_region(tcx, r);
     }
 
+    if let Err(ErrorReported) = this.ensure_super_predicates(span,principal_trait_ref.def_id()) {
+        return ty::ReStatic;
+    }
+
     // No explicit region bound specified. Therefore, examine trait
     // bounds and see if we can derive region bounds from those.
     let derived_region_bounds =
@@ -1906,34 +1930,11 @@ pub fn partition_bounds<'a>(tcx: &ty::ctxt,
     let mut builtin_bounds = ty::empty_builtin_bounds();
     let mut region_bounds = Vec::new();
     let mut trait_bounds = Vec::new();
-    let mut trait_def_ids = DefIdMap();
     for ast_bound in ast_bounds {
         match *ast_bound {
             ast::TraitTyParamBound(ref b, ast::TraitBoundModifier::None) => {
                 match ::lookup_full_def(tcx, b.trait_ref.path.span, b.trait_ref.ref_id) {
                     def::DefTrait(trait_did) => {
-                        match trait_def_ids.get(&trait_did) {
-                            // Already seen this trait. We forbid
-                            // duplicates in the list (for some
-                            // reason).
-                            Some(span) => {
-                                span_err!(
-                                    tcx.sess, b.trait_ref.path.span, E0127,
-                                    "trait `{}` already appears in the \
-                                     list of bounds",
-                                    b.trait_ref.path.user_string(tcx));
-                                tcx.sess.span_note(
-                                    *span,
-                                    "previous appearance is here");
-
-                                continue;
-                            }
-
-                            None => { }
-                        }
-
-                        trait_def_ids.insert(trait_did, b.trait_ref.path.span);
-
                         if ty::try_add_builtin_trait(tcx,
                                                      trait_did,
                                                      &mut builtin_bounds) {

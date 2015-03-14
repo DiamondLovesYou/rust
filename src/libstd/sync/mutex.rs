@@ -15,6 +15,7 @@ use marker;
 use ops::{Deref, DerefMut};
 use sync::poison::{self, TryLockError, TryLockResult, LockResult};
 use sys_common::mutex as sys;
+use fmt;
 
 /// A mutual exclusion primitive useful for protecting shared data
 ///
@@ -250,6 +251,19 @@ impl<T: Send> Drop for Mutex<T> {
     }
 }
 
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<T: fmt::Debug + Send + 'static> fmt::Debug for Mutex<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.try_lock() {
+            Ok(guard) => write!(f, "Mutex {{ data: {:?} }}", *guard),
+            Err(TryLockError::Poisoned(err)) => {
+                write!(f, "Mutex {{ data: Poisoned({:?}) }}", **err.get_ref())
+            },
+            Err(TryLockError::WouldBlock) => write!(f, "Mutex {{ <locked> }}")
+        }
+    }
+}
+
 struct Dummy(UnsafeCell<()>);
 unsafe impl Sync for Dummy {}
 static DUMMY: Dummy = Dummy(UnsafeCell { value: () });
@@ -376,8 +390,8 @@ mod test {
     fn lots_and_lots() {
         static M: StaticMutex = MUTEX_INIT;
         static mut CNT: u32 = 0;
-        static J: u32 = 1000;
-        static K: u32 = 3;
+        const J: u32 = 1000;
+        const K: u32 = 3;
 
         fn inc() {
             for _ in 0..J {

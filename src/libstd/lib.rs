@@ -109,7 +109,7 @@
 #![feature(box_syntax)]
 #![feature(collections)]
 #![feature(core)]
-#![feature(int_uint)]
+#![feature(hash)]
 #![feature(lang_items)]
 #![feature(libc)]
 #![feature(linkage, thread_local, asm)]
@@ -123,8 +123,10 @@
 #![feature(unsafe_no_drop_flag)]
 #![feature(macro_reexport)]
 #![feature(hash)]
+#![feature(int_uint)]
 #![feature(unique)]
-#![cfg_attr(test, feature(test, rustc_private, env))]
+#![feature(allow_internal_unstable)]
+#![cfg_attr(test, feature(test, rustc_private))]
 
 // Don't link to std. We are std.
 #![feature(no_std)]
@@ -221,14 +223,12 @@ mod int_macros;
 mod uint_macros;
 
 #[path = "num/isize.rs"]  pub mod isize;
-pub use isize as int;
 #[path = "num/i8.rs"]   pub mod i8;
 #[path = "num/i16.rs"]  pub mod i16;
 #[path = "num/i32.rs"]  pub mod i32;
 #[path = "num/i64.rs"]  pub mod i64;
 
 #[path = "num/usize.rs"] pub mod usize;
-pub use usize as uint;
 #[path = "num/u8.rs"]   pub mod u8;
 #[path = "num/u16.rs"]  pub mod u16;
 #[path = "num/u32.rs"]  pub mod u32;

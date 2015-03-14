@@ -42,7 +42,7 @@
 //! }
 //! ```
 //!
-//! This will print `Cons(1i32, Box(Cons(2i32, Box(Nil))))`.
+//! This will print `Cons(1, Box(Cons(2, Box(Nil))))`.
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
@@ -94,6 +94,7 @@ impl<T> Box<T> {
     /// let x = Box::new(5);
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
+    #[inline(always)]
     pub fn new(x: T) -> Box<T> {
         box x
     }
@@ -156,7 +157,7 @@ impl<T: Default> Default for Box<T> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Default for Box<[T]> {
     #[stable(feature = "rust1", since = "1.0.0")]
-    fn default() -> Box<[T]> { box [] }
+    fn default() -> Box<[T]> { Box::<[T; 0]>::new([]) }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]

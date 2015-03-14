@@ -84,7 +84,7 @@ impl<'a, 'v> Visitor<'v> for MacroLoader<'a> {
                 }
                 "plugin" => {
                     self.sess.span_err(attr.span, "#[plugin] on `extern crate` is deprecated");
-                    self.sess.span_help(attr.span, &format!("use a crate attribute instead, \
+                    self.sess.fileline_help(attr.span, &format!("use a crate attribute instead, \
                                                             i.e. #![plugin({})]",
                                                             item.ident.as_str()));
                 }
@@ -166,6 +166,9 @@ impl<'a> MacroLoader<'a> {
                 Some(sel) => sel.contains_key(&name),
             };
             def.export = reexport.contains_key(&name);
+            def.allow_internal_unstable = attr::contains_name(&def.attrs,
+                                                              "allow_internal_unstable");
+            debug!("load_macros: loaded: {:?}", def);
             self.macros.push(def);
         }
 

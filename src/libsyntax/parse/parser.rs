@@ -78,10 +78,11 @@ use ptr::P;
 use owned_slice::OwnedSlice;
 
 use std::collections::HashSet;
-use std::old_io::fs::PathExtensions;
+use std::io::prelude::*;
 use std::iter;
 use std::mem;
 use std::num::Float;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::slice;
 
@@ -973,7 +974,7 @@ impl<'a> Parser<'a> {
     }
     pub fn span_fatal_help(&self, sp: Span, m: &str, help: &str) -> ! {
         self.span_err(sp, m);
-        self.span_help(sp, help);
+        self.fileline_help(sp, help);
         panic!(diagnostic::FatalError);
     }
     pub fn span_note(&self, sp: Span, m: &str) {
@@ -981,6 +982,9 @@ impl<'a> Parser<'a> {
     }
     pub fn span_help(&self, sp: Span, m: &str) {
         self.sess.span_diagnostic.span_help(sp, m)
+    }
+    pub fn fileline_help(&self, sp: Span, m: &str) {
+        self.sess.span_diagnostic.fileline_help(sp, m)
     }
     pub fn bug(&self, m: &str) -> ! {
         self.sess.span_diagnostic.span_bug(self.span, m)
@@ -1163,7 +1167,6 @@ impl<'a> Parser<'a> {
         {
             self.bump();
             self.bump();
-            return;
         } else if
             self.eat(&token::Colon)
         {
@@ -2532,7 +2535,7 @@ impl<'a> Parser<'a> {
                             Some(f) => f,
                             None => continue,
                         };
-                        self.span_help(last_span,
+                        self.fileline_help(last_span,
                             &format!("try parenthesizing the first index; e.g., `(foo.{}){}`",
                                     float.trunc() as usize,
                                     &float.fract().to_string()[1..]));
@@ -2943,7 +2946,7 @@ impl<'a> Parser<'a> {
                 self.span_err(op_span,
                     "chained comparison operators require parentheses");
                 if op.node == BiLt && outer_op == BiGt {
-                    self.span_help(op_span,
+                    self.fileline_help(op_span,
                         "use `::<...>` instead of `<...>` if you meant to specify type arguments");
                 }
             }
@@ -3538,6 +3541,19 @@ impl<'a> Parser<'a> {
                             self.parse_pat_fields();
                         self.bump();
                         pat = PatStruct(enum_path, fields, etc);
+                    }
+                    token::DotDotDot => {
+                        let hi = self.last_span.hi;
+                        let start = self.mk_expr(lo, hi, ExprPath(None, enum_path));
+                        self.eat(&token::DotDotDot);
+                        let end = if self.token.is_ident() || self.token.is_path() {
+                            let path = self.parse_path(LifetimeAndTypesWithColons);
+                            let hi = self.span.hi;
+                            self.mk_expr(lo, hi, ExprPath(None, path))
+                        } else {
+                            self.parse_literal_maybe_minus()
+                        };
+                        pat = PatRange(start, end);
                     }
                     _ => {
                         let mut args: Vec<P<Pat>> = Vec::new();
@@ -4686,7 +4702,7 @@ impl<'a> Parser<'a> {
         match visa {
             Public => {
                 self.span_err(span, "can't qualify macro invocation with `pub`");
-                self.span_help(span, "try adjusting the macro to put `pub` inside \
+                self.fileline_help(span, "try adjusting the macro to put `pub` inside \
                                       the invocation");
             }
             Inherited => (),
@@ -5236,14 +5252,23 @@ impl<'a> Parser<'a> {
                     outer_attrs: &[ast::Attribute],
                     id_sp: Span)
                     -> (ast::Item_, Vec<ast::Attribute> ) {
-        let mut prefix = Path::new(self.sess.span_diagnostic.cm.span_to_filename(self.span));
-        prefix.pop();
-        let mod_path = Path::new(".").join_many(&self.mod_path_stack);
-        let dir_path = prefix.join(&mod_path);
+        let mut prefix = PathBuf::new(&self.sess.span_diagnostic.cm
+                                           .span_to_filename(self.span));
+        // FIXME(acrichto): right now "a".pop() == "a", but need to confirm with
+        //                  aturon whether this is expected or not.
+        if prefix.parent().is_some() {
+            prefix.pop();
+        } else {
+            prefix = PathBuf::new("");
+        }
+        let mut dir_path = prefix;
+        for part in &self.mod_path_stack {
+            dir_path.push(&**part);
+        }
         let mod_string = token::get_ident(id);
         let (file_path, owns_directory) = match ::attr::first_attr_value_str_by_name(
                 outer_attrs, "path") {
-            Some(d) => (dir_path.join(d), true),
+            Some(d) => (dir_path.join(&*d), true),
             None => {
                 let mod_name = mod_string.to_string();
                 let default_path_str = format!("{}.rs", mod_name);
@@ -5307,7 +5332,7 @@ impl<'a> Parser<'a> {
     }
 
     fn eval_src_mod_from_path(&mut self,
-                              path: Path,
+                              path: PathBuf,
                               owns_directory: bool,
                               name: String,
                               id_sp: Span) -> (ast::Item_, Vec<ast::Attribute> ) {
@@ -5317,10 +5342,10 @@ impl<'a> Parser<'a> {
                 let mut err = String::from_str("circular modules: ");
                 let len = included_mod_stack.len();
                 for p in &included_mod_stack[i.. len] {
-                    err.push_str(&p.display().as_cow());
+                    err.push_str(&p.to_string_lossy());
                     err.push_str(" -> ");
                 }
-                err.push_str(&path.display().as_cow());
+                err.push_str(&path.to_string_lossy());
                 self.span_fatal(id_sp, &err[..]);
             }
             None => ()
@@ -5423,7 +5448,7 @@ impl<'a> Parser<'a> {
                     if self.token.is_ident() { self.bump(); }
 
                     self.span_err(span, "expected `;`, found `as`");
-                    self.span_help(span,
+                    self.fileline_help(span,
                                    &format!("perhaps you meant to enclose the crate name `{}` in \
                                            a string?",
                                           the_ident.as_str()));
@@ -5734,7 +5759,7 @@ impl<'a> Parser<'a> {
             if self.eat_keyword(keywords::Mut) {
                 let last_span = self.last_span;
                 self.span_err(last_span, "const globals cannot be mutable");
-                self.span_help(last_span, "did you mean to declare a static?");
+                self.fileline_help(last_span, "did you mean to declare a static?");
             }
             let (ident, item_, extra_attrs) = self.parse_item_const(None);
             let last_span = self.last_span;

@@ -397,7 +397,7 @@ impl<'a, 'tcx> CoherenceChecker<'a, 'tcx> {
             match self_type.ty.sty {
                 ty::ty_enum(type_def_id, _) |
                 ty::ty_struct(type_def_id, _) |
-                ty::ty_closure(type_def_id, _, _) => {
+                ty::ty_closure(type_def_id, _) => {
                     tcx.destructor_for_type
                        .borrow_mut()
                        .insert(type_def_id, method_def_id.def_id());
@@ -524,7 +524,7 @@ fn enforce_trait_manually_implementable(tcx: &ty::ctxt, sp: Span, trait_def_id: 
         return // everything OK
     };
     span_err!(tcx.sess, sp, E0183, "manual implementations of `{}` are experimental", trait_name);
-    span_help!(tcx.sess, sp,
+    fileline_help!(tcx.sess, sp,
                "add `#![feature(unboxed_closures)]` to the crate attributes to enable");
 }
 

@@ -789,7 +789,7 @@ fn pick_column_to_specialize(def_map: &DefMap, m: &[Match]) -> Option<uint> {
 
         // Irrefutable columns always go first, they'd only be duplicated in the branches.
         if total_score == 0 {
-            std::uint::MAX
+            std::usize::MAX
         } else {
             total_score
         }
@@ -1499,6 +1499,7 @@ pub fn store_local<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     fn create_dummy_locals<'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
                                        pat: &ast::Pat)
                                        -> Block<'blk, 'tcx> {
+        let _icx = push_ctxt("create_dummy_locals");
         // create dummy memory for the variables if we have no
         // value to store into them immediately
         let tcx = bcx.tcx();

@@ -165,14 +165,12 @@ pub fn build_external_trait(cx: &DocContext, tcx: &ty::ctxt,
             _ => unreachable!()
         }
     });
-    let trait_def = ty::lookup_trait_def(tcx, did);
     let predicates = ty::lookup_predicates(tcx, did);
-    let bounds = trait_def.bounds.clean(cx);
     clean::Trait {
         unsafety: def.unsafety,
         generics: (&def.generics, &predicates, subst::TypeSpace).clean(cx),
         items: items.collect(),
-        bounds: bounds,
+        bounds: vec![], // supertraits can be found in the list of predicates
     }
 }
 
@@ -306,6 +304,9 @@ fn build_impl(cx: &DocContext, tcx: &ty::ctxt,
         match impl_item {
             ty::MethodTraitItem(method) => {
                 if method.vis != ast::Public && associated_trait.is_none() {
+                    return None
+                }
+                if method.provided_source.is_some() {
                     return None
                 }
                 let mut item = method.clean(cx);

@@ -384,7 +384,7 @@ impl<T> !Sync for SyncSender<T> {}
 /// contains the data being sent as a payload so it can be recovered.
 #[stable(feature = "rust1", since = "1.0.0")]
 #[derive(PartialEq, Eq, Clone, Copy)]
-pub struct SendError<T>(pub T);
+pub struct SendError<T>(#[stable(feature = "rust1", since = "1.0.0")] pub T);
 
 /// An error returned from the `recv` function on a `Receiver`.
 ///
@@ -1044,13 +1044,13 @@ mod test {
 
     #[test]
     fn drop_full() {
-        let (tx, _rx) = channel();
+        let (tx, _rx) = channel::<Box<int>>();
         tx.send(box 1).unwrap();
     }
 
     #[test]
     fn drop_full_shared() {
-        let (tx, _rx) = channel();
+        let (tx, _rx) = channel::<Box<int>>();
         drop(tx.clone());
         drop(tx.clone());
         tx.send(box 1).unwrap();
@@ -1157,8 +1157,8 @@ mod test {
 
     #[test]
     fn stress_shared() {
-        static AMT: u32 = 10000;
-        static NTHREADS: u32 = 8;
+        const AMT: u32 = 10000;
+        const NTHREADS: u32 = 8;
         let (tx, rx) = channel::<i32>();
 
         let t = thread::spawn(move|| {
@@ -1389,7 +1389,7 @@ mod test {
     #[test]
     fn oneshot_multi_thread_send_recv_stress() {
         for _ in 0..stress_factor() {
-            let (tx, rx) = channel();
+            let (tx, rx) = channel::<Box<int>>();
             let _t = thread::spawn(move|| {
                 tx.send(box 10).unwrap();
             });
@@ -1566,7 +1566,7 @@ mod sync_tests {
 
     #[test]
     fn drop_full() {
-        let (tx, _rx) = sync_channel(1);
+        let (tx, _rx) = sync_channel::<Box<int>>(1);
         tx.send(box 1).unwrap();
     }
 
@@ -1663,8 +1663,8 @@ mod sync_tests {
 
     #[test]
     fn stress_shared() {
-        static AMT: u32 = 1000;
-        static NTHREADS: u32 = 8;
+        const AMT: u32 = 1000;
+        const NTHREADS: u32 = 8;
         let (tx, rx) = sync_channel::<i32>(0);
         let (dtx, drx) = sync_channel::<()>(0);
 

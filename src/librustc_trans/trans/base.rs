@@ -291,7 +291,7 @@ pub fn decl_rust_fn<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
         ty::ty_bare_fn(_, ref f) => {
             (&f.sig, f.abi, None)
         }
-        ty::ty_closure(closure_did, _, substs) => {
+        ty::ty_closure(closure_did, substs) => {
             let typer = common::NormalizingClosureTyper::new(ccx.tcx());
             function_type = typer.closure_type(closure_did, substs);
             let self_type = self_type_for_closure(ccx, closure_did, fn_ty);
@@ -433,13 +433,13 @@ pub fn set_inline_hint(f: ValueRef) {
 }
 
 pub fn set_llvm_fn_attrs(ccx: &CrateContext, attrs: &[ast::Attribute], llfn: ValueRef) {
-    use syntax::attr::*;
+    use syntax::attr::{find_inline_attr, InlineAttr};
     // Set the inline hint if there is one
     match find_inline_attr(Some(ccx.sess().diagnostic()), attrs) {
-        InlineHint   => set_inline_hint(llfn),
-        InlineAlways => set_always_inline(llfn),
-        InlineNever  => set_no_inline(llfn),
-        InlineNone   => { /* fallthrough */ }
+        InlineAttr::Hint   => set_inline_hint(llfn),
+        InlineAttr::Always => set_always_inline(llfn),
+        InlineAttr::Never  => set_no_inline(llfn),
+        InlineAttr::None   => { /* fallthrough */ }
     }
 
     for attr in attrs {
@@ -685,7 +685,7 @@ pub fn iter_structural_ty<'blk, 'tcx, F>(cx: Block<'blk, 'tcx>,
               }
           })
       }
-      ty::ty_closure(def_id, _, substs) => {
+      ty::ty_closure(def_id, substs) => {
           let repr = adt::represent_type(cx.ccx(), t);
           let typer = common::NormalizingClosureTyper::new(cx.tcx());
           let upvars = typer.closure_upvars(def_id, substs).unwrap();
@@ -833,11 +833,11 @@ pub fn fail_if_zero_or_overflows<'blk, 'tcx>(
 
     let (is_zero, is_signed) = match rhs_t.sty {
         ty::ty_int(t) => {
-            let zero = C_integral(Type::int_from_ty(cx.ccx(), t), 0u64, false);
+            let zero = C_integral(Type::int_from_ty(cx.ccx(), t), 0, false);
             (ICmp(cx, llvm::IntEQ, rhs, zero, debug_loc), true)
         }
         ty::ty_uint(t) => {
-            let zero = C_integral(Type::uint_from_ty(cx.ccx(), t), 0u64, false);
+            let zero = C_integral(Type::uint_from_ty(cx.ccx(), t), 0, false);
             (ICmp(cx, llvm::IntEQ, rhs, zero, debug_loc), false)
         }
         _ => {
@@ -1203,21 +1203,6 @@ pub fn alloca_no_lifetime(cx: Block, ty: Type, name: &str) -> ValueRef {
     Alloca(cx, ty, name)
 }
 
-pub fn alloca_zeroed<'blk, 'tcx>(cx: Block<'blk, 'tcx>, ty: Ty<'tcx>,
-                                 name: &str) -> ValueRef {
-    let llty = type_of::type_of(cx.ccx(), ty);
-    if cx.unreachable.get() {
-        unsafe {
-            return llvm::LLVMGetUndef(llty.ptr_to().to_ref());
-        }
-    }
-    let p = alloca_no_lifetime(cx, llty, name);
-    let b = cx.fcx.ccx.builder();
-    b.position_before(cx.fcx.alloca_insert_pt.get().unwrap());
-    memzero(&b, p, ty);
-    p
-}
-
 // Creates the alloca slot which holds the pointer to the slot for the final return value
 pub fn make_return_slot_pointer<'a, 'tcx>(fcx: &FunctionContext<'a, 'tcx>,
                                           output_type: Ty<'tcx>) -> ValueRef {
@@ -1547,7 +1532,6 @@ fn create_datums_for_fn_args_under_call_abi<'blk, 'tcx>(
                                   datum::lvalue_scratch_datum(bcx,
                                                               arg_ty,
                                                               "tupled_args",
-                                                              false,
                                                               tuple_args_scope_id,
                                                               (),
                                                               |(),
@@ -2332,6 +2316,11 @@ pub fn trans_item(ccx: &CrateContext, item: &ast::Item) {
           // Do static_assert checking. It can't really be done much earlier
           // because we need to get the value of the bool out of LLVM
           if attr::contains_name(&item.attrs, "static_assert") {
+              if !ty::type_is_bool(ty::expr_ty(ccx.tcx(), expr)) {
+                  ccx.sess().span_fatal(expr.span,
+                                        "can only have static_assert on a static \
+                                         with type `bool`");
+              }
               if m == ast::MutMutable {
                   ccx.sess().span_fatal(expr.span,
                                         "cannot have static_assert on a mutable \
@@ -2430,32 +2419,34 @@ pub fn get_fn_llvm_attributes<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, fn_ty: Ty<
     use middle::ty::{BrAnon, ReLateBound};
 
     let function_type;
-    let (fn_sig, abi, has_env) = match fn_ty.sty {
-        ty::ty_bare_fn(_, ref f) => (&f.sig, f.abi, false),
-        ty::ty_closure(closure_did, _, substs) => {
+    let (fn_sig, abi, env_ty) = match fn_ty.sty {
+        ty::ty_bare_fn(_, ref f) => (&f.sig, f.abi, None),
+        ty::ty_closure(closure_did, substs) => {
             let typer = common::NormalizingClosureTyper::new(ccx.tcx());
             function_type = typer.closure_type(closure_did, substs);
-            (&function_type.sig, RustCall, true)
+            let self_type = self_type_for_closure(ccx, closure_did, fn_ty);
+            (&function_type.sig, RustCall, Some(self_type))
         }
         _ => ccx.sess().bug("expected closure or function.")
     };
 
     let fn_sig = ty::erase_late_bound_regions(ccx.tcx(), fn_sig);
 
-    // Since index 0 is the return value of the llvm func, we start
-    // at either 1 or 2 depending on whether there's an env slot or not
-    let mut first_arg_offset = if has_env { 2 } else { 1 };
     let mut attrs = llvm::AttrBuilder::new();
     let ret_ty = fn_sig.output;
 
     // These have an odd calling convention, so we need to manually
     // unpack the input ty's
     let input_tys = match fn_ty.sty {
-        ty::ty_closure(_, _, _) => {
+        ty::ty_closure(..) => {
             assert!(abi == RustCall);
 
             match fn_sig.inputs[0].sty {
-                ty::ty_tup(ref inputs) => inputs.clone(),
+                ty::ty_tup(ref inputs) => {
+                    let mut full_inputs = vec![env_ty.expect("Missing closure environment")];
+                    full_inputs.push_all(inputs);
+                    full_inputs
+                }
                 _ => ccx.sess().bug("expected tuple'd inputs")
             }
         },
@@ -2473,6 +2464,8 @@ pub fn get_fn_llvm_attributes<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, fn_ty: Ty<
         _ => fn_sig.inputs.clone()
     };
 
+    // Index 0 is the return value of the llvm func, so we start at 1
+    let mut first_arg_offset = 1;
     if let ty::FnConverging(ret_ty) = ret_ty {
         // A function pointer is called without the declaration
         // available, so we have to apply any attributes with ABI
@@ -2976,7 +2969,7 @@ pub fn write_metadata(cx: &SharedCrateContext, krate: &ast::Crate) -> Vec<u8> {
     }
 
     let encode_inlined_item: encoder::EncodeInlinedItem =
-        box |ecx, rbml_w, ii| astencode::encode_inlined_item(ecx, rbml_w, ii);
+        Box::new(|ecx, rbml_w, ii| astencode::encode_inlined_item(ecx, rbml_w, ii));
 
     let encode_parms = crate_ctxt_to_encode_parms(cx, encode_inlined_item);
     let metadata = encoder::encode_metadata(encode_parms, krate);
@@ -3093,6 +3086,12 @@ pub fn trans_crate<'tcx>(analysis: ty::CrateAnalysis<'tcx>)
     let ty::CrateAnalysis { ty_cx: tcx, export_map, reachable, name, .. } = analysis;
     let krate = tcx.map.krate();
 
+    let check_overflow = if let Some(v) = tcx.sess.opts.debugging_opts.force_overflow_checks {
+        v
+    } else {
+        !attr::contains_name(&krate.config, "ndebug")
+    };
+
     // Before we touch LLVM, make sure that multithreading is enabled.
     unsafe {
         use std::sync::{Once, ONCE_INIT};
@@ -3120,7 +3119,8 @@ pub fn trans_crate<'tcx>(analysis: ty::CrateAnalysis<'tcx>)
                                              export_map,
                                              Sha256::new(),
                                              link_meta.clone(),
-                                             reachable);
+                                             reachable,
+                                             check_overflow);
 
     {
         let ccx = shared_ccx.get_ccx(0);

@@ -110,10 +110,7 @@ pub trait Write {
 /// traits.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Formatter<'a> {
-    #[cfg(not(stage0))]
     flags: u32,
-    #[cfg(stage0)]
-    flags: usize,
     fill: char,
     align: rt::v1::Alignment,
     width: Option<usize>,
@@ -159,13 +156,6 @@ impl<'a> ArgumentV1<'a> {
         }
     }
 
-    #[cfg(stage0)]
-    #[doc(hidden)]
-    #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn from_uint(x: &uint) -> ArgumentV1 {
-        ArgumentV1::new(x, ArgumentV1::show_usize)
-    }
-    #[cfg(not(stage0))]
     #[doc(hidden)]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn from_usize(x: &usize) -> ArgumentV1 {
@@ -575,7 +565,7 @@ impl<'a> Formatter<'a> {
             Alignment::Center => (padding / 2, (padding + 1) / 2),
         };
 
-        let mut fill = [0u8; 4];
+        let mut fill = [0; 4];
         let len = self.fill.encode_utf8(&mut fill).unwrap_or(0);
         let fill = unsafe { str::from_utf8_unchecked(&fill[..len]) };
 
@@ -605,14 +595,9 @@ impl<'a> Formatter<'a> {
         write(self.buf, fmt)
     }
 
-    #[cfg(not(stage0))]
     /// Flags for formatting (packed version of rt::Flag)
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn flags(&self) -> u32 { self.flags }
-    #[cfg(stage0)]
-    /// Flags for formatting (packed version of rt::Flag)
-    #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn flags(&self) -> usize { self.flags }
 
     /// Character used as 'fill' whenever there is alignment
     #[unstable(feature = "core", reason = "method was just created")]
@@ -704,7 +689,7 @@ impl Debug for char {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl Display for char {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        let mut utf8 = [0u8; 4];
+        let mut utf8 = [0; 4];
         let amt = self.encode_utf8(&mut utf8).unwrap_or(0);
         let s: &str = unsafe { mem::transmute(&utf8[..amt]) };
         Display::fmt(s, f)
@@ -715,7 +700,7 @@ impl Display for char {
 impl<T> Pointer for *const T {
     fn fmt(&self, f: &mut Formatter) -> Result {
         f.flags |= 1 << (FlagV1::Alternate as u32);
-        let ret = LowerHex::fmt(&(*self as u32), f);
+        let ret = LowerHex::fmt(&(*self as usize), f);
         f.flags &= !(1 << (FlagV1::Alternate as u32));
         ret
     }

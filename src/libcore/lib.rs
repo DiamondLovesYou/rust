@@ -39,7 +39,7 @@
 //!   distribution.
 //!
 //! * `rust_begin_unwind` - This function takes three arguments, a
-//!   `fmt::Arguments`, a `&str`, and a `uint`. These three arguments dictate
+//!   `fmt::Arguments`, a `&str`, and a `usize`. These three arguments dictate
 //!   the panic message, the file at which panic was invoked, and the line.
 //!   It is up to consumers of this core library to define this panic
 //!   function; it is only required to never return.
@@ -69,6 +69,7 @@
 #![feature(unboxed_closures)]
 #![feature(rustc_attrs)]
 #![feature(optin_builtin_traits)]
+#![feature(concat_idents)]
 
 #[macro_use]
 mod macros;
@@ -88,14 +89,12 @@ mod int_macros;
 #[macro_use]
 mod uint_macros;
 
-#[path = "num/int.rs"]  pub mod int;
 #[path = "num/isize.rs"]  pub mod isize;
 #[path = "num/i8.rs"]   pub mod i8;
 #[path = "num/i16.rs"]  pub mod i16;
 #[path = "num/i32.rs"]  pub mod i32;
 #[path = "num/i64.rs"]  pub mod i64;
 
-#[path = "num/uint.rs"] pub mod uint;
 #[path = "num/usize.rs"] pub mod usize;
 #[path = "num/u8.rs"]   pub mod u8;
 #[path = "num/u16.rs"]  pub mod u16;

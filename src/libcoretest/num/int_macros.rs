@@ -12,7 +12,7 @@ macro_rules! int_module { ($T:ty, $T_i:ident) => (
 #[cfg(test)]
 mod tests {
     use core::$T_i::*;
-    use core::int;
+    use core::isize;
     use core::num::{FromStrRadix, Int, SignedInt};
     use core::ops::{Shl, Shr, Not, BitXor, BitAnd, BitOr};
     use num;
@@ -70,12 +70,12 @@ mod tests {
         assert!(-(0b11 as $T) - (1 as $T) == (0b11 as $T).not());
     }
 
-    static A: $T = 0b0101100;
-    static B: $T = 0b0100001;
-    static C: $T = 0b1111001;
+    const A: $T = 0b0101100;
+    const B: $T = 0b0100001;
+    const C: $T = 0b1111001;
 
-    static _0: $T = 0;
-    static _1: $T = !0;
+    const _0: $T = 0;
+    const _1: $T = !0;
 
     #[test]
     fn test_count_ones() {
@@ -153,7 +153,7 @@ mod tests {
     fn test_signed_checked_div() {
         assert!(10.checked_div(2) == Some(5));
         assert!(5.checked_div(0) == None);
-        assert!(int::MIN.checked_div(-1) == None);
+        assert!(isize::MIN.checked_div(-1) == None);
     }
 
     #[test]
@@ -200,6 +200,17 @@ mod tests {
 
         assert_eq!(FromStrRadix::from_str_radix("Z", 35).ok(), None::<$T>);
         assert_eq!(FromStrRadix::from_str_radix("-9", 2).ok(), None::<$T>);
+    }
+
+    #[test]
+    fn test_pow() {
+        let mut r = 2 as $T;
+
+        assert_eq!(r.pow(2u32), 4 as $T);
+        assert_eq!(r.pow(0u32), 1 as $T);
+        r = -2 as $T;
+        assert_eq!(r.pow(2u32), 4 as $T);
+        assert_eq!(r.pow(3u32), -8 as $T);
     }
 }
 

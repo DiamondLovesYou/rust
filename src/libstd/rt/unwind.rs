@@ -174,7 +174,7 @@ fn rust_panic(cause: Box<Any + Send + 'static>) -> ! {
     rtdebug!("begin_unwind()");
 
     unsafe {
-        let exception = box Exception {
+        let exception: Box<_> = box Exception {
             uwe: uw::_Unwind_Exception {
                 exception_class: rust_exception_class(),
                 exception_cleanup: exception_cleanup,
@@ -528,7 +528,7 @@ pub fn begin_unwind_fmt(msg: fmt::Arguments, file_line: &(&'static str, uint)) -
 
     let mut s = String::new();
     let _ = write!(&mut s, "{}", msg);
-    begin_unwind_inner(box s, file_line)
+    begin_unwind_inner(Box::new(s), file_line)
 }
 
 /// This is the entry point of unwinding for panic!() and assert!().
@@ -543,7 +543,7 @@ pub fn begin_unwind<M: Any + Send>(msg: M, file_line: &(&'static str, uint)) -> 
     // panicking.
 
     // see below for why we do the `Any` coercion here.
-    begin_unwind_inner(box msg, file_line)
+    begin_unwind_inner(Box::new(msg), file_line)
 }
 
 /// The core of the unwinding.

@@ -206,10 +206,12 @@ use middle::pat_util;
 use session::config::{self, FullDebugInfo, LimitedDebugInfo, NoDebugInfo};
 use util::nodemap::{DefIdMap, NodeMap, FnvHashMap, FnvHashSet};
 use util::ppaux;
+use util::common::path2cstr;
 
 use libc::{c_uint, c_longlong};
-use std::ffi::CString;
 use std::cell::{Cell, RefCell};
+use std::ffi::CString;
+use std::path::Path;
 use std::ptr;
 use std::rc::{Rc, Weak};
 use syntax::util::interner::Interner;
@@ -472,7 +474,7 @@ impl<'tcx> TypeMap<'tcx> {
                     }
                 }
             },
-            ty::ty_closure(def_id, _, substs) => {
+            ty::ty_closure(def_id, substs) => {
                 let typer = NormalizingClosureTyper::new(cx.tcx());
                 let closure_ty = typer.closure_type(def_id, substs);
                 self.get_unique_type_id_of_closure_type(cx,
@@ -1587,20 +1589,13 @@ fn compile_unit_metadata(cx: &CrateContext) -> DIDescriptor {
                 cx.sess().warn("debuginfo: Invalid path to crate's local root source file!");
                 fallback_path(cx)
             } else {
-                match abs_path.path_relative_from(work_dir) {
+                match abs_path.relative_from(work_dir) {
                     Some(ref p) if p.is_relative() => {
-                        // prepend "./" if necessary
-                        let dotdot = b"..";
-                        let prefix: &[u8] = &[dotdot[0], ::std::old_path::SEP_BYTE];
-                        let mut path_bytes = p.as_vec().to_vec();
-
-                        if &path_bytes[..2] != prefix &&
-                           &path_bytes[..2] != dotdot {
-                            path_bytes.insert(0, prefix[0]);
-                            path_bytes.insert(1, prefix[1]);
+                        if p.starts_with(Path::new("./")) {
+                            path2cstr(p)
+                        } else {
+                            path2cstr(&Path::new(".").join(p))
                         }
-
-                        CString::new(path_bytes).unwrap()
                     }
                     _ => fallback_path(cx)
                 }
@@ -1613,7 +1608,7 @@ fn compile_unit_metadata(cx: &CrateContext) -> DIDescriptor {
                            (option_env!("CFG_VERSION")).expect("CFG_VERSION"));
 
     let compile_unit_name = compile_unit_name.as_ptr();
-    let work_dir = CString::new(work_dir.as_vec()).unwrap();
+    let work_dir = path2cstr(&work_dir);
     let producer = CString::new(producer).unwrap();
     let flags = "\0";
     let split_name = "\0";
@@ -1715,7 +1710,7 @@ fn file_metadata(cx: &CrateContext, full_path: &str) -> DIFile {
     debug!("file_metadata: {}", full_path);
 
     // FIXME (#9639): This needs to handle non-utf8 paths
-    let work_dir = cx.sess().working_dir.as_str().unwrap();
+    let work_dir = cx.sess().working_dir.to_str().unwrap();
     let file_name =
         if full_path.starts_with(work_dir) {
             &full_path[work_dir.len() + 1..full_path.len()]
@@ -2982,7 +2977,7 @@ fn type_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
         ty::ty_bare_fn(_, ref barefnty) => {
             subroutine_type_metadata(cx, unique_type_id, &barefnty.sig, usage_site_span)
         }
-        ty::ty_closure(def_id, _, substs) => {
+        ty::ty_closure(def_id, substs) => {
             let typer = NormalizingClosureTyper::new(cx.tcx());
             let sig = typer.closure_type(def_id, substs).sig;
             subroutine_type_metadata(cx, unique_type_id, &sig, usage_site_span)

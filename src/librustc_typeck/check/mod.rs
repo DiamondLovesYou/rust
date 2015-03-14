@@ -1218,6 +1218,11 @@ impl<'a, 'tcx> AstConv<'tcx> for FnCtxt<'a, 'tcx> {
         Ok(ty::lookup_trait_def(self.tcx(), id))
     }
 
+    fn ensure_super_predicates(&self, _: Span, _: ast::DefId) -> Result<(), ErrorReported> {
+        // all super predicates are ensured during collect pass
+        Ok(())
+    }
+
     fn get_free_substs(&self) -> Option<&Substs<'tcx>> {
         Some(&self.inh.param_env.free_substs)
     }
@@ -1246,6 +1251,15 @@ impl<'a, 'tcx> AstConv<'tcx> for FnCtxt<'a, 'tcx> {
                                   })
                                   .collect();
         Ok(r)
+    }
+
+    fn trait_defines_associated_type_named(&self,
+                                           trait_def_id: ast::DefId,
+                                           assoc_name: ast::Name)
+                                           -> bool
+    {
+        let trait_def = ty::lookup_trait_def(self.ccx.tcx, trait_def_id);
+        trait_def.associated_type_names.contains(&assoc_name)
     }
 
     fn ty_infer(&self, _span: Span) -> Ty<'tcx> {
@@ -1363,10 +1377,10 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         match self.inh.locals.borrow().get(&nid) {
             Some(&t) => t,
             None => {
-                self.tcx().sess.span_bug(
+                self.tcx().sess.span_err(
                     span,
-                    &format!("no type for local variable {}",
-                            nid));
+                    &format!("no type for local variable {}", nid));
+                self.tcx().types.err
             }
         }
     }
@@ -3098,7 +3112,7 @@ fn check_expr_with_unifier<'a, 'tcx, F>(fcx: &FnCtxt<'a, 'tcx>,
                 },
                 expr_t, None);
 
-            tcx.sess.span_help(field.span,
+            tcx.sess.fileline_help(field.span,
                                "maybe a `()` to call it is missing? \
                                If not, try an anonymous function");
         } else {
@@ -4480,7 +4494,7 @@ pub fn check_instantiable(tcx: &ty::ctxt,
         span_err!(tcx.sess, sp, E0073,
             "this type cannot be instantiated without an \
              instance of itself");
-        span_help!(tcx.sess, sp, "consider using `Option<{}>`",
+        fileline_help!(tcx.sess, sp, "consider using `Option<{}>`",
             ppaux::ty_to_string(tcx, item_ty));
         false
     } else {
@@ -4554,6 +4568,7 @@ pub fn check_enum_variants<'a,'tcx>(ccx: &CrateCtxt<'a,'tcx>,
                           id: ast::NodeId,
                           hint: attr::ReprAttr)
                           -> Vec<Rc<ty::VariantInfo<'tcx>>> {
+        use std::num::Int;
 
         let rty = ty::node_id_to_type(ccx.tcx, id);
         let mut variants: Vec<Rc<ty::VariantInfo>> = Vec::new();
@@ -4565,7 +4580,13 @@ pub fn check_enum_variants<'a,'tcx>(ccx: &CrateCtxt<'a,'tcx>,
             // If the discriminant value is specified explicitly in the enum check whether the
             // initialization expression is valid, otherwise use the last value plus one.
             let mut current_disr_val = match prev_disr_val {
-                Some(prev_disr_val) => prev_disr_val + 1,
+                Some(prev_disr_val) => {
+                    if let Some(v) = prev_disr_val.checked_add(1) {
+                        v
+                    } else {
+                        ty::INITIAL_DISCRIMINANT_VALUE
+                    }
+                }
                 None => ty::INITIAL_DISCRIMINANT_VALUE
             };
 
@@ -4597,8 +4618,9 @@ pub fn check_enum_variants<'a,'tcx>(ccx: &CrateCtxt<'a,'tcx>,
                                 "expected signed integer constant");
                         }
                         Err(ref err) => {
-                            span_err!(ccx.tcx.sess, e.span, E0080,
-                                "expected constant: {}", *err);
+                            span_err!(ccx.tcx.sess, err.span, E0080,
+                                      "constant evaluation error: {}",
+                                      err.description().as_slice());
                         }
                     }
                 },
@@ -5490,6 +5512,9 @@ pub fn check_intrinsic_type(ccx: &CrateCtxt, it: &ast::ForeignItem) {
             "u64_add_with_overflow" | "u64_sub_with_overflow"  | "u64_mul_with_overflow" =>
                 (0, vec!(tcx.types.u64, tcx.types.u64),
                 ty::mk_tup(tcx, vec!(tcx.types.u64, tcx.types.bool))),
+
+            "overflowing_add" | "overflowing_sub" | "overflowing_mul" =>
+                (1, vec![param(ccx, 0), param(ccx, 0)], param(ccx, 0)),
 
             "return_address" => (0, vec![], ty::mk_imm_ptr(tcx, tcx.types.u8)),
 

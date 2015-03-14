@@ -300,29 +300,14 @@ fn mkstat(stat: &libc::stat) -> FileStat {
     // FileStat times are in milliseconds
     fn mktime(secs: u64, nsecs: u64) -> u64 { secs * 1000 + nsecs / 1000000 }
 
-    #[cfg(target_os = "bitrig")]
-    fn ctime(stat: &libc::stat) -> u64 {
-      mktime(stat.st_ctim.tv_sec as u64, stat.st_ctim.tv_nsec as u64)
-    }
-    #[cfg(not(target_os = "bitrig"))]
     fn ctime(stat: &libc::stat) -> u64 {
       mktime(stat.st_ctime as u64, stat.st_ctime_nsec as u64)
     }
 
-    #[cfg(target_os = "bitrig")]
-    fn atime(stat: &libc::stat) -> u64 {
-      mktime(stat.st_atim.tv_sec as u64, stat.st_atim.tv_nsec as u64)
-    }
-    #[cfg(not(target_os = "bitrig"))]
     fn atime(stat: &libc::stat) -> u64 {
       mktime(stat.st_atime as u64, stat.st_atime_nsec as u64)
     }
 
-    #[cfg(target_os = "bitrig")]
-    fn mtime(stat: &libc::stat) -> u64 {
-      mktime(stat.st_mtim.tv_sec as u64, stat.st_mtim.tv_nsec as u64)
-    }
-    #[cfg(not(target_os = "bitrig"))]
     fn mtime(stat: &libc::stat) -> u64 {
       mktime(stat.st_mtime as u64, stat.st_mtime_nsec as u64)
     }
@@ -417,7 +402,7 @@ mod tests {
         let mut writer = FileDesc::new(writer, true);
 
         writer.write(b"test").ok().unwrap();
-        let mut buf = [0u8; 4];
+        let mut buf = [0; 4];
         match reader.read(&mut buf) {
             Ok(4) => {
                 assert_eq!(buf[0], 't' as u8);

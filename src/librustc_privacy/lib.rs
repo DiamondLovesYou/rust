@@ -233,6 +233,7 @@ impl<'a, 'tcx, 'v> Visitor<'v> for EmbargoVisitor<'a, 'tcx> {
             ast::ItemEnum(ref def, _) if public_first => {
                 for variant in &def.variants {
                     self.exported_items.insert(variant.node.id);
+                    self.public_items.insert(variant.node.id);
                 }
             }
 
@@ -320,6 +321,15 @@ impl<'a, 'tcx, 'v> Visitor<'v> for EmbargoVisitor<'a, 'tcx> {
                 match def.ctor_id {
                     Some(id) => { self.exported_items.insert(id); }
                     None => {}
+                }
+                // fields can be public or private, so lets check
+                for field in &def.fields {
+                    let vis = match field.node.kind {
+                        ast::NamedField(_, vis) | ast::UnnamedField(vis) => vis
+                    };
+                    if vis == ast::Public {
+                        self.public_items.insert(field.node.id);
+                    }
                 }
             }
 
@@ -1366,10 +1376,11 @@ impl<'a, 'tcx, 'v> Visitor<'v> for VisiblePrivateTypesVisitor<'a, 'tcx> {
                             }
                         }
                         Some(ref tr) => {
-                            // Any private types in a trait impl fall into two
+                            // Any private types in a trait impl fall into three
                             // categories.
                             // 1. mentioned in the trait definition
                             // 2. mentioned in the type params/generics
+                            // 3. mentioned in the associated types of the impl
                             //
                             // Those in 1. can only occur if the trait is in
                             // this crate and will've been warned about on the
@@ -1379,6 +1390,16 @@ impl<'a, 'tcx, 'v> Visitor<'v> for VisiblePrivateTypesVisitor<'a, 'tcx> {
                             // Those in 2. are warned via walk_generics and this
                             // call here.
                             visit::walk_path(self, &tr.path);
+
+                            // Those in 3. are warned with this call.
+                            for impl_item in impl_items {
+                                match *impl_item {
+                                    ast::MethodImplItem(..) => {},
+                                    ast::TypeImplItem(ref typedef) => {
+                                        self.visit_ty(&typedef.typ);
+                                    }
+                                }
+                            }
                         }
                     }
                 } else if trait_ref.is_none() && self_is_public_path {

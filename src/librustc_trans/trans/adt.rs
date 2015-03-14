@@ -169,7 +169,7 @@ fn represent_type_uncached<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
 
             Univariant(mk_struct(cx, &ftys[..], packed, t), dtor)
         }
-        ty::ty_closure(def_id, _, substs) => {
+        ty::ty_closure(def_id, substs) => {
             let typer = NormalizingClosureTyper::new(cx.tcx());
             let upvars = typer.closure_upvars(def_id, substs).unwrap();
             let upvar_types = upvars.iter().map(|u| u.ty).collect::<Vec<_>>();
@@ -487,12 +487,12 @@ fn range_to_inttype(cx: &CrateContext, hint: Hint, bounds: &IntBounds) -> IntTyp
     debug!("range_to_inttype: {:?} {:?}", hint, bounds);
     // Lists of sizes to try.  u64 is always allowed as a fallback.
     #[allow(non_upper_case_globals)]
-    static choose_shortest: &'static[IntType] = &[
+    const choose_shortest: &'static [IntType] = &[
         attr::UnsignedInt(ast::TyU8), attr::SignedInt(ast::TyI8),
         attr::UnsignedInt(ast::TyU16), attr::SignedInt(ast::TyI16),
         attr::UnsignedInt(ast::TyU32), attr::SignedInt(ast::TyI32)];
     #[allow(non_upper_case_globals)]
-    static at_least_32: &'static[IntType] = &[
+    const at_least_32: &'static [IntType] = &[
         attr::UnsignedInt(ast::TyU32), attr::SignedInt(ast::TyI32)];
 
     let attempts;
@@ -792,7 +792,9 @@ fn load_discr(bcx: Block, ity: IntType, ptr: ValueRef, min: Disr, max: Disr)
     assert!(bits <= 64);
     let  bits = bits as uint;
     let mask = (-1u64 >> (64 - bits)) as Disr;
-    if (max + 1) & mask == min & mask {
+    // For a (max) discr of -1, max will be `-1 as usize`, which overflows.
+    // However, that is fine here (it would still represent the full range),
+    if (max.wrapping_add(1)) & mask == min & mask {
         // i.e., if the range is everything.  The lo==hi case would be
         // rejected by the LLVM verifier (it would mean either an
         // empty set, which is impossible, or the entire range of the
@@ -801,7 +803,7 @@ fn load_discr(bcx: Block, ity: IntType, ptr: ValueRef, min: Disr, max: Disr)
     } else {
         // llvm::ConstantRange can deal with ranges that wrap around,
         // so an overflow on (max + 1) is fine.
-        LoadRangeAssert(bcx, ptr, min, (max+1), /* signed: */ True)
+        LoadRangeAssert(bcx, ptr, min, (max.wrapping_add(1)), /* signed: */ True)
     }
 }
 
@@ -1014,7 +1016,7 @@ pub fn trans_drop_flag_ptr<'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>, r: &Repr<'tcx
             let fcx = bcx.fcx;
             let custom_cleanup_scope = fcx.push_custom_cleanup_scope();
             let scratch = unpack_datum!(bcx, datum::lvalue_scratch_datum(
-                bcx, tcx.types.bool, "drop_flag", false,
+                bcx, tcx.types.bool, "drop_flag",
                 cleanup::CustomScope(custom_cleanup_scope), (), |_, bcx, _| bcx
             ));
             bcx = fold_variants(bcx, r, val, |variant_cx, st, value| {

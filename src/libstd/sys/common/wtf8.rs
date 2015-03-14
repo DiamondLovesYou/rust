@@ -38,12 +38,12 @@ use num::Int;
 use ops;
 use slice;
 use str;
-use string::{String, CowString};
+use string::String;
 use sys_common::AsInner;
 use unicode::str::{Utf16Item, utf16_items};
 use vec::Vec;
 
-static UTF8_REPLACEMENT_CHARACTER: &'static [u8] = b"\xEF\xBF\xBD";
+const UTF8_REPLACEMENT_CHARACTER: &'static [u8] = b"\xEF\xBF\xBD";
 
 /// A Unicode code point: from U+0000 to U+10FFFF.
 ///
@@ -530,7 +530,7 @@ impl Wtf8 {
     /// Surrogates are replaced with `"\u{FFFD}"` (the replacement character “�”).
     ///
     /// This only copies the data if necessary (if it contains any surrogate).
-    pub fn to_string_lossy(&self) -> CowString {
+    pub fn to_string_lossy(&self) -> Cow<str> {
         let surrogate_pos = match self.next_surrogate(0) {
             None => return Cow::Borrowed(unsafe { str::from_utf8_unchecked(&self.bytes) }),
             Some((pos, _)) => pos,
@@ -714,7 +714,7 @@ pub fn is_code_point_boundary(slice: &Wtf8, index: uint) -> bool {
     if index == slice.len() { return true; }
     match slice.bytes.get(index) {
         None => false,
-        Some(&b) => b < 128u8 || b >= 192u8,
+        Some(&b) => b < 128 || b >= 192,
     }
 }
 
@@ -776,7 +776,7 @@ impl<'a> Iterator for EncodeWide<'a> {
             return Some(tmp);
         }
 
-        let mut buf = [0u16; 2];
+        let mut buf = [0; 2];
         self.code_points.next().map(|code_point| {
             let n = encode_utf16_raw(code_point.value, &mut buf)
                 .unwrap_or(0);
@@ -844,7 +844,6 @@ mod tests {
     use borrow::Cow;
     use super::*;
     use mem::transmute;
-    use string::CowString;
 
     #[test]
     fn code_point_from_u32() {
@@ -1224,7 +1223,7 @@ mod tests {
         assert_eq!(Wtf8::from_str("aé 💩").to_string_lossy(), Cow::Borrowed("aé 💩"));
         let mut string = Wtf8Buf::from_str("aé 💩");
         string.push(CodePoint::from_u32(0xD800).unwrap());
-        let expected: CowString = Cow::Owned(String::from_str("aé 💩�"));
+        let expected: Cow<str> = Cow::Owned(String::from_str("aé 💩�"));
         assert_eq!(string.to_string_lossy(), expected);
     }
 

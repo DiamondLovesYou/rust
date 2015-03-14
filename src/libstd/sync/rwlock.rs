@@ -15,6 +15,7 @@ use marker;
 use ops::{Deref, DerefMut};
 use sync::poison::{self, LockResult, TryLockError, TryLockResult};
 use sys_common::rwlock as sys;
+use fmt;
 
 /// A reader-writer lock
 ///
@@ -255,6 +256,19 @@ impl<T> Drop for RwLock<T> {
     }
 }
 
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<T: fmt::Debug + Send + Sync> fmt::Debug for RwLock<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.try_read() {
+            Ok(guard) => write!(f, "RwLock {{ data: {:?} }}", *guard),
+            Err(TryLockError::Poisoned(err)) => {
+                write!(f, "RwLock {{ data: Poisoned({:?}) }}", **err.get_ref())
+            },
+            Err(TryLockError::WouldBlock) => write!(f, "RwLock {{ <locked> }}")
+        }
+    }
+}
+
 struct Dummy(UnsafeCell<()>);
 unsafe impl Sync for Dummy {}
 static DUMMY: Dummy = Dummy(UnsafeCell { value: () });
@@ -422,8 +436,8 @@ mod tests {
     #[test]
     fn frob() {
         static R: StaticRwLock = RW_LOCK_INIT;
-        static N: usize = 10;
-        static M: usize = 1000;
+        const N: usize = 10;
+        const M: usize = 1000;
 
         let (tx, rx) = channel::<()>();
         for _ in 0..N {

@@ -1,4 +1,4 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,4 +8,15 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-uint_module!(uint, uint);
+// ignore-test: not a test, used by backtrace-debuginfo.rs to test file!()
+
+#[inline(never)]
+pub fn callback<F>(f: F) where F: FnOnce((&'static str, u32)) {
+    f((file!(), line!()))
+}
+
+#[inline(always)]
+pub fn callback_inlined<F>(f: F) where F: FnOnce((&'static str, u32)) {
+    f((file!(), line!()))
+}
+

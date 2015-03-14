@@ -18,17 +18,19 @@ use llvm::{ModuleRef, TargetMachineRef, PassManagerRef, DiagnosticInfoRef, Conte
 use llvm::SMDiagnosticRef;
 use trans::{CrateTranslation, ModuleTranslation};
 use util::common::time;
+use util::common::path2cstr;
 use syntax::codemap;
 use syntax::diagnostic;
 use syntax::diagnostic::{Emitter, Handler, Level, mk_handler};
 
 use std::ffi::{CStr, CString};
-use std::old_io::Command;
-use std::old_io::fs;
+use std::fs;
 use std::iter::Unfold;
+use std::mem;
+use std::path::Path;
+use std::process::{Command, Stdio};
 use std::ptr;
 use std::str;
-use std::mem;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::channel;
 use std::thread;
@@ -67,7 +69,7 @@ pub fn write_output_file(
         output: &Path,
         file_type: llvm::FileType) {
     unsafe {
-        let output_c = CString::new(output.as_vec()).unwrap();
+        let output_c = path2cstr(output);
         let result = llvm::LLVMRustWriteOutputFile(
                 target, pm, m, output_c.as_ptr(), file_type);
         if !result {
@@ -430,7 +432,7 @@ unsafe fn optimize_and_codegen(cgcx: &CodegenContext,
     if config.emit_no_opt_bc {
         let ext = format!("{}.no-opt.bc", name_extra);
         let out = output_names.with_extension(&ext);
-        let out = CString::new(out.as_vec()).unwrap();
+        let out = path2cstr(&out);
         llvm::LLVMWriteBitcodeToFile(llmod, out.as_ptr());
     }
 
@@ -483,7 +485,7 @@ unsafe fn optimize_and_codegen(cgcx: &CodegenContext,
                     if config.emit_lto_bc {
                         let name = format!("{}.lto.bc", name_extra);
                         let out = output_names.with_extension(&name);
-                        let out = CString::new(out.as_vec()).unwrap();
+                        let out = path2cstr(&out);
                         llvm::LLVMWriteBitcodeToFile(llmod, out.as_ptr());
                     }
                 },
@@ -517,7 +519,7 @@ unsafe fn optimize_and_codegen(cgcx: &CodegenContext,
     if config.emit_bc {
         let ext = format!("{}.bc", name_extra);
         let out = output_names.with_extension(&ext);
-        let out = CString::new(out.as_vec()).unwrap();
+        let out = path2cstr(&out);
         llvm::LLVMWriteBitcodeToFile(llmod, out.as_ptr());
     }
 
@@ -525,7 +527,7 @@ unsafe fn optimize_and_codegen(cgcx: &CodegenContext,
         if config.emit_ir {
             let ext = format!("{}.ll", name_extra);
             let out = output_names.with_extension(&ext);
-            let out = CString::new(out.as_vec()).unwrap();
+            let out = path2cstr(&out);
             with_codegen(tm, llmod, config.no_builtins, |cpm| {
                 llvm::LLVMRustPrintModule(cpm, llmod, out.as_ptr());
             })
@@ -560,6 +562,8 @@ pub fn run_passes(sess: &Session,
     use metadata::cstore;
     use libc;
     use back::link::llvm_actual_err;
+
+    use std::path::{PathBuf};
 
     // It's possible that we have `codegen_units > 1` but only one item in
     // `trans.modules`.  We could theoretically proceed and do LTO in that
@@ -675,7 +679,8 @@ pub fn run_passes(sess: &Session,
         work_items.push(work);
     }
 
-    fn already_linked_libs(sess: &Session, crates: &Vec<(u32, Option<Path>)>) -> HashSet<String> {
+    fn already_linked_libs(sess: &Session,
+                           crates: &Vec<(u32, Option<PathBuf>)>) -> HashSet<String> {
         use metadata::csearch;
         // Go though all extern crates and insert their deps into our linked set.
         let linked = crates
@@ -690,8 +695,8 @@ pub fn run_passes(sess: &Session,
         debug!("linked: `{:?}`", linked);
         linked
     }
-    fn pnacl_lib_paths(sess: &Session) -> Vec<Path> {
-        fn make_absolute(p: &Path) -> ::std::io::Result<Path> {
+    fn pnacl_lib_paths(sess: &Session) -> Vec<PathBuf> {
+        fn make_absolute(p: &Path) -> ::std::io::Result<PathBuf> {
             use std::env;
             env::current_dir()
                 .map(|cwd| {
@@ -699,7 +704,7 @@ pub fn run_passes(sess: &Session,
                         .into_os_string()
                         .into_string()
                         .unwrap();
-                    Path::new(v)
+                    PathBuf::new(&v)
                 })
         }
         use rustc::session::search_paths::PathKind;
@@ -720,14 +725,14 @@ pub fn run_passes(sess: &Session,
                               }))
                 .unwrap()
         };
-        let mut paths: Vec<Path> = sess.opts.search_paths
+        let mut paths: Vec<PathBuf> = sess.opts.search_paths
             .iter(PathKind::Dependency)
-            .map(|(p, _): (&Path, _)| p.clone() )
+            .map(|(p, _): (&Path, _)| p.to_path_buf() )
             .collect();
         paths.extend({
             sess.opts.search_paths
                 .iter(PathKind::Native)
-                .map(|(p, _): (&Path, _)| p.clone() )
+                .map(|(p, _): (&Path, _)| p.to_path_buf() )
         });
         paths.push(native_dep_lib_path);
         paths.push(ports_lib_path);
@@ -738,7 +743,7 @@ pub fn run_passes(sess: &Session,
                          lib: &String,
                          kind: cstore::NativeLibraryKind,
                          linked: &mut HashSet<String>,
-                         lib_paths: &Vec<Path>) -> Option<(String, Path)> {
+                         lib_paths: &Vec<PathBuf>) -> Option<(String, PathBuf)> {
         match kind {
             cstore::NativeFramework => {
                 sess.bug("can't link MacOS frameworks into PNaCl modules");
@@ -754,21 +759,21 @@ pub fn run_passes(sess: &Session,
         }
     }
 
-    fn search_for_native(paths: &Vec<Path>,
-                         name: &String) -> Option<Path> {
-        use std::old_io::fs::stat;
-        let name_path = Path::new(format!("lib{}.a", name));
+    fn search_for_native(paths: &Vec<PathBuf>,
+                         name: &String) -> Option<PathBuf> {
+        use std::fs::metadata;
+        let name_path = PathBuf::new(&format!("lib{}.a", name));
         debug!(">> searching for native lib `{}` starting", name);
         let found = paths.iter().find(|dir| {
-            debug!("   searching in `{}`", dir.display());
-            match stat(&dir.join(&name_path)) {
+            debug!("   searching in `{:?}`", dir);
+            match metadata(&dir.join(&name_path)) {
                 Ok(_) => true,
                 Err(_) => false,
             }
         });
         let found = found.map(|f| f.join(&name_path) );
         debug!("<< searching for native lib `{}` finished, result=`{:?}`",
-               name, found.as_ref().map(|f| f.display() ));
+               name, found.as_ref());
         found
     }
     fn maybe_lib<T>(sess: &Session, name: &String, p_opt: Option<T>) -> Option<T> {
@@ -790,16 +795,19 @@ pub fn run_passes(sess: &Session,
             .filter_map(|&(ref lib, kind)| {
                 link_attrs_filter(sess, lib, kind, &mut linked, &lib_paths)
             })
-            .flat_map(|(l, p): (String, Path)| {
+            .flat_map(|(l, p): (String, PathBuf)| {
                 debug!("processing archive `{}`", p.display());
                 let archive = ArchiveRO::open(&p)
                     .expect("maybe invalid archive?");
                 let mut bitcodes = Vec::new();
                 archive.foreach_child(|name, bc| {
+                    use std::ffi::OsStr;
                     debug!("processing object `{}`", name);
                     let name_path = Path::new(name);
-                    let name_ext_str = name_path.extension_str();
-                    if name_ext_str == Some("o") || name_ext_str == Some("obj") {
+                    let name_ext_str = name_path.extension();
+                    if name_ext_str == Some(OsStr::from_str("o")) ||
+                        name_ext_str == Some(OsStr::from_str("obj"))
+                    {
                         let llctx = unsafe { llvm::LLVMContextCreate() };
                         // Ignore all messages about invalid debug versions (toolchain libraries
                         // cause an abundance of these):
@@ -818,8 +826,8 @@ pub fn run_passes(sess: &Session,
                         }
                         if llmod == ptr::null_mut() {
                             let msg = format!("failed to parse external bitcode
-                                              `{}` in archive `{}`",
-                                              name, p.display());
+                                              `{}` in archive `{:?}`",
+                                              name, p);
                             llvm_actual_err(sess, msg);
                         } else {
                             // Some globals in the bitcode from PNaCl have what is
@@ -860,7 +868,7 @@ pub fn run_passes(sess: &Session,
     }
 
     // Produce final compile outputs.
-    let copy_gracefully = |from: &Path, to: &Path| {
+    let copy_gracefully = |from: &PathBuf, to: &PathBuf| {
         if let Err(e) = fs::copy(from, to) {
             sess.err(&format!("could not copy {:?} to {:?}: {}", from, to, e));
         }
@@ -897,7 +905,7 @@ pub fn run_passes(sess: &Session,
         }
     };
 
-    let link_obj = |output_path: &Path| {
+    let link_obj = |output_path: &PathBuf| {
         // Running `ld -r` on a single input is kind of pointless.
         if sess.opts.cg.codegen_units == 1 {
             copy_gracefully(&crate_output.with_extension("0.o"), output_path);
@@ -926,12 +934,11 @@ pub fn run_passes(sess: &Session,
         cmd.arg("-nostdlib");
 
         for index in 0..trans.modules.len() {
-            cmd.arg(crate_output.with_extension(&format!("{}.o", index)));
+            cmd.arg(&crate_output.with_extension(&format!("{}.o", index)));
         }
 
-        cmd.arg("-r")
-           .arg("-o")
-           .arg(windows_output_path.as_ref().unwrap_or(output_path));
+        cmd.arg("-r").arg("-o")
+           .arg(windows_output_path.as_ref().map(|s| &**s).unwrap_or(output_path));
 
         cmd.args(&sess.target.target.options.post_link_args);
 
@@ -939,9 +946,7 @@ pub fn run_passes(sess: &Session,
             println!("{:?}", &cmd);
         }
 
-        cmd.stdin(::std::old_io::process::Ignored)
-           .stdout(::std::old_io::process::InheritFd(1))
-           .stderr(::std::old_io::process::InheritFd(2));
+        cmd.stdin(Stdio::null());
         match cmd.status() {
             Ok(status) => {
                 if !status.success() {
@@ -1065,7 +1070,9 @@ pub fn run_passes(sess: &Session,
 
     // FIXME: time_llvm_passes support - does this use a global context or
     // something?
-    //if sess.time_llvm_passes() { llvm::LLVMRustPrintPassTimings(); }
+    if sess.opts.cg.codegen_units == 1 && sess.time_llvm_passes() {
+        unsafe { llvm::LLVMRustPrintPassTimings(); }
+    }
 }
 
 struct WorkItem {
@@ -1176,9 +1183,9 @@ pub fn run_assembler(sess: &Session, outputs: &OutputFilenames) {
     let pname = get_cc_prog(sess);
     let mut cmd = Command::new(&pname[..]);
 
-    cmd.arg("-c").arg("-o").arg(outputs.path(config::OutputTypeObject))
-                           .arg(outputs.temp_path(config::OutputTypeAssembly));
-    debug!("{:?}", &cmd);
+    cmd.arg("-c").arg("-o").arg(&outputs.path(config::OutputTypeObject))
+                           .arg(&outputs.temp_path(config::OutputTypeAssembly));
+    debug!("{:?}", cmd);
 
     match cmd.output() {
         Ok(prog) => {
@@ -1187,8 +1194,8 @@ pub fn run_assembler(sess: &Session, outputs: &OutputFilenames) {
                                  pname,
                                  prog.status));
                 sess.note(&format!("{:?}", &cmd));
-                let mut note = prog.error.clone();
-                note.push_all(&prog.output);
+                let mut note = prog.stderr.clone();
+                note.push_all(&prog.stdout);
                 sess.note(str::from_utf8(&note[..]).unwrap());
                 sess.abort_if_errors();
             }

@@ -8,7 +8,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-
 use lint;
 use session::config::OutputType;
 use metadata::cstore::CStore;
@@ -28,9 +27,10 @@ use syntax::{ast, codemap};
 
 use rustc_back::target::Target;
 
+use std::path::{Path, PathBuf, AsPath};
 use std::cell::{Cell, RefCell};
-use std::borrow::ToOwned;
-use std::os;
+use std::env;
+use std::fmt;
 
 pub mod config;
 pub mod search_paths;
@@ -47,11 +47,11 @@ pub struct Session {
     pub entry_fn: RefCell<Option<(NodeId, codemap::Span)>>,
     pub entry_type: Cell<Option<config::EntryFnType>>,
     pub plugin_registrar_fn: Cell<Option<ast::NodeId>>,
-    pub default_sysroot: Option<Path>,
+    pub default_sysroot: Option<PathBuf>,
     // The name of the root source file of the crate, in the local file system. The path is always
     // expected to be absolute. `None` means that there is no source file.
-    pub local_crate_source_file: Option<Path>,
-    pub working_dir: Path,
+    pub local_crate_source_file: Option<PathBuf>,
+    pub working_dir: PathBuf,
     pub lint_store: RefCell<lint::LintStore>,
     pub lints: RefCell<NodeMap<Vec<(lint::LintId, codemap::Span, String)>>>,
     pub crate_types: RefCell<Vec<config::CrateType>>,
@@ -67,12 +67,21 @@ pub struct Session {
 
 impl Session {
     pub fn span_fatal(&self, sp: Span, msg: &str) -> ! {
+        if self.opts.treat_err_as_bug {
+            self.span_bug(sp, msg);
+        }
         self.diagnostic().span_fatal(sp, msg)
     }
     pub fn span_fatal_with_code(&self, sp: Span, msg: &str, code: &str) -> ! {
+        if self.opts.treat_err_as_bug {
+            self.span_bug(sp, msg);
+        }
         self.diagnostic().span_fatal_with_code(sp, msg, code)
     }
     pub fn fatal(&self, msg: &str) -> ! {
+        if self.opts.treat_err_as_bug {
+            self.bug(msg);
+        }
         self.diagnostic().handler().fatal(msg)
     }
     pub fn span_err(&self, sp: Span, msg: &str) {
@@ -258,8 +267,8 @@ impl Session {
 
     pub fn get_nacl_tool_path(&self,
                               nacl_suffix: &str,
-                              pnacl_suffix: &str) -> String {
-        let toolchain = self.expect_cross_path();
+                              pnacl_suffix: &str) -> PathBuf {
+        let mut toolchain = self.expect_cross_path().to_path_buf();
         let (arch_libc, prefix, suffix) = match self.target.target.arch.as_slice() {
             "x86" =>    ("x86_newlib", "i686-nacl-", nacl_suffix),
             "x86_64" => ("x86_newlib", "x86_64-nacl-", nacl_suffix),
@@ -274,29 +283,28 @@ impl Session {
         let tool_name = format!("{}{}",
                                 prefix,
                                 suffix);
-        toolchain.join_many(&["toolchain".to_owned(),
-                              post_toolchain,
-                              "bin".to_owned(),
-                              tool_name])
-            .as_str()
-            .unwrap()
-            .to_owned()
+        toolchain.push("toolchain");
+        toolchain.push(&post_toolchain);
+        toolchain.push("bin");
+        toolchain.push(&tool_name);
+        toolchain
     }
 
-    pub fn expect_cross_path(&self) -> Path {
+    pub fn expect_cross_path(&self) -> PathBuf {
         use std::env;
         let cross_path = self.opts.cg.cross_path.clone();
         match cross_path.or_else(|| env::var("NACL_SDK_ROOT").ok() ) {
             None => self.fatal("need cross path (-C cross-path, or via NACL_SDK_ROOT) \
                                 for this target"),
-            Some(p) => Path::new(p),
+            Some(p) => PathBuf::new(&p),
         }
     }
 
-    pub fn pnacl_toolchain(&self) -> Path {
-        let tc = self.expect_cross_path();
-        tc.join_many(&["toolchain".to_owned(),
-                       format!("{}_pnacl", get_os_for_nacl_toolchain(self))])
+    pub fn pnacl_toolchain(&self) -> PathBuf {
+        let mut tc = self.expect_cross_path();
+        tc.push("toolchain");
+        tc.push(&format!("{}_pnacl", get_os_for_nacl_toolchain(self)));
+        tc
     }
 
     /// Shortcut to test if we need to do special things because we are targeting PNaCl.
@@ -314,32 +322,38 @@ impl Session {
     }
 
     // Emits a fatal error if path is not writeable.
-    pub fn check_writeable_output(&self, path: &Path, name: &str) {
-        use std::old_io;
-        use std::old_io::fs::PathExtensions;
-        let is_writeable = match path.stat() {
-            Err(..) => true,
-            Ok(m) => m.perm & old_io::USER_WRITE == old_io::USER_WRITE
+    pub fn check_writeable_output<T: AsPath + ?Sized + fmt::Debug>(&self,
+                                                                   path: &T,
+                                                                   name: &str) {
+        use std::fs::metadata;
+        use std::io::ErrorKind;
+
+        let is_writeable = match metadata(path) {
+            Ok(m) => !m.permissions().readonly(),
+            Err(e) => e.kind() == ErrorKind::FileNotFound,
         };
+
         if !is_writeable {
-            self.fatal(format!("`{}` file `{}` is not writeable -- check it's permissions.",
-                               name, path.display()).as_slice());
+            self.fatal(format!("`{}` file `{:?}` is not writeable -- check it's permissions.",
+                               name, path).as_slice());
         }
     }
 
     // checks if we're saving temps or if we're emitting the specified type.
     // If neither, the file is unlinked from the filesystem.
-    pub fn remove_temp(&self, path: &Path, t: OutputType) {
-        use std::old_io::fs;
+    pub fn remove_temp<T: AsPath + ?Sized + fmt::Debug>(&self,
+                                                        path: &T,
+                                                        t: OutputType) {
+        use std::fs;
         if self.opts.cg.save_temps ||
             self.opts.output_types.contains(&t) {
             return;
         }
-        match fs::unlink(path) {
+        match fs::remove_file(path) {
             Ok(..) => {}
             Err(e) => {
                 // strictly speaking, this isn't a fatal error.
-                self.warn(format!("failed to remove `{}`: `{}`", path.display(), e).as_slice());
+                self.warn(format!("failed to remove `{:?}`: `{}`", path, e).as_slice());
             }
         }
     }
@@ -354,15 +368,16 @@ impl Session {
     }
 
     // Gets the filepath for the gold LTO plugin.
-    pub fn gold_plugin_path(&self) -> Path {
+    pub fn gold_plugin_path(&self) -> PathBuf {
         use session::config;
         use std::env::consts;
-        self.sysroot().join_many(&["lib".to_string(),
-                                   "rustlib".to_string(),
-                                   config::host_triple().to_string(),
-                                   "lib".to_string(),
-                                   format!("LLVMgold{}",
-                                           consts::DLL_SUFFIX)])
+        let mut s = self.sysroot().to_path_buf();
+        s.push("lib");
+        s.push("rustlib");
+        s.push(&config::host_triple().to_string());
+        s.push("lib");
+        s.push(&format!("LLVMgold{}", consts::DLL_SUFFIX));
+        s
     }
 }
 
@@ -427,7 +442,7 @@ fn split_msg_into_multilines(msg: &str) -> Option<String> {
 }
 
 pub fn build_session(sopts: config::Options,
-                     local_crate_source_file: Option<Path>,
+                     local_crate_source_file: Option<PathBuf>,
                      registry: diagnostics::registry::Registry)
                      -> Session {
     // FIXME: This is not general enough to make the warning lint completely override
@@ -450,7 +465,7 @@ pub fn build_session(sopts: config::Options,
 }
 
 pub fn build_session_(sopts: config::Options,
-                      local_crate_source_file: Option<Path>,
+                      local_crate_source_file: Option<PathBuf>,
                       span_diagnostic: diagnostic::SpanHandler)
                       -> Session {
     let host = match Target::search(config::host_triple()) {
@@ -472,7 +487,7 @@ pub fn build_session_(sopts: config::Options,
         if path.is_absolute() {
             path.clone()
         } else {
-            os::getcwd().unwrap().join(&path)
+            env::current_dir().unwrap().join(&path)
         }
     );
 
@@ -495,7 +510,7 @@ pub fn build_session_(sopts: config::Options,
         plugin_registrar_fn: Cell::new(None),
         default_sysroot: default_sysroot,
         local_crate_source_file: local_crate_source_file,
-        working_dir: os::getcwd().unwrap(),
+        working_dir: env::current_dir().unwrap(),
         lint_store: RefCell::new(lint::LintStore::new()),
         lints: RefCell::new(NodeMap()),
         crate_types: RefCell::new(Vec::new()),
@@ -505,7 +520,6 @@ pub fn build_session_(sopts: config::Options,
         can_print_warnings: can_print_warnings
     };
 
-    sess.lint_store.borrow_mut().register_builtin(Some(&sess));
     sess
 }
 // Seems out of place, but it uses session, so I'm putting it here

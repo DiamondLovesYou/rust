@@ -544,7 +544,8 @@ impl<'tcx, N: TypeFoldable<'tcx>> TypeFoldable<'tcx> for traits::Vtable<'tcx, N>
 impl<'tcx> TypeFoldable<'tcx> for traits::VtableObjectData<'tcx> {
     fn fold_with<F:TypeFolder<'tcx>>(&self, folder: &mut F) -> traits::VtableObjectData<'tcx> {
         traits::VtableObjectData {
-            object_ty: self.object_ty.fold_with(folder)
+            object_ty: self.object_ty.fold_with(folder),
+            upcast_trait_ref: self.upcast_trait_ref.fold_with(folder),
         }
     }
 }
@@ -650,10 +651,9 @@ pub fn super_fold_ty<'tcx, T: TypeFolder<'tcx>>(this: &mut T,
             let substs = substs.fold_with(this);
             ty::ty_struct(did, this.tcx().mk_substs(substs))
         }
-        ty::ty_closure(did, ref region, ref substs) => {
-            let r = region.fold_with(this);
+        ty::ty_closure(did, ref substs) => {
             let s = substs.fold_with(this);
-            ty::ty_closure(did, this.tcx().mk_region(r), this.tcx().mk_substs(s))
+            ty::ty_closure(did, this.tcx().mk_substs(s))
         }
         ty::ty_projection(ref data) => {
             ty::ty_projection(data.fold_with(this))

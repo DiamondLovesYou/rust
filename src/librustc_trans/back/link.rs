@@ -27,14 +27,14 @@ use util::common::time;
 use util::ppaux;
 use util::sha2::{Digest, Sha256};
 
-use std::ffi;
-use std::old_io::fs::PathExtensions;
-use std::old_io::{fs, TempDir, Command};
-use std::old_io;
+use std::ffi::{self, AsOsStr, OsString};
+use std::fs::{self, TempDir, PathExt};
+use std::io::{self, Read, Write};
 use std::mem;
+use std::path::{Path, PathBuf};
 use std::ptr;
+use std::process::Command;
 use std::str;
-use std::string::String;
 use flate;
 use llvm;
 use serialize::hex::ToHex;
@@ -188,7 +188,7 @@ pub fn find_crate_name(sess: Option<&Session>,
         return validate(s.to_string(), Some(attr.span));
     }
     if let Input::File(ref path) = *input {
-        if let Some(s) = path.filestem_str() {
+        if let Some(s) = path.file_stem().and_then(|s| s.to_str()) {
             return validate(s.to_string(), None);
         }
     }
@@ -349,7 +349,7 @@ pub fn mangle_exported_name<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, path: PathEl
     // e.g. `fn foo() { { fn a() {} } { fn a() {} } }`, so we
     // generate unique characters from the node id. For now
     // hopefully 3 characters is enough to avoid collisions.
-    static EXTRA_CHARS: &'static str =
+    const EXTRA_CHARS: &'static str =
         "abcdefghijklmnopqrstuvwxyz\
          ABCDEFGHIJKLMNOPQRSTUVWXYZ\
          0123456789";
@@ -388,7 +388,7 @@ pub fn get_cc_prog(sess: &Session) -> String {
 }
 
 pub fn remove(sess: &Session, path: &Path) {
-    match fs::unlink(path) {
+    match fs::remove_file(path) {
         Ok(..) => {}
         Err(e) => {
             sess.err(&format!("failed to remove {}: {}",
@@ -403,7 +403,7 @@ pub fn remove(sess: &Session, path: &Path) {
 pub fn link_binary(sess: &Session,
                    trans: &CrateTranslation,
                    outputs: &OutputFilenames,
-                   crate_name: &str) -> Vec<Path> {
+                   crate_name: &str) -> Vec<PathBuf> {
     let mut out_filenames = Vec::new();
     for &crate_type in &*sess.crate_types.borrow() {
         if sess.targeting_pnacl() && crate_type == config::CrateTypeDylib {
@@ -461,35 +461,35 @@ pub fn invalid_output_for_target(sess: &Session,
 }
 
 fn is_writeable(p: &Path) -> bool {
-    match p.stat() {
+    match p.metadata() {
         Err(..) => true,
-        Ok(m) => m.perm & old_io::USER_WRITE == old_io::USER_WRITE
+        Ok(m) => !m.permissions().readonly()
     }
 }
 
 pub fn filename_for_input(sess: &Session,
                           crate_type: config::CrateType,
                           name: &str,
-                          out_filename: &Path) -> Path {
+                          out_filename: &Path) -> PathBuf {
     let libname = format!("{}{}", name, sess.opts.cg.extra_filename);
     match crate_type {
         config::CrateTypeRlib => {
-            out_filename.with_filename(format!("lib{}.rlib", libname))
+            out_filename.with_file_name(&format!("lib{}.rlib", libname))
         }
         config::CrateTypeDylib => {
             let (prefix, suffix) = (&sess.target.target.options.dll_prefix,
                                     &sess.target.target.options.dll_suffix);
-            out_filename.with_filename(format!("{}{}{}",
-                                               prefix,
-                                               libname,
-                                               suffix))
+            out_filename.with_file_name(&format!("{}{}{}",
+                                                  prefix,
+                                                 libname,
+                                                 suffix))
         }
         config::CrateTypeStaticlib => {
-            out_filename.with_filename(format!("lib{}.a", libname))
+            out_filename.with_file_name(&format!("lib{}.a", libname))
         }
         config::CrateTypeExecutable => {
             let suffix = &sess.target.target.options.exe_suffix;
-            out_filename.with_filename(format!("{}{}", libname, suffix))
+            out_filename.with_file_name(&format!("{}{}", libname, suffix))
         }
     }
 }
@@ -498,7 +498,7 @@ fn link_binary_output(sess: &Session,
                       trans: &CrateTranslation,
                       crate_type: config::CrateType,
                       outputs: &OutputFilenames,
-                      crate_name: &str) -> Path {
+                      crate_name: &str) -> PathBuf {
     let (obj_filename, out_filename) = check_outputs(sess, crate_type,
                                                      outputs, crate_name);
     assert!(!sess.targeting_pnacl());
@@ -523,7 +523,7 @@ fn link_binary_output(sess: &Session,
 pub fn check_outputs(sess: &Session,
                      crate_type: config::CrateType,
                      outputs: &OutputFilenames,
-                     crate_name: &str) -> (Path, Path) {
+                     crate_name: &str) -> (PathBuf, PathBuf) {
     let obj_filename = outputs.temp_path(OutputTypeObject);
     let out_filename = match outputs.single_output_file {
         Some(ref file) => file.clone(),
@@ -552,12 +552,12 @@ pub fn check_outputs(sess: &Session,
     (obj_filename, out_filename)
 }
 
-fn pnacl_host_tool(sess: &Session, tool: &str) -> Path {
+fn pnacl_host_tool(sess: &Session, tool: &str) -> PathBuf {
     use std::env::consts;
     let tool = format!("le32-nacl-{}{}", tool, consts::EXE_SUFFIX);
     sess.pnacl_toolchain()
         .join("bin")
-        .join(tool)
+        .join(&tool)
 }
 
 fn link_pnacl_rlib(sess: &Session,
@@ -607,13 +607,12 @@ fn link_pnacl_rlib(sess: &Session,
     let tmpdir = TempDir::new("rustc").ok().expect("needs a temp dir");
     let metadata = tmpdir.path().join(METADATA_FILENAME);
     match fs::File::create(&metadata)
-        .write_all(trans.metadata
-                   .as_slice()) {
+        .and_then(|mut f| f.write_all(trans.metadata.as_slice()) )
+    {
         Ok(..) => {}
         Err(e) => {
-            sess.fatal(format!("failed to write {}: {}",
-                               metadata.display(),
-                               e).as_slice());
+            sess.fatal(format!("failed to write {:?}: {}",
+                               metadata, e).as_slice());
         }
     }
 
@@ -707,8 +706,8 @@ pub fn link_pnacl_module(sess: &Session,
     // This function should not be called on non-exe outputs.
     use libc;
     use lib::llvm::{ModuleRef, ContextRef};
-    use std::old_io::{File, USER_EXEC};
     use std::env;
+    use std::fs::{File};
     use back::write;
     use back::write::llvm_err;
     use session::config::OutputTypeLlvmAssembly;
@@ -753,7 +752,7 @@ pub fn link_pnacl_module(sess: &Session,
     let linker = pnacl_host_tool(sess, "ld.gold");
     let mut cmd = Command::new(&linker);
     cmd.arg("--oformat=elf32-i386-nacl");
-    cmd.arg(format!("-plugin={}", sess.gold_plugin_path().display()));
+    cmd.arg(&format!("-plugin={:?}", sess.gold_plugin_path()));
     cmd.arg("-plugin-opt=emit-llvm");
     cmd.arg("-nostdlib");
     cmd.arg("--undef-sym-check");
@@ -782,11 +781,11 @@ pub fn link_pnacl_module(sess: &Session,
             None => outputs.with_extension(format!("{}.bc",
                                                    index).as_slice()),
         };
-        cmd.arg(f);
+        cmd.arg(&f);
     }
     cmd.arg("-o").arg(&post_link_path);
 
-    cmd.arg("-L").arg(sess.target_filesearch(PathKind::Crate).get_lib_path());
+    cmd.arg("-L").arg(&sess.target_filesearch(PathKind::Crate).get_lib_path());
 
     match sess.opts.cg.link_args {
         Some(ref args) => {
@@ -804,7 +803,7 @@ pub fn link_pnacl_module(sess: &Session,
     for &(cnum, _) in deps.iter() {
         let src = sess.cstore.get_used_crate_source(cnum).unwrap();
         let (path, _) = src.rlib.unwrap();
-        cmd.arg(path);
+        cmd.arg(&path);
     }
     cmd.arg("--end-group");
 
@@ -822,8 +821,8 @@ pub fn link_pnacl_module(sess: &Session,
                                  linker.display(),
                                  prog.status).as_slice());
                 sess.note(format!("{:?}", &cmd).as_slice());
-                let mut output = prog.error.clone();
-                output.push_all(prog.output.as_slice());
+                let mut output = prog.stderr.clone();
+                output.push_all(prog.stdout.as_slice());
                 sess.note(str::from_utf8(output.as_slice()).unwrap()
                                                            .as_slice());
                 sess.abort_if_errors();
@@ -838,15 +837,28 @@ pub fn link_pnacl_module(sess: &Session,
     }
     let llcx = unsafe { llvm::LLVMContextCreate() };
     // Now load the linked module and run LTO + a limited set of passes to cleanup:
-    let llmod = match File::open(&post_link_path).read_to_end() {
-        Ok(buf) => link_buf_into_module(sess,
-                                        llcx,
-                                        None,
-                                        &*post_link_path.display().as_cow(),
-                                        buf.as_slice()).unwrap(),
+    let llmod = match File::open(&post_link_path)
+        .and_then(|mut f| {
+            let mut b = Vec::new();
+            try!(f.read_to_end(&mut b));
+            Ok(b)
+        })
+    {
+        Ok(buf) => {
+            let post_link_path = post_link_path
+                .clone()
+                .into_os_string()
+                .into_string()
+                .unwrap();
+            link_buf_into_module(sess,
+                                 llcx,
+                                 None,
+                                 &post_link_path,
+                                 buf.as_slice()).unwrap()
+        },
         Err(e) => {
-            sess.fatal(format!("error reading file `{}`: `{}`",
-                               post_link_path.display(), e).as_slice());
+            sess.fatal(format!("error reading file `{:?}`: `{}`",
+                               post_link_path, e).as_slice());
         }
     };
 
@@ -883,9 +895,9 @@ pub fn link_pnacl_module(sess: &Session,
             let tm = write::create_target_machine(sess);
             llvm::LLVMRustAddAnalysisPasses(tm, pm, llmod);
 
-            let ap = |&: s: &'static str| {
+            let ap = |s: &'static str| {
                 assert!(llvm::LLVMRustAddPass(pm, s.as_ptr() as *const i8),
-                        "failed to add pass `{}`", s.slice(0, s.len() - 1));
+                        "failed to add pass `{}`", &s[0 .. s.len() - 1]);
             };
 
             ap("pnacl-sjlj-eh\0");
@@ -970,9 +982,9 @@ pub fn link_pnacl_module(sess: &Session,
 
             let pm = llvm::LLVMCreatePassManager();
 
-            let ap = |&: s: &'static str| {
+            let ap = |s: &'static str| {
                 assert!(llvm::LLVMRustAddPass(pm, s.as_ptr() as *const i8),
-                        "failed to add pass `{}`", s.slice(0, s.len() - 1));
+                        "failed to add pass `{}`", &s[0 .. s.len() - 1]);
             };
 
             // Strip unsupported metadata:
@@ -1012,16 +1024,34 @@ pub fn link_pnacl_module(sess: &Session,
         // regular bitcode output:
         unsafe { llvm::LLVMWriteBitcodeToFile(llmod, out_cstr.as_ptr() as *const i8) };
     }
-    fs::chmod(&out, USER_EXEC).unwrap();
+
+
+    #[cfg(unix)]
+    fn set_permissions(out: &PathBuf) {
+        use std::os::unix::PermissionsExt;
+        use std::fs::{metadata, set_permissions};
+
+        let mut perms = metadata(out)
+            .unwrap()
+            .permissions();
+        perms.set_mode(0o0755);
+        set_permissions(out, perms)
+            .unwrap();
+    }
+    #[cfg(not(unix))]
+    fn set_permissions(_: &PathBuf) { }
+
+    set_permissions(&out);
+
     unsafe {
         llvm::LLVMContextDispose(llcx);
     }
 }
 
-fn archive_search_paths(sess: &Session) -> Vec<Path> {
+fn archive_search_paths(sess: &Session) -> Vec<PathBuf> {
     let mut search = Vec::new();
     sess.target_filesearch(PathKind::Native).for_each_lib_search_path(|path, _| {
-        search.push(path.clone());
+        search.push(path.to_path_buf());
         FileDoesntMatch
     });
     return search;
@@ -1040,7 +1070,7 @@ fn link_rlib<'a>(sess: &'a Session,
     let handler = &sess.diagnostic().handler;
     let config = ArchiveConfig {
         handler: handler,
-        dst: out_filename.clone(),
+        dst: out_filename.to_path_buf(),
         lib_search_paths: archive_search_paths(sess),
         slib_prefix: sess.target.target.options.staticlib_prefix.clone(),
         slib_suffix: sess.target.target.options.staticlib_suffix.clone(),
@@ -1098,7 +1128,9 @@ fn link_rlib<'a>(sess: &'a Session,
             // the same filename for metadata (stomping over one another)
             let tmpdir = TempDir::new("rustc").ok().expect("needs a temp dir");
             let metadata = tmpdir.path().join(METADATA_FILENAME);
-            match fs::File::create(&metadata).write_all(&trans.metadata) {
+            match fs::File::create(&metadata).and_then(|mut f| {
+                f.write_all(&trans.metadata)
+            }) {
                 Ok(..) => {}
                 Err(e) => {
                     sess.err(&format!("failed to write {}: {}",
@@ -1123,28 +1155,32 @@ fn link_rlib<'a>(sess: &'a Session,
                 let bc_deflated_filename = obj_filename.with_extension(
                     &format!("{}.bytecode.deflate", i));
 
-                let bc_data = match fs::File::open(&bc_filename).read_to_end() {
-                    Ok(buffer) => buffer,
+                let mut bc_data = Vec::new();
+                match fs::File::open(&bc_filename).and_then(|mut f| {
+                    f.read_to_end(&mut bc_data)
+                }) {
+                    Ok(..) => {}
                     Err(e) => sess.fatal(&format!("failed to read bytecode: {}",
                                                  e))
-                };
+                }
 
                 let bc_data_deflated = match flate::deflate_bytes(&bc_data[..]) {
                     Some(compressed) => compressed,
-                    None => sess.fatal(&format!("failed to compress bytecode from {}",
-                                               bc_filename.display()))
+                    None => sess.fatal(&format!("failed to compress bytecode \
+                                                 from {}",
+                                                 bc_filename.display()))
                 };
 
                 let mut bc_file_deflated = match fs::File::create(&bc_deflated_filename) {
                     Ok(file) => file,
                     Err(e) => {
-                        sess.fatal(&format!("failed to create compressed bytecode \
-                                            file: {}", e))
+                        sess.fatal(&format!("failed to create compressed \
+                                             bytecode file: {}", e))
                     }
                 };
 
                 match write_rlib_bytecode_object_v1(&mut bc_file_deflated,
-                                                    bc_data_deflated.as_slice()) {
+                                                    &bc_data_deflated) {
                     Ok(()) => {}
                     Err(e) => {
                         sess.err(&format!("failed to write compressed bytecode: \
@@ -1180,15 +1216,23 @@ fn link_rlib<'a>(sess: &'a Session,
     ab
 }
 
-fn write_rlib_bytecode_object_v1<T: Writer>(writer: &mut T,
-                                            bc_data_deflated: &[u8])
-                                         -> ::std::old_io::IoResult<()> {
+fn write_rlib_bytecode_object_v1(writer: &mut Write,
+                                 bc_data_deflated: &[u8]) -> io::Result<()> {
     let bc_data_deflated_size: u64 = bc_data_deflated.len() as u64;
 
-    try! { writer.write_all(RLIB_BYTECODE_OBJECT_MAGIC) };
-    try! { writer.write_le_u32(1) };
-    try! { writer.write_le_u64(bc_data_deflated_size) };
-    try! { writer.write_all(&bc_data_deflated[..]) };
+    try!(writer.write_all(RLIB_BYTECODE_OBJECT_MAGIC));
+    try!(writer.write_all(&[1, 0, 0, 0]));
+    try!(writer.write_all(&[
+        (bc_data_deflated_size >>  0) as u8,
+        (bc_data_deflated_size >>  8) as u8,
+        (bc_data_deflated_size >> 16) as u8,
+        (bc_data_deflated_size >> 24) as u8,
+        (bc_data_deflated_size >> 32) as u8,
+        (bc_data_deflated_size >> 40) as u8,
+        (bc_data_deflated_size >> 48) as u8,
+        (bc_data_deflated_size >> 56) as u8,
+    ]));
+    try!(writer.write_all(&bc_data_deflated));
 
     let number_of_bytes_written_so_far =
         RLIB_BYTECODE_OBJECT_MAGIC.len() +                // magic id
@@ -1200,7 +1244,7 @@ fn write_rlib_bytecode_object_v1<T: Writer>(writer: &mut T,
     // padding byte to make it even. This works around a crash bug in LLDB
     // (see issue #15950)
     if number_of_bytes_written_so_far % 2 == 1 {
-        try! { writer.write_u8(0) };
+        try!(writer.write_all(&[0]));
     }
 
     return Ok(());
@@ -1306,13 +1350,13 @@ fn link_natively(sess: &Session, trans: &CrateTranslation, dylib: bool,
                                  pname,
                                  prog.status));
                 sess.note(&format!("{:?}", &cmd));
-                let mut output = prog.error.clone();
-                output.push_all(&prog.output);
+                let mut output = prog.stderr.clone();
+                output.push_all(&prog.stdout);
                 sess.note(str::from_utf8(&output[..]).unwrap());
                 sess.abort_if_errors();
             }
-            debug!("linker stderr:\n{}", String::from_utf8(prog.error).unwrap());
-            debug!("linker stdout:\n{}", String::from_utf8(prog.output).unwrap());
+            debug!("linker stderr:\n{}", String::from_utf8(prog.stderr).unwrap());
+            debug!("linker stdout:\n{}", String::from_utf8(prog.stdout).unwrap());
         },
         Err(e) => {
             sess.err(&format!("could not exec the linker `{}`: {}",
@@ -1376,9 +1420,9 @@ fn link_args(cmd: &mut Command,
         if t.options.is_like_osx {
             let morestack = lib_path.join("libmorestack.a");
 
-            let mut v = b"-Wl,-force_load,".to_vec();
-            v.push_all(morestack.as_vec());
-            cmd.arg(&v[..]);
+            let mut v = OsString::from_str("-Wl,-force_load,");
+            v.push_os_str(morestack.as_os_str());
+            cmd.arg(&v);
         } else {
             cmd.args(&["-Wl,--whole-archive", "-lmorestack", "-Wl,--no-whole-archive"]);
         }
@@ -1388,7 +1432,7 @@ fn link_args(cmd: &mut Command,
     // executable. This metadata is in a separate object file from the main
     // object file, so we link that in here.
     if dylib {
-        cmd.arg(obj_filename.with_extension("metadata.o"));
+        cmd.arg(&obj_filename.with_extension("metadata.o"));
     }
 
     if t.options.is_like_osx {
@@ -1501,9 +1545,9 @@ fn link_args(cmd: &mut Command,
             cmd.args(&["-dynamiclib", "-Wl,-dylib"]);
 
             if sess.opts.cg.rpath {
-                let mut v = "-Wl,-install_name,@rpath/".as_bytes().to_vec();
-                v.push_all(out_filename.filename().unwrap());
-                cmd.arg(&v[..]);
+                let mut v = OsString::from_str("-Wl,-install_name,@rpath/");
+                v.push_os_str(out_filename.file_name().unwrap());
+                cmd.arg(&v);
             }
         } else {
             cmd.arg("-shared");
@@ -1516,23 +1560,23 @@ fn link_args(cmd: &mut Command,
     if sess.opts.cg.rpath {
         let sysroot = sess.sysroot();
         let target_triple = &sess.opts.target_triple;
-        let get_install_prefix_lib_path = || {
+        let mut get_install_prefix_lib_path = || {
             let install_prefix = option_env!("CFG_PREFIX").expect("CFG_PREFIX");
             let tlib = filesearch::relative_target_lib_path(sysroot, target_triple);
-            let mut path = Path::new(install_prefix);
+            let mut path = PathBuf::new(install_prefix);
             path.push(&tlib);
 
             path
         };
-        let rpath_config = RPathConfig {
+        let mut rpath_config = RPathConfig {
             used_crates: sess.cstore.get_used_crates(cstore::RequireDynamic),
-            out_filename: out_filename.clone(),
+            out_filename: out_filename.to_path_buf(),
             has_rpath: sess.target.target.options.has_rpath,
             is_like_osx: sess.target.target.options.is_like_osx,
-            get_install_prefix_lib_path: get_install_prefix_lib_path,
-            realpath: ::util::fs::realpath
+            get_install_prefix_lib_path: &mut get_install_prefix_lib_path,
+            realpath: &mut ::util::fs::realpath
         };
-        cmd.args(&rpath::get_rpath_flags(rpath_config));
+        cmd.args(&rpath::get_rpath_flags(&mut rpath_config));
     }
 
     // Finally add all the linker arguments provided on the command line along
@@ -1592,7 +1636,7 @@ fn add_local_native_libraries(cmd: &mut Command, sess: &Session) {
     let search_path = archive_search_paths(sess);
     for l in staticlibs {
         if takes_hints {
-            cmd.arg(format!("-l{}", l));
+            cmd.arg(&format!("-l{}", l));
         } else {
             // -force_load is the OSX equivalent of --whole-archive, but it
             // involves passing the full path to the library to link.
@@ -1601,9 +1645,9 @@ fn add_local_native_libraries(cmd: &mut Command, sess: &Session) {
                                             &sess.target.target.options.staticlib_suffix,
                                             &search_path[..],
                                             &sess.diagnostic().handler);
-            let mut v = b"-Wl,-force_load,".to_vec();
-            v.push_all(lib.as_vec());
-            cmd.arg(&v[..]);
+            let mut v = OsString::from_str("-Wl,-force_load,");
+            v.push_os_str(lib.as_os_str());
+            cmd.arg(&v);
         }
     }
     if takes_hints {
@@ -1613,7 +1657,7 @@ fn add_local_native_libraries(cmd: &mut Command, sess: &Session) {
     for &(ref l, kind) in others {
         match kind {
             cstore::NativeUnknown => {
-                cmd.arg(format!("-l{}", l));
+                cmd.arg(&format!("-l{}", l));
             }
             cstore::NativeFramework => {
                 cmd.arg("-framework").arg(&l[..]);
@@ -1660,18 +1704,18 @@ fn add_upstream_rust_crates(cmd: &mut Command, sess: &Session,
         let src = sess.cstore.get_used_crate_source(cnum).unwrap();
         match kind {
             cstore::RequireDynamic => {
-                add_dynamic_crate(cmd, sess, src.dylib.unwrap().0)
+                add_dynamic_crate(cmd, sess, &src.dylib.unwrap().0)
             }
             cstore::RequireStatic => {
-                add_static_crate(cmd, sess, tmpdir, src.rlib.unwrap().0)
+                add_static_crate(cmd, sess, tmpdir, &src.rlib.unwrap().0)
             }
         }
 
     }
 
     // Converts a library file-stem into a cc -l argument
-    fn unlib<'a>(config: &config::Config, stem: &'a [u8]) -> &'a [u8] {
-        if stem.starts_with("lib".as_bytes()) && !config.target.options.is_like_windows {
+    fn unlib<'a>(config: &config::Config, stem: &'a str) -> &'a str {
+        if stem.starts_with("lib") && !config.target.options.is_like_windows {
             &stem[3..]
         } else {
             stem
@@ -1680,7 +1724,7 @@ fn add_upstream_rust_crates(cmd: &mut Command, sess: &Session,
 
     // Adds the static "rlib" versions of all crates to the command line.
     fn add_static_crate(cmd: &mut Command, sess: &Session, tmpdir: &Path,
-                        cratepath: Path) {
+                        cratepath: &Path) {
         // When performing LTO on an executable output, all of the
         // bytecode from the upstream libraries has already been
         // included in our object file output. We need to modify all of
@@ -1696,12 +1740,12 @@ fn add_upstream_rust_crates(cmd: &mut Command, sess: &Session,
         // If we're not doing LTO, then our job is simply to just link
         // against the archive.
         if sess.lto() {
-            let name = cratepath.filename_str().unwrap();
+            let name = cratepath.file_name().unwrap().to_str().unwrap();
             let name = &name[3..name.len() - 5]; // chop off lib/.rlib
             time(sess.time_passes(),
                  &format!("altering {}.rlib", name),
                  (), |()| {
-                let dst = tmpdir.join(cratepath.filename().unwrap());
+                let dst = tmpdir.join(cratepath.file_name().unwrap());
                 match fs::copy(&cratepath, &dst) {
                     Ok(..) => {}
                     Err(e) => {
@@ -1715,7 +1759,11 @@ fn add_upstream_rust_crates(cmd: &mut Command, sess: &Session,
                 // Fix up permissions of the copy, as fs::copy() preserves
                 // permissions, but the original file may have been installed
                 // by a package manager and may be read-only.
-                match fs::chmod(&dst, old_io::USER_READ | old_io::USER_WRITE) {
+                match fs::metadata(&dst).and_then(|m| {
+                    let mut perms = m.permissions();
+                    perms.set_readonly(false);
+                    fs::set_permissions(&dst, perms)
+                }) {
                     Ok(..) => {}
                     Err(e) => {
                         sess.err(&format!("failed to chmod {} when preparing \
@@ -1738,7 +1786,7 @@ fn add_upstream_rust_crates(cmd: &mut Command, sess: &Session,
                 archive.remove_file(&format!("{}.o", name));
                 let files = archive.files();
                 if files.iter().any(|s| s.ends_with(".o")) {
-                    cmd.arg(dst);
+                    cmd.arg(&dst);
                 }
             });
         } else {
@@ -1747,19 +1795,18 @@ fn add_upstream_rust_crates(cmd: &mut Command, sess: &Session,
     }
 
     // Same thing as above, but for dynamic crates instead of static crates.
-    fn add_dynamic_crate(cmd: &mut Command, sess: &Session, cratepath: Path) {
+    fn add_dynamic_crate(cmd: &mut Command, sess: &Session, cratepath: &Path) {
         // If we're performing LTO, then it should have been previously required
         // that all upstream rust dependencies were available in an rlib format.
         assert!(!sess.lto());
 
         // Just need to tell the linker about where the library lives and
         // what its name is
-        let dir = cratepath.dirname();
-        if !dir.is_empty() { cmd.arg("-L").arg(dir); }
-
-        let mut v = "-l".as_bytes().to_vec();
-        v.push_all(unlib(&sess.target, cratepath.filestem().unwrap()));
-        cmd.arg(&v[..]);
+        if let Some(dir) = cratepath.parent() {
+            cmd.arg("-L").arg(dir);
+        }
+        let filestem = cratepath.file_stem().unwrap().to_str().unwrap();
+        cmd.arg(&format!("-l{}", unlib(&sess.target, filestem)));
     }
 }
 
@@ -1797,7 +1844,7 @@ fn add_upstream_native_libraries(cmd: &mut Command, sess: &Session) {
         for &(kind, ref lib) in &libs {
             match kind {
                 cstore::NativeUnknown => {
-                    cmd.arg(format!("-l{}", *lib));
+                    cmd.arg(&format!("-l{}", *lib));
                 }
                 cstore::NativeFramework => {
                     cmd.arg("-framework");

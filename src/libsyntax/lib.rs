@@ -27,7 +27,6 @@
 #![feature(box_syntax)]
 #![feature(collections)]
 #![feature(core)]
-#![feature(env)]
 #![feature(int_uint)]
 #![feature(old_io)]
 #![feature(libc)]
@@ -37,6 +36,9 @@
 #![feature(staged_api)]
 #![feature(std_misc)]
 #![feature(unicode)]
+#![feature(path)]
+#![feature(fs)]
+#![feature(io)]
 
 extern crate arena;
 extern crate fmt_macros;

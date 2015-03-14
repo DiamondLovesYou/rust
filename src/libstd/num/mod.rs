@@ -30,6 +30,7 @@ pub use core::num::{from_uint, from_u8, from_u16, from_u32, from_u64};
 pub use core::num::{from_f32, from_f64};
 pub use core::num::{FromStrRadix, from_str_radix};
 pub use core::num::{FpCategory, ParseIntError, ParseFloatError};
+pub use core::num::wrapping;
 
 use option::Option;
 
@@ -311,7 +312,7 @@ pub trait Float
     ///
     /// let num = 2.0f32;
     ///
-    /// // (8388608u64, -22i16, 1i8)
+    /// // (8388608, -22, 1)
     /// let (mantissa, exponent, sign) = num.integer_decode();
     /// let sign_f = sign as f32;
     /// let mantissa_f = mantissa as f32;
@@ -1754,28 +1755,28 @@ mod tests {
 
     #[test]
     fn test_uint_to_str_overflow() {
-        let mut u8_val: u8 = 255_u8;
+        let mut u8_val: u8 = 255;
         assert_eq!(u8_val.to_string(), "255");
 
-        u8_val += 1 as u8;
+        u8_val = u8_val.wrapping_add(1);
         assert_eq!(u8_val.to_string(), "0");
 
-        let mut u16_val: u16 = 65_535_u16;
+        let mut u16_val: u16 = 65_535;
         assert_eq!(u16_val.to_string(), "65535");
 
-        u16_val += 1 as u16;
+        u16_val = u16_val.wrapping_add(1);
         assert_eq!(u16_val.to_string(), "0");
 
-        let mut u32_val: u32 = 4_294_967_295_u32;
+        let mut u32_val: u32 = 4_294_967_295;
         assert_eq!(u32_val.to_string(), "4294967295");
 
-        u32_val += 1 as u32;
+        u32_val = u32_val.wrapping_add(1);
         assert_eq!(u32_val.to_string(), "0");
 
-        let mut u64_val: u64 = 18_446_744_073_709_551_615_u64;
+        let mut u64_val: u64 = 18_446_744_073_709_551_615;
         assert_eq!(u64_val.to_string(), "18446744073709551615");
 
-        u64_val += 1 as u64;
+        u64_val = u64_val.wrapping_add(1);
         assert_eq!(u64_val.to_string(), "0");
     }
 
@@ -1785,35 +1786,35 @@ mod tests {
 
     #[test]
     fn test_uint_from_str_overflow() {
-        let mut u8_val: u8 = 255_u8;
+        let mut u8_val: u8 = 255;
         assert_eq!(from_str::<u8>("255"), Some(u8_val));
         assert_eq!(from_str::<u8>("256"), None);
 
-        u8_val += 1 as u8;
+        u8_val = u8_val.wrapping_add(1);
         assert_eq!(from_str::<u8>("0"), Some(u8_val));
         assert_eq!(from_str::<u8>("-1"), None);
 
-        let mut u16_val: u16 = 65_535_u16;
+        let mut u16_val: u16 = 65_535;
         assert_eq!(from_str::<u16>("65535"), Some(u16_val));
         assert_eq!(from_str::<u16>("65536"), None);
 
-        u16_val += 1 as u16;
+        u16_val = u16_val.wrapping_add(1);
         assert_eq!(from_str::<u16>("0"), Some(u16_val));
         assert_eq!(from_str::<u16>("-1"), None);
 
-        let mut u32_val: u32 = 4_294_967_295_u32;
+        let mut u32_val: u32 = 4_294_967_295;
         assert_eq!(from_str::<u32>("4294967295"), Some(u32_val));
         assert_eq!(from_str::<u32>("4294967296"), None);
 
-        u32_val += 1 as u32;
+        u32_val = u32_val.wrapping_add(1);
         assert_eq!(from_str::<u32>("0"), Some(u32_val));
         assert_eq!(from_str::<u32>("-1"), None);
 
-        let mut u64_val: u64 = 18_446_744_073_709_551_615_u64;
+        let mut u64_val: u64 = 18_446_744_073_709_551_615;
         assert_eq!(from_str::<u64>("18446744073709551615"), Some(u64_val));
         assert_eq!(from_str::<u64>("18446744073709551616"), None);
 
-        u64_val += 1 as u64;
+        u64_val = u64_val.wrapping_add(1);
         assert_eq!(from_str::<u64>("0"), Some(u64_val));
         assert_eq!(from_str::<u64>("-1"), None);
     }
@@ -1830,6 +1831,6 @@ mod bench {
     #[bench]
     fn bench_pow_function(b: &mut Bencher) {
         let v = (0..1024).collect::<Vec<_>>();
-        b.iter(|| {v.iter().fold(0, |old, new| old.pow(*new));});
+        b.iter(|| {v.iter().fold(0, |old, new| old.pow(*new as u32));});
     }
 }

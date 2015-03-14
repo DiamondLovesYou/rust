@@ -68,7 +68,7 @@ use num::{ToPrimitive, Int};
 use ops::{Add, Deref, FnMut};
 use option::Option;
 use option::Option::{Some, None};
-use marker::{Send, Sized, Sync};
+use marker::Sized;
 use usize;
 
 /// An interface for dealing with "external iterators". These types of iterators
@@ -171,8 +171,7 @@ pub trait IteratorExt: Iterator + Sized {
         self.fold(0, |cnt, _x| cnt + 1)
     }
 
-    /// Loops through the entire iterator, returning the last element of the
-    /// iterator.
+    /// Loops through the entire iterator, returning the last element.
     ///
     /// # Examples
     ///
@@ -637,8 +636,8 @@ pub trait IteratorExt: Iterator + Sized {
     /// ```
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
-    fn all<F>(self, mut f: F) -> bool where F: FnMut(Self::Item) -> bool {
-        for x in self { if !f(x) { return false; } }
+    fn all<F>(&mut self, mut f: F) -> bool where F: FnMut(Self::Item) -> bool {
+        for x in self.by_ref() { if !f(x) { return false; } }
         true
     }
 
@@ -729,10 +728,11 @@ pub trait IteratorExt: Iterator + Sized {
         P: FnMut(Self::Item) -> bool,
         Self: ExactSizeIterator + DoubleEndedIterator
     {
-        let mut i = self.len() - 1;
+        let mut i = self.len();
+
         while let Some(v) = self.next_back() {
             if predicate(v) {
-                return Some(i);
+                return Some(i - 1);
             }
             i -= 1;
         }
@@ -1130,7 +1130,11 @@ impl<I> RandomAccessIterator for Rev<I> where I: DoubleEndedIterator + RandomAcc
     #[inline]
     fn idx(&mut self, index: usize) -> Option<<I as Iterator>::Item> {
         let amt = self.indexable();
-        self.iter.idx(amt - index - 1)
+        if amt > index {
+            self.iter.idx(amt - index - 1)
+        } else {
+            None
+        }
     }
 }
 
@@ -1145,7 +1149,7 @@ pub trait AdditiveIterator<A> {
     /// ```
     /// use std::iter::AdditiveIterator;
     ///
-    /// let a = [1i32, 2, 3, 4, 5];
+    /// let a = [1, 2, 3, 4, 5];
     /// let mut it = a.iter().cloned();
     /// assert!(it.sum() == 15);
     /// ```
@@ -1566,24 +1570,13 @@ pub struct Map<I, F> {
     f: F,
 }
 
-impl<I: Iterator, F, B> Map<I, F> where F: FnMut(I::Item) -> B {
-    #[inline]
-    fn do_map(&mut self, elt: Option<I::Item>) -> Option<B> {
-        match elt {
-            Some(a) => Some((self.f)(a)),
-            _ => None
-        }
-    }
-}
-
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<B, I: Iterator, F> Iterator for Map<I, F> where F: FnMut(I::Item) -> B {
     type Item = B;
 
     #[inline]
     fn next(&mut self) -> Option<B> {
-        let next = self.iter.next();
-        self.do_map(next)
+        self.iter.next().map(|a| (self.f)(a))
     }
 
     #[inline]
@@ -1598,8 +1591,7 @@ impl<B, I: DoubleEndedIterator, F> DoubleEndedIterator for Map<I, F> where
 {
     #[inline]
     fn next_back(&mut self) -> Option<B> {
-        let next = self.iter.next_back();
-        self.do_map(next)
+        self.iter.next_back().map(|a| (self.f)(a))
     }
 }
 
@@ -1614,8 +1606,7 @@ impl<B, I: RandomAccessIterator, F> RandomAccessIterator for Map<I, F> where
 
     #[inline]
     fn idx(&mut self, index: usize) -> Option<B> {
-        let elt = self.iter.idx(index);
-        self.do_map(elt)
+        self.iter.idx(index).map(|a| (self.f)(a))
     }
 }
 
@@ -1637,8 +1628,6 @@ impl<I: Iterator, P> Iterator for Filter<I, P> where P: FnMut(&I::Item) -> bool 
         for x in self.iter.by_ref() {
             if (self.predicate)(&x) {
                 return Some(x);
-            } else {
-                continue
             }
         }
         None
@@ -1785,10 +1774,6 @@ pub struct Peekable<I: Iterator> {
     iter: I,
     peeked: Option<I::Item>,
 }
-
-// FIXME: after #22828 being fixed, the following unsafe impl should be removed
-unsafe impl<I: Iterator> Sync for Peekable<I> where I: Sync, I::Item: Sync {}
-unsafe impl<I: Iterator> Send for Peekable<I> where I: Send, I::Item: Send {}
 
 impl<I: Iterator + Clone> Clone for Peekable<I> where I::Item: Clone {
     fn clone(&self) -> Peekable<I> {
@@ -2068,6 +2053,7 @@ pub struct Scan<I, St, F> {
     f: F,
 
     /// The current internal state to be passed to the closure next.
+    #[unstable(feature = "core")]
     pub state: St,
 }
 
@@ -2345,6 +2331,7 @@ impl<I: RandomAccessIterator, F> RandomAccessIterator for Inspect<I, F>
 pub struct Unfold<St, F> {
     f: F,
     /// Internal state that will be passed to the closure on the next iteration
+    #[unstable(feature = "core")]
     pub state: St,
 }
 
@@ -2474,7 +2461,7 @@ impl<A: Int + ToPrimitive> Iterator for Range<A> {
             Some(a) => {
                 let sz = self.stop.to_i64().map(|b| b.checked_sub(a));
                 match sz {
-                    Some(Some(bound)) => bound.to_uint(),
+                    Some(Some(bound)) => bound.to_usize(),
                     _ => None,
                 }
             },
@@ -2482,7 +2469,7 @@ impl<A: Int + ToPrimitive> Iterator for Range<A> {
                 Some(a) => {
                     let sz = self.stop.to_u64().map(|b| b.checked_sub(a));
                     match sz {
-                        Some(Some(bound)) => bound.to_uint(),
+                        Some(Some(bound)) => bound.to_usize(),
                         _ => None
                     }
                 },
@@ -2748,7 +2735,7 @@ impl<A: Int> Iterator for ::ops::Range<A> {
         if self.start >= self.end {
             (0, Some(0))
         } else {
-            let length = (self.end - self.start).to_uint();
+            let length = (self.end - self.start).to_usize();
             (length.unwrap_or(0), length)
         }
     }
@@ -2877,10 +2864,10 @@ pub mod order {
     use super::Iterator;
 
     /// Compare `a` and `b` for equality using `Eq`
-    pub fn equals<A, T, S>(mut a: T, mut b: S) -> bool where
+    pub fn equals<A, L, R>(mut a: L, mut b: R) -> bool where
         A: Eq,
-        T: Iterator<Item=A>,
-        S: Iterator<Item=A>,
+        L: Iterator<Item=A>,
+        R: Iterator<Item=A>,
     {
         loop {
             match (a.next(), b.next()) {
@@ -2892,10 +2879,10 @@ pub mod order {
     }
 
     /// Order `a` and `b` lexicographically using `Ord`
-    pub fn cmp<A, T, S>(mut a: T, mut b: S) -> cmp::Ordering where
+    pub fn cmp<A, L, R>(mut a: L, mut b: R) -> cmp::Ordering where
         A: Ord,
-        T: Iterator<Item=A>,
-        S: Iterator<Item=A>,
+        L: Iterator<Item=A>,
+        R: Iterator<Item=A>,
     {
         loop {
             match (a.next(), b.next()) {
@@ -2911,10 +2898,8 @@ pub mod order {
     }
 
     /// Order `a` and `b` lexicographically using `PartialOrd`
-    pub fn partial_cmp<A, T, S>(mut a: T, mut b: S) -> Option<cmp::Ordering> where
-        A: PartialOrd,
-        T: Iterator<Item=A>,
-        S: Iterator<Item=A>,
+    pub fn partial_cmp<L: Iterator, R: Iterator>(mut a: L, mut b: R) -> Option<cmp::Ordering> where
+        L::Item: PartialOrd<R::Item>
     {
         loop {
             match (a.next(), b.next()) {
@@ -2930,10 +2915,8 @@ pub mod order {
     }
 
     /// Compare `a` and `b` for equality (Using partial equality, `PartialEq`)
-    pub fn eq<A, B, L, R>(mut a: L, mut b: R) -> bool where
-        A: PartialEq<B>,
-        L: Iterator<Item=A>,
-        R: Iterator<Item=B>,
+    pub fn eq<L: Iterator, R: Iterator>(mut a: L, mut b: R) -> bool where
+        L::Item: PartialEq<R::Item>,
     {
         loop {
             match (a.next(), b.next()) {
@@ -2945,10 +2928,8 @@ pub mod order {
     }
 
     /// Compare `a` and `b` for nonequality (Using partial equality, `PartialEq`)
-    pub fn ne<A, B, L, R>(mut a: L, mut b: R) -> bool where
-        A: PartialEq<B>,
-        L: Iterator<Item=A>,
-        R: Iterator<Item=B>,
+    pub fn ne<L: Iterator, R: Iterator>(mut a: L, mut b: R) -> bool where
+        L::Item: PartialEq<R::Item>,
     {
         loop {
             match (a.next(), b.next()) {
@@ -2960,10 +2941,8 @@ pub mod order {
     }
 
     /// Return `a` < `b` lexicographically (Using partial order, `PartialOrd`)
-    pub fn lt<A, T, S>(mut a: T, mut b: S) -> bool where
-        A: PartialOrd,
-        T: Iterator<Item=A>,
-        S: Iterator<Item=A>,
+    pub fn lt<R: Iterator, L: Iterator>(mut a: L, mut b: R) -> bool where
+        L::Item: PartialOrd<R::Item>,
     {
         loop {
             match (a.next(), b.next()) {
@@ -2976,10 +2955,8 @@ pub mod order {
     }
 
     /// Return `a` <= `b` lexicographically (Using partial order, `PartialOrd`)
-    pub fn le<A, T, S>(mut a: T, mut b: S) -> bool where
-        A: PartialOrd,
-        T: Iterator<Item=A>,
-        S: Iterator<Item=A>,
+    pub fn le<L: Iterator, R: Iterator>(mut a: L, mut b: R) -> bool where
+        L::Item: PartialOrd<R::Item>,
     {
         loop {
             match (a.next(), b.next()) {
@@ -2992,10 +2969,8 @@ pub mod order {
     }
 
     /// Return `a` > `b` lexicographically (Using partial order, `PartialOrd`)
-    pub fn gt<A, T, S>(mut a: T, mut b: S) -> bool where
-        A: PartialOrd,
-        T: Iterator<Item=A>,
-        S: Iterator<Item=A>,
+    pub fn gt<L: Iterator, R: Iterator>(mut a: L, mut b: R) -> bool where
+        L::Item: PartialOrd<R::Item>,
     {
         loop {
             match (a.next(), b.next()) {
@@ -3008,10 +2983,8 @@ pub mod order {
     }
 
     /// Return `a` >= `b` lexicographically (Using partial order, `PartialOrd`)
-    pub fn ge<A, T, S>(mut a: T, mut b: S) -> bool where
-        A: PartialOrd,
-        T: Iterator<Item=A>,
-        S: Iterator<Item=A>,
+    pub fn ge<L: Iterator, R: Iterator>(mut a: L, mut b: R) -> bool where
+        L::Item: PartialOrd<R::Item>,
     {
         loop {
             match (a.next(), b.next()) {

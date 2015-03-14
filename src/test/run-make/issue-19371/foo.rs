@@ -10,12 +10,15 @@
 
 extern crate rustc;
 extern crate rustc_driver;
+extern crate rustc_lint;
 extern crate syntax;
 
 use rustc::session::{build_session, Session};
 use rustc::session::config::{basic_options, build_configuration, Input, OutputTypeExe};
 use rustc_driver::driver::{compile_input, CompileController};
 use syntax::diagnostics::registry::Registry;
+
+use std::path::PathBuf;
 
 fn main() {
     let src = r#"
@@ -28,9 +31,9 @@ fn main() {
         panic!("expected rustc path");
     }
 
-    let tmpdir = Path::new(&args[1]);
+    let tmpdir = PathBuf::new(&args[1]);
 
-    let mut sysroot = Path::new(&args[3]);
+    let mut sysroot = PathBuf::new(&args[3]);
     sysroot.pop();
     sysroot.pop();
 
@@ -39,17 +42,18 @@ fn main() {
     compile(src.to_string(), tmpdir.join("out"), sysroot.clone());
 }
 
-fn basic_sess(sysroot: Path) -> Session {
+fn basic_sess(sysroot: PathBuf) -> Session {
     let mut opts = basic_options();
     opts.output_types = vec![OutputTypeExe];
     opts.maybe_sysroot = Some(sysroot);
 
     let descriptions = Registry::new(&rustc::diagnostics::DIAGNOSTICS);
     let sess = build_session(opts, None, descriptions);
+    rustc_lint::register_builtins(&mut sess.lint_store.borrow_mut(), Some(&sess));
     sess
 }
 
-fn compile(code: String, output: Path, sysroot: Path) {
+fn compile(code: String, output: PathBuf, sysroot: PathBuf) {
     let sess = basic_sess(sysroot);
     let cfg = build_configuration(&sess);
     let control = CompileController::basic();

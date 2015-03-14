@@ -1569,8 +1569,8 @@ impl<T: Iterator<Item=char>> Parser<T> {
                 while !self.eof() {
                     match self.ch_or_null() {
                         c @ '0' ... '9' => {
-                            accum *= 10;
-                            accum += (c as u64) - ('0' as u64);
+                            accum = accum.wrapping_mul(10);
+                            accum = accum.wrapping_add((c as u64) - ('0' as u64));
 
                             // Detect overflow by comparing to the last value.
                             if accum <= last_accum { return self.error(InvalidNumber); }
@@ -1653,7 +1653,7 @@ impl<T: Iterator<Item=char>> Parser<T> {
 
     fn decode_hex_escape(&mut self) -> Result<u16, ParserError> {
         let mut i = 0;
-        let mut n = 0u16;
+        let mut n = 0;
         while i < 4 && !self.eof() {
             self.bump();
             n = match self.ch_or_null() {
@@ -3945,9 +3945,7 @@ mod tests {
 
     #[test]
     fn test_encode_hashmap_with_arbitrary_key() {
-        use std::old_io::Writer;
         use std::collections::HashMap;
-        use std::fmt;
         #[derive(PartialEq, Eq, Hash, RustcEncodable)]
         struct ArbitraryType(uint);
         let mut hm: HashMap<ArbitraryType, bool> = HashMap::new();

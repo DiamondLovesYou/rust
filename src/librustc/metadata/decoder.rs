@@ -22,9 +22,8 @@ use metadata::csearch::MethodInfo;
 use metadata::csearch;
 use metadata::cstore;
 use metadata::tydecode::{parse_ty_data, parse_region_data, parse_def_id,
-                         parse_type_param_def_data, parse_bounds_data,
-                         parse_bare_fn_ty_data, parse_trait_ref_data,
-                         parse_predicate_data};
+                         parse_type_param_def_data, parse_bare_fn_ty_data,
+                         parse_trait_ref_data, parse_predicate_data};
 use middle::def;
 use middle::lang_items;
 use middle::subst;
@@ -34,10 +33,11 @@ use middle::astencode::vtable_decoder_helpers;
 
 use std::collections::HashMap;
 use std::hash::{self, Hash, SipHasher};
-use std::old_io::extensions::u64_from_be_bytes;
-use std::old_io;
-use std::num::FromPrimitive;
+use std::io::prelude::*;
+use std::io;
+use std::num::{FromPrimitive, Int};
 use std::rc::Rc;
+use std::slice::bytes;
 use std::str;
 
 use rbml::reader;
@@ -60,20 +60,26 @@ pub type Cmd<'a> = &'a crate_metadata;
 // what crate that's in and give us a def_id that makes sense for the current
 // build.
 
+fn u32_from_be_bytes(bytes: &[u8]) -> u32 {
+    let mut b = [0; 4];
+    bytes::copy_memory(&mut b, &bytes[..4]);
+    unsafe { (*(b.as_ptr() as *const u32)).to_be() }
+}
+
 fn lookup_hash<'a, F>(d: rbml::Doc<'a>, mut eq_fn: F, hash: u64) -> Option<rbml::Doc<'a>> where
     F: FnMut(&[u8]) -> bool,
 {
     let index = reader::get_doc(d, tag_index);
     let table = reader::get_doc(index, tag_index_table);
     let hash_pos = table.start + (hash % 256 * 4) as uint;
-    let pos = u64_from_be_bytes(d.data, hash_pos, 4) as uint;
+    let pos = u32_from_be_bytes(&d.data[hash_pos..]) as uint;
     let tagged_doc = reader::doc_at(d.data, pos).unwrap();
 
     let belt = tag_index_buckets_bucket_elt;
 
     let mut ret = None;
     reader::tagged_docs(tagged_doc.doc, belt, |elt| {
-        let pos = u64_from_be_bytes(elt.data, elt.start, 4) as uint;
+        let pos = u32_from_be_bytes(&elt.data[elt.start..]) as uint;
         if eq_fn(&elt.data[elt.start + 4 .. elt.end]) {
             ret = Some(reader::doc_at(d.data, pos).unwrap().doc);
             false
@@ -87,9 +93,7 @@ fn lookup_hash<'a, F>(d: rbml::Doc<'a>, mut eq_fn: F, hash: u64) -> Option<rbml:
 pub fn maybe_find_item<'a>(item_id: ast::NodeId,
                            items: rbml::Doc<'a>) -> Option<rbml::Doc<'a>> {
     fn eq_item(bytes: &[u8], item_id: ast::NodeId) -> bool {
-        return u64_from_be_bytes(
-            &bytes[0..4], 0, 4) as ast::NodeId
-            == item_id;
+        u32_from_be_bytes(bytes) == item_id
     }
     lookup_hash(items,
                 |a| eq_item(a, item_id),
@@ -255,18 +259,6 @@ fn item_trait_ref<'tcx>(doc: rbml::Doc, tcx: &ty::ctxt<'tcx>, cdata: Cmd)
     doc_trait_ref(tp, tcx, cdata)
 }
 
-fn doc_bounds<'tcx>(doc: rbml::Doc, tcx: &ty::ctxt<'tcx>, cdata: Cmd)
-                    -> ty::ParamBounds<'tcx> {
-    parse_bounds_data(doc.data, cdata.cnum, doc.start, tcx,
-                      |_, did| translate_def_id(cdata, did))
-}
-
-fn trait_def_bounds<'tcx>(doc: rbml::Doc, tcx: &ty::ctxt<'tcx>, cdata: Cmd)
-                          -> ty::ParamBounds<'tcx> {
-    let d = reader::get_doc(doc, tag_trait_def_bounds);
-    doc_bounds(d, tcx, cdata)
-}
-
 fn enum_variant_ids(item: rbml::Doc, cdata: Cmd) -> Vec<ast::DefId> {
     let mut ids: Vec<ast::DefId> = Vec::new();
     let v = tag_items_data_item_variant;
@@ -401,7 +393,6 @@ pub fn get_trait_def<'tcx>(cdata: Cmd,
 {
     let item_doc = lookup_item(item_id, cdata.data());
     let generics = doc_generics(item_doc, tcx, cdata, tag_item_generics);
-    let bounds = trait_def_bounds(item_doc, tcx, cdata);
     let unsafety = parse_unsafety(item_doc);
     let associated_type_names = parse_associated_type_names(item_doc);
     let paren_sugar = parse_paren_sugar(item_doc);
@@ -410,7 +401,6 @@ pub fn get_trait_def<'tcx>(cdata: Cmd,
         paren_sugar: paren_sugar,
         unsafety: unsafety,
         generics: generics,
-        bounds: bounds,
         trait_ref: item_trait_ref(item_doc, tcx, cdata),
         associated_type_names: associated_type_names,
     }
@@ -423,6 +413,15 @@ pub fn get_predicates<'tcx>(cdata: Cmd,
 {
     let item_doc = lookup_item(item_id, cdata.data());
     doc_predicates(item_doc, tcx, cdata, tag_item_generics)
+}
+
+pub fn get_super_predicates<'tcx>(cdata: Cmd,
+                                  item_id: ast::NodeId,
+                                  tcx: &ty::ctxt<'tcx>)
+                                  -> ty::GenericPredicates<'tcx>
+{
+    let item_doc = lookup_item(item_id, cdata.data());
+    doc_predicates(item_doc, tcx, cdata, tag_item_super_predicates)
 }
 
 pub fn get_type<'tcx>(cdata: Cmd, id: ast::NodeId, tcx: &ty::ctxt<'tcx>)
@@ -778,7 +777,7 @@ pub fn get_enum_variants<'tcx>(intr: Rc<IdentInterner>, cdata: Cmd, id: ast::Nod
             _         => { /* empty */ }
         }
         let old_disr_val = disr_val;
-        disr_val += 1;
+        disr_val = disr_val.wrapping_add(1);
         Rc::new(ty::VariantInfo {
             args: arg_tys,
             arg_names: arg_names,
@@ -964,24 +963,6 @@ pub fn get_provided_trait_methods<'tcx>(intr: Rc<IdentInterner>,
     });
 
     return result;
-}
-
-/// Returns the supertraits of the given trait.
-pub fn get_supertraits<'tcx>(cdata: Cmd, id: ast::NodeId, tcx: &ty::ctxt<'tcx>)
-                             -> Vec<Rc<ty::TraitRef<'tcx>>> {
-    let mut results = Vec::new();
-    let item_doc = lookup_item(id, cdata.data());
-    reader::tagged_docs(item_doc, tag_item_super_trait_ref, |trait_doc| {
-        // NB. Only reads the ones that *aren't* builtin-bounds. See also
-        // get_trait_def() for collecting the builtin bounds.
-        // FIXME(#8559): The builtin bounds shouldn't be encoded in the first place.
-        let trait_ref = doc_trait_ref(trait_doc, tcx, cdata);
-        if tcx.lang_items.to_builtin_kind(trait_ref.def_id).is_none() {
-            results.push(trait_ref);
-        }
-        true
-    });
-    return results;
 }
 
 pub fn get_type_name_if_impl(cdata: Cmd,
@@ -1186,7 +1167,7 @@ fn get_attributes(md: rbml::Doc) -> Vec<ast::Attribute> {
 }
 
 fn list_crate_attributes(md: rbml::Doc, hash: &Svh,
-                         out: &mut old_io::Writer) -> old_io::IoResult<()> {
+                         out: &mut io::Write) -> io::Result<()> {
     try!(write!(out, "=Crate Attributes ({})=\n", *hash));
 
     let r = get_attributes(md);
@@ -1231,7 +1212,7 @@ pub fn get_crate_deps(data: &[u8]) -> Vec<CrateDep> {
     return deps;
 }
 
-fn list_crate_deps(data: &[u8], out: &mut old_io::Writer) -> old_io::IoResult<()> {
+fn list_crate_deps(data: &[u8], out: &mut io::Write) -> io::Result<()> {
     try!(write!(out, "=External Dependencies=\n"));
     for dep in &get_crate_deps(data) {
         try!(write!(out, "{} {}-{}\n", dep.cnum, dep.name, dep.hash));
@@ -1270,7 +1251,7 @@ pub fn get_crate_name(data: &[u8]) -> String {
     maybe_get_crate_name(data).expect("no crate name in crate")
 }
 
-pub fn list_crate_metadata(bytes: &[u8], out: &mut old_io::Writer) -> old_io::IoResult<()> {
+pub fn list_crate_metadata(bytes: &[u8], out: &mut io::Write) -> io::Result<()> {
     let hash = get_crate_hash(bytes);
     let md = rbml::Doc::new(bytes);
     try!(list_crate_attributes(md, &hash, out));
@@ -1556,11 +1537,26 @@ pub fn is_associated_type(cdata: Cmd, id: ast::NodeId) -> bool {
     }
 }
 
-
 pub fn is_default_trait<'tcx>(cdata: Cmd, id: ast::NodeId) -> bool {
     let item_doc = lookup_item(id, cdata.data());
     match item_family(item_doc) {
         Family::DefaultImpl => true,
         _ => false
     }
+}
+
+pub fn get_imported_filemaps(metadata: &[u8]) -> Vec<codemap::FileMap> {
+    let crate_doc = rbml::Doc::new(metadata);
+    let cm_doc = reader::get_doc(crate_doc, tag_codemap);
+
+    let mut filemaps = vec![];
+
+    reader::tagged_docs(cm_doc, tag_codemap_filemap, |filemap_doc| {
+        let mut decoder = reader::Decoder::new(filemap_doc);
+        let filemap: codemap::FileMap = Decodable::decode(&mut decoder).unwrap();
+        filemaps.push(filemap);
+        true
+    });
+
+    return filemaps;
 }

@@ -433,8 +433,10 @@ impl<T> Vec<T> {
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         unsafe {
+            let ptr = *self.ptr;
+            assume(!ptr.is_null());
             mem::transmute(RawSlice {
-                data: *self.ptr,
+                data: ptr,
                 len: self.len,
             })
         }
@@ -458,6 +460,7 @@ impl<T> Vec<T> {
     pub fn into_iter(self) -> IntoIter<T> {
         unsafe {
             let ptr = *self.ptr;
+            assume(!ptr.is_null());
             let cap = self.cap;
             let begin = ptr as *const T;
             let end = if mem::size_of::<T>() == 0 {
@@ -1496,9 +1499,9 @@ impl<T> Extend<T> for Vec<T> {
 __impl_slice_eq1! { Vec<A>, Vec<B> }
 __impl_slice_eq2! { Vec<A>, &'b [B] }
 __impl_slice_eq2! { Vec<A>, &'b mut [B] }
-__impl_slice_eq2! { CowVec<'a, A>, &'b [B], Clone }
-__impl_slice_eq2! { CowVec<'a, A>, &'b mut [B], Clone }
-__impl_slice_eq2! { CowVec<'a, A>, Vec<B>, Clone }
+__impl_slice_eq2! { Cow<'a, [A]>, &'b [B], Clone }
+__impl_slice_eq2! { Cow<'a, [A]>, &'b mut [B], Clone }
+__impl_slice_eq2! { Cow<'a, [A]>, Vec<B>, Clone }
 
 macro_rules! array_impls {
     ($($N: expr)+) => {
@@ -1507,9 +1510,9 @@ macro_rules! array_impls {
             __impl_slice_eq2! { Vec<A>, [B; $N] }
             __impl_slice_eq2! { Vec<A>, &'b [B; $N] }
             // __impl_slice_eq2! { Vec<A>, &'b mut [B; $N] }
-            // __impl_slice_eq2! { CowVec<'a, A>, [B; $N], Clone }
-            // __impl_slice_eq2! { CowVec<'a, A>, &'b [B; $N], Clone }
-            // __impl_slice_eq2! { CowVec<'a, A>, &'b mut [B; $N], Clone }
+            // __impl_slice_eq2! { Cow<'a, [A]>, [B; $N], Clone }
+            // __impl_slice_eq2! { Cow<'a, [A]>, &'b [B; $N], Clone }
+            // __impl_slice_eq2! { Cow<'a, [A]>, &'b mut [B; $N], Clone }
         )+
     }
 }
@@ -2093,7 +2096,7 @@ mod tests {
             let (left, right) = values.split_at_mut(2);
             {
                 let left: &[_] = left;
-                assert!(&left[..left.len()] == &[1, 2][]);
+                assert!(&left[..left.len()] == &[1, 2]);
             }
             for p in left {
                 *p += 1;
@@ -2101,7 +2104,7 @@ mod tests {
 
             {
                 let right: &[_] = right;
-                assert!(&right[..right.len()] == &[3, 4, 5][]);
+                assert!(&right[..right.len()] == &[3, 4, 5]);
             }
             for p in right {
                 *p += 2;
@@ -2127,8 +2130,8 @@ mod tests {
     #[test]
     fn test_clone_from() {
         let mut v = vec!();
-        let three = vec!(box 1, box 2, box 3);
-        let two = vec!(box 4, box 5);
+        let three: Vec<Box<_>> = vec!(box 1, box 2, box 3);
+        let two: Vec<Box<_>> = vec!(box 4, box 5);
         // zero, long
         v.clone_from(&three);
         assert_eq!(v, three);

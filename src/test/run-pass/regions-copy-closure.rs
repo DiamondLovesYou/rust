@@ -9,7 +9,6 @@
 // except according to those terms.
 
 #![allow(unknown_features)]
-#![feature(box_syntax)]
 #![feature(unboxed_closures)]
 
 struct closure_box<'a> {
@@ -21,11 +20,12 @@ fn box_it<'a>(x: Box<FnMut() + 'a>) -> closure_box<'a> {
 }
 
 pub fn main() {
-    let mut i = 3i32;
+    let mut i = 3;
     assert_eq!(i, 3);
     {
         let cl = || i += 1;
-        let mut cl_box = box_it(box cl);
+        // FIXME (#22405): Replace `Box::new` with `box` here when/if possible.
+        let mut cl_box = box_it(Box::new(cl));
         cl_box.cl.call_mut(());
     }
     assert_eq!(i, 4);

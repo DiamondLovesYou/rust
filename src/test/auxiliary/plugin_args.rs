@@ -20,7 +20,7 @@ use std::borrow::ToOwned;
 use syntax::ast;
 use syntax::codemap::Span;
 use syntax::ext::build::AstBuilder;
-use syntax::ext::base::{TTMacroExpander, ExtCtxt, MacResult, MacExpr, NormalTT};
+use syntax::ext::base::{TTMacroExpander, ExtCtxt, MacResult, MacEager, NormalTT};
 use syntax::parse::token;
 use syntax::print::pprust;
 use syntax::ptr::P;
@@ -38,7 +38,7 @@ impl TTMacroExpander for Expander {
         let args = self.args.iter().map(|i| pprust::meta_item_to_string(&*i))
             .collect::<Vec<_>>().connect(", ");
         let interned = token::intern_and_get_ident(&args[..]);
-        MacExpr::new(ecx.expr_str(sp, interned))
+        MacEager::expr(ecx.expr_str(sp, interned))
     }
 }
 
@@ -46,5 +46,6 @@ impl TTMacroExpander for Expander {
 pub fn plugin_registrar(reg: &mut Registry) {
     let args = reg.args().clone();
     reg.register_syntax_extension(token::intern("plugin_args"),
-        NormalTT(box Expander { args: args, }, None));
+        // FIXME (#22405): Replace `Box::new` with `box` here when/if possible.
+        NormalTT(Box::new(Expander { args: args, }), None, false));
 }

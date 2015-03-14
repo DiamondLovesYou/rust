@@ -15,28 +15,24 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/master/")]
 
-#![feature(rustc_private, os, libc, std_misc, collections, core, env,
-           old_path, old_io)]
+#![feature(rustc_private, os, libc, std_misc, collections, core, fs, io,
+           exit_status, path)]
 
 extern crate getopts;
 extern crate libc;
 extern crate "rustc_llvm" as llvm;
 
-#[cfg(stage0)]
-#[phase(plugin, link)]
-extern crate log;
-
-#[cfg(not(stage0))]
 #[macro_use]
 extern crate log;
 
 use getopts::{optopt, optflag, getopts, reqopt, optmulti, OptGroup, Matches};
 use std::collections::{HashSet, HashMap};
-use std::old_io::fs::File;
-use std::old_io::process::{Command, InheritFd, ExitStatus};
+use std::fs::File;
+use std::process::{Command, Stdio};
 use std::env;
 use std::ptr;
 use std::ffi;
+use std::path::Path;
 
 // From librustc:
 pub fn host_triple() -> &'static str {
@@ -139,8 +135,7 @@ pub fn main() {
     let cross_path = env::current_dir()
         .unwrap()
         .join(&cross_path[..]);
-    let cross_path =
-        ::std::old_path::Path::new(cross_path.into_os_string().into_string().unwrap());
+
     let all_raw = matches.opt_present("all-raw");
     let mut input: Vec<(String, bool)> = matches.free
         .iter()
@@ -172,10 +167,17 @@ pub fn main() {
     let mut bc_input = HashMap::new();
     let mut obj_input: Vec<String> = Vec::new();
     for (i, is_raw) in input.into_iter() {
-        let bc = match File::open(&Path::new(i.clone())).read_to_end() {
+        let bc = match File::open(&Path::new(&i))
+            .and_then(|mut f| {
+                use std::io::Read;
+                let mut b = Vec::new();
+                try!(f.read_to_end(&mut b));
+                Ok(b)
+            })
+        {
             Ok(buf) => buf,
             Err(e) => {
-                warn(format!("error reading file `{}`: `{}`",
+                warn(format!("error reading file `{:?}`: `{}`",
                              i, e));
                 continue;
             }
@@ -188,7 +190,7 @@ pub fn main() {
         };
         if llmod == ptr::null_mut() {
             if is_raw {
-                warn(format!("raw bitcode isn't bitcode: `{}`", i));
+                warn(format!("raw bitcode isn't bitcode: `{:?}`", i));
             }
             obj_input.push(i);
         } else {
@@ -202,7 +204,7 @@ pub fn main() {
                 }
             }
             if bc_input.insert(i.clone(), llmod).is_some() {
-                warn(format!("file specified two or more times: `{}`", i));
+                warn(format!("file specified two or more times: `{:?}`", i));
             }
         }
     }
@@ -333,15 +335,43 @@ pub fn main() {
 
     debug!("linking");
 
-    let toolchain_path = cross_path
-        .join_many(&["toolchain".to_string(),
-                     {
-                         let mut s = pnacl_toolchain_prefix();
-                         s.push_str("_pnacl");
-                         s
-                     }]);
-    let lib_path = toolchain_path
-        .join_many(&["translator", arch, "lib"]);
+    let mut toolchain_path = cross_path.clone();
+    toolchain_path.push("toolchain");
+    toolchain_path.push(&{
+        let mut s = pnacl_toolchain_prefix();
+        s.push_str("_pnacl");
+        s
+    });
+    toolchain_path.push("translator");
+    toolchain_path.push(arch);
+    toolchain_path.push("lib");
+
+    let tcp = toolchain_path.clone();
+    let crtbegin = tcp.clone()
+        .join("crtbegin.o")
+        .into_os_string()
+        .into_string()
+        .unwrap();
+    let pnacl_irt_shim = tcp.clone()
+        .join("libpnacl_irt_shim.a")
+        .into_os_string()
+        .into_string()
+        .unwrap();
+    let gcc = tcp.clone()
+        .join("libgcc.a")
+        .into_os_string()
+        .into_string()
+        .unwrap();
+    let crt_platform = tcp.clone()
+        .join("libcrt_platform.a")
+        .into_os_string()
+        .into_string()
+        .unwrap();
+    let crtend = tcp.clone()
+        .join("crtend.o")
+        .into_os_string()
+        .into_string()
+        .unwrap();
 
     let nexe_link_args = vec!("-nostdlib".to_string(),
                               "--no-fix-cortex-a8".to_string(),
@@ -350,56 +380,51 @@ pub fn main() {
                               "--build-id".to_string(),
                               "--entry=__pnacl_start".to_string(),
                               "-static".to_string(),
-                              lib_path.join("crtbegin.o")
-                                  .display().as_cow().into_owned());
-    let nexe_link_args_suffix = vec!(lib_path.join("libpnacl_irt_shim.a")
-                                         .display().as_cow().into_owned(),
+                              crtbegin);
+    let nexe_link_args_suffix = vec!(pnacl_irt_shim,
                                      "--start-group".to_string(),
-                                     lib_path.join("libgcc.a")
-                                         .display().as_cow().into_owned(),
-                                     lib_path.join("libcrt_platform.a")
-                                         .display().as_cow().into_owned(),
+                                     gcc,
+                                     crt_platform,
                                      "--end-group".to_string(),
-                                     lib_path.join("crtend.o")
-                                         .display().as_cow().into_owned(),
+                                     crtend,
                                      "--undefined=_start".to_string(),
                                      "-o".to_string(),
                                      output.clone());
+
     let nexe_link_args: Vec<String> = nexe_link_args.into_iter()
         .chain(obj_input.iter().map(|o| o.clone() ))
         .chain(nexe_link_args_suffix.into_iter())
         .collect();
 
-    let gold = toolchain_path
-        .join_many(&["bin", "le32-nacl-ld.gold"]);
+    let mut gold = tcp.clone();
+    gold.push("bin");
+    gold.push("le32-nacl-ld.gold");
+    let gold = gold;
 
     fn cleanup_objs(m: &Matches, objs: Vec<String>) {
-        use std::old_io::fs::unlink;
+        use std::fs::remove_file;
 
         if m.opt_present("save-temps") {
             return;
         }
 
         for i in objs.into_iter() {
-            debug!("cleaning up `{}`", i);
-            let _ = unlink(&Path::new(i));
+            let r = remove_file(&i);
+            debug!("cleaning up `{}`: `{:?}`", i, r);
         }
     }
 
-    let mut cmd = Command::new(gold);
+    let mut cmd = Command::new(&gold);
     cmd.args(nexe_link_args.as_slice());
-    cmd.stdout(InheritFd(libc::STDOUT_FILENO));
-    cmd.stderr(InheritFd(libc::STDERR_FILENO));
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::inherit());
     debug!("running linker: `{:?}`", cmd);
     match cmd.spawn() {
         Ok(mut process) => {
             match process.wait() {
-                Ok(ExitStatus(status)) => {
-                    env::set_exit_status(status as i32);
-                }
-                Ok(_) => {
-                    env::set_exit_status(1);
-                }
+                Ok(status) => {
+                    env::set_exit_status(status.code().unwrap_or(1));
+                },
                 Err(e) => {
                     cleanup_objs(&matches, obj_input);
                     fatal(format!("couldn't wait on the linker: {}", e));

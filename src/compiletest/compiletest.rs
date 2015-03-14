@@ -20,8 +20,12 @@
 #![feature(std_misc)]
 #![feature(test)]
 #![feature(unicode)]
-#![feature(env)]
 #![feature(core)]
+#![feature(path)]
+#![feature(os)]
+#![feature(io)]
+#![feature(fs)]
+#![feature(net)]
 
 #![deny(warnings)]
 
@@ -32,8 +36,9 @@ extern crate getopts;
 extern crate log;
 
 use std::env;
+use std::fs;
 use std::old_io;
-use std::old_io::fs;
+use std::path::{Path, PathBuf};
 use std::thunk::Thunk;
 use getopts::{optopt, optflag, reqopt};
 use common::Config;
@@ -121,9 +126,9 @@ pub fn parse_config(args: Vec<String> ) -> Config {
         panic!()
     }
 
-    fn opt_path(m: &getopts::Matches, nm: &str) -> Path {
+    fn opt_path(m: &getopts::Matches, nm: &str) -> PathBuf {
         match m.opt_str(nm) {
-            Some(s) => Path::new(s),
+            Some(s) => PathBuf::new(&s),
             None => panic!("no option (=path) found for {}", nm),
         }
     }
@@ -138,10 +143,10 @@ pub fn parse_config(args: Vec<String> ) -> Config {
         compile_lib_path: matches.opt_str("compile-lib-path").unwrap(),
         run_lib_path: matches.opt_str("run-lib-path").unwrap(),
         rustc_path: opt_path(matches, "rustc-path"),
-        clang_path: matches.opt_str("clang-path").map(|s| Path::new(s)),
+        clang_path: matches.opt_str("clang-path").map(|s| PathBuf::new(&s)),
         valgrind_path: matches.opt_str("valgrind-path"),
         force_valgrind: matches.opt_present("force-valgrind"),
-        llvm_bin_path: matches.opt_str("llvm-bin-path").map(|s| Path::new(s)),
+        llvm_bin_path: matches.opt_str("llvm-bin-path").map(|s| PathBuf::new(&s)),
         src_base: opt_path(matches, "src-base"),
         build_base: opt_path(matches, "build-base"),
         aux_base: opt_path(matches, "aux-base"),
@@ -149,7 +154,7 @@ pub fn parse_config(args: Vec<String> ) -> Config {
         mode: matches.opt_str("mode").unwrap().parse().ok().expect("invalid mode"),
         run_ignored: matches.opt_present("ignored"),
         filter: filter,
-        logfile: matches.opt_str("logfile").map(|s| Path::new(s)),
+        logfile: matches.opt_str("logfile").map(|s| PathBuf::new(&s)),
         save_metrics: matches.opt_str("save-metrics").map(|s| Path::new(s)),
         ratchet_metrics:
             matches.opt_str("ratchet-metrics").map(|s| Path::new(s)),
@@ -306,9 +311,9 @@ pub fn make_tests(config: &Config) -> Vec<test::TestDescAndFn> {
     debug!("making tests from {:?}",
            config.src_base.display());
     let mut tests = Vec::new();
-    let dirs = fs::readdir(&config.src_base).unwrap();
-    for file in &dirs {
-        let file = file.clone();
+    let dirs = fs::read_dir(&config.src_base).unwrap();
+    for file in dirs {
+        let file = file.unwrap().path();
         debug!("inspecting file {:?}", file.display());
         if is_test(config, &file) {
             let t = make_test(config, &file, || {
@@ -331,7 +336,7 @@ pub fn is_test(config: &Config, testfile: &Path) -> bool {
           _ => vec!(".rc".to_string(), ".rs".to_string())
         };
     let invalid_prefixes = vec!(".".to_string(), "#".to_string(), "~".to_string());
-    let name = testfile.filename_str().unwrap();
+    let name = testfile.file_name().unwrap().to_str().unwrap();
 
     let mut valid = false;
 
@@ -367,9 +372,9 @@ pub fn make_test_name(config: &Config, testfile: &Path) -> test::TestName {
 
     // Try to elide redundant long paths
     fn shorten(path: &Path) -> String {
-        let filename = path.filename_str();
-        let p = path.dir_path();
-        let dir = p.filename_str();
+        let filename = path.file_name().unwrap().to_str();
+        let p = path.parent().unwrap();
+        let dir = p.file_name().unwrap().to_str();
         format!("{}/{}", dir.unwrap_or(""), filename.unwrap_or(""))
     }
 
@@ -378,19 +383,17 @@ pub fn make_test_name(config: &Config, testfile: &Path) -> test::TestName {
 
 pub fn make_test_closure(config: &Config, testfile: &Path) -> test::TestFn {
     let config = (*config).clone();
-    // FIXME (#9639): This needs to handle non-utf8 paths
-    let testfile = testfile.as_str().unwrap().to_string();
+    let testfile = testfile.to_path_buf();
     test::DynTestFn(Thunk::new(move || {
-        runtest::run(config, testfile)
+        runtest::run(config, &testfile)
     }))
 }
 
 pub fn make_metrics_test_closure(config: &Config, testfile: &Path) -> test::TestFn {
     let config = (*config).clone();
-    // FIXME (#9639): This needs to handle non-utf8 paths
-    let testfile = testfile.as_str().unwrap().to_string();
+    let testfile = testfile.to_path_buf();
     test::DynMetricFn(box move |mm: &mut test::MetricMap| {
-        runtest::run_metrics(config, testfile, mm)
+        runtest::run_metrics(config, &testfile, mm)
     })
 }
 

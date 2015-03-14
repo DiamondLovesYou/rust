@@ -293,7 +293,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         // lifetimes can appear inside the self-type.
         let self_ty = self.infcx.shallow_resolve(obligation.self_ty());
         let (closure_def_id, substs) = match self_ty.sty {
-            ty::ty_closure(id, _, ref substs) => (id, substs.clone()),
+            ty::ty_closure(id, ref substs) => (id, substs.clone()),
             _ => { return; }
         };
         assert!(!substs.has_escaping_regions());
@@ -1054,7 +1054,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
 
         let self_ty = self.infcx.shallow_resolve(obligation.self_ty());
         let (closure_def_id, substs) = match self_ty.sty {
-            ty::ty_closure(id, _, ref substs) => (id, substs.clone()),
+            ty::ty_closure(id, ref substs) => (id, substs.clone()),
             ty::ty_infer(ty::TyVar(_)) => {
                 debug!("assemble_unboxed_closure_candidates: ambiguous self-type");
                 candidates.ambiguous = true;
@@ -1260,19 +1260,11 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                poly_trait_ref.repr(self.tcx()));
 
         // see whether the object trait can be upcast to the trait we are looking for
-        let obligation_def_id = obligation.predicate.def_id();
-        let upcast_trait_ref = match util::upcast(self.tcx(), poly_trait_ref, obligation_def_id) {
-            Some(r) => r,
-            None => { return; }
-        };
-
-        debug!("assemble_candidates_from_object_ty: upcast_trait_ref={}",
-               upcast_trait_ref.repr(self.tcx()));
-
-        // check whether the upcast version of the trait-ref matches what we are looking for
-        if let Ok(()) = self.infcx.probe(|_| self.match_poly_trait_ref(obligation,
-                                                                       upcast_trait_ref.clone())) {
-            debug!("assemble_candidates_from_object_ty: matched, pushing candidate");
+        let upcast_trait_refs = self.upcast(poly_trait_ref, obligation);
+        if upcast_trait_refs.len() > 1 {
+            // can be upcast in many ways; need more type information
+            candidates.ambiguous = true;
+        } else if upcast_trait_refs.len() == 1 {
             candidates.vec.push(ObjectCandidate);
         }
     }
@@ -1455,9 +1447,9 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                             let principal =
                                 data.principal_trait_ref_with_self_ty(self.tcx(),
                                                                       self.tcx().types.err);
+                            let desired_def_id = obligation.predicate.def_id();
                             for tr in util::supertraits(self.tcx(), principal) {
-                                let td = ty::lookup_trait_def(self.tcx(), tr.def_id());
-                                if td.bounds.builtin_bounds.contains(&bound) {
+                                if tr.def_id() == desired_def_id {
                                     return Ok(If(Vec::new()))
                                 }
                             }
@@ -1533,7 +1525,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             // (T1, ..., Tn) -- meets any bound that all of T1...Tn meet
             ty::ty_tup(ref tys) => Ok(If(tys.clone())),
 
-            ty::ty_closure(def_id, _, substs) => {
+            ty::ty_closure(def_id, substs) => {
                 // FIXME -- This case is tricky. In the case of by-ref
                 // closures particularly, we need the results of
                 // inference to decide how to reflect the type of each
@@ -1687,7 +1679,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                 Some(tys.clone())
             }
 
-            ty::ty_closure(def_id, _, substs) => {
+            ty::ty_closure(def_id, substs) => {
                 assert_eq!(def_id.krate, ast::LOCAL_CRATE);
 
                 match self.closure_typer.closure_upvars(def_id, substs) {
@@ -1713,6 +1705,60 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                      .map(|&ty| ty)
                      .collect())
             }
+        }
+    }
+
+    fn collect_predicates_for_types(&mut self,
+                                    obligation: &TraitObligation<'tcx>,
+                                    trait_def_id: ast::DefId,
+                                    types: Vec<Ty<'tcx>>) -> Vec<PredicateObligation<'tcx>> {
+
+        let derived_cause = match self.tcx().lang_items.to_builtin_kind(trait_def_id) {
+            Some(_) => {
+                self.derived_cause(obligation, BuiltinDerivedObligation)
+            },
+            None => {
+                self.derived_cause(obligation, ImplDerivedObligation)
+            }
+        };
+
+        let normalized = project::normalize_with_depth(self, obligation.cause.clone(),
+                                                       obligation.recursion_depth + 1,
+                                                       &types);
+
+        let obligations = normalized.value.iter().map(|&nested_ty| {
+            // the obligation might be higher-ranked, e.g. for<'a> &'a
+            // int : Copy. In that case, we will wind up with
+            // late-bound regions in the `nested` vector. So for each
+            // one we instantiate to a skolemized region, do our work
+            // to produce something like `&'0 int : Copy`, and then
+            // re-bind it. This is a bit of busy-work but preserves
+            // the invariant that we only manipulate free regions, not
+            // bound ones.
+            self.infcx.try(|snapshot| {
+                let (skol_ty, skol_map) =
+                    self.infcx().skolemize_late_bound_regions(&ty::Binder(nested_ty), snapshot);
+                let skol_predicate =
+                    util::predicate_for_trait_def(
+                        self.tcx(),
+                        derived_cause.clone(),
+                        trait_def_id,
+                        obligation.recursion_depth + 1,
+                        skol_ty);
+                match skol_predicate {
+                    Ok(skol_predicate) => Ok(self.infcx().plug_leaks(skol_map, snapshot,
+                                                                     &skol_predicate)),
+                    Err(ErrorReported) => Err(ErrorReported)
+                }
+            })
+        }).collect::<Result<Vec<PredicateObligation<'tcx>>, _>>();
+
+        match obligations {
+            Ok(mut obls) => {
+                obls.push_all(normalized.obligations.as_slice());
+                obls
+            },
+            Err(ErrorReported) => Vec::new()
         }
     }
 
@@ -1854,37 +1900,14 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                            nested: Vec<Ty<'tcx>>)
                            -> VtableBuiltinData<PredicateObligation<'tcx>>
     {
-        let derived_cause = self.derived_cause(obligation, BuiltinDerivedObligation);
-        let obligations = nested.iter().map(|&bound_ty| {
-            // the obligation might be higher-ranked, e.g. for<'a> &'a
-            // int : Copy. In that case, we will wind up with
-            // late-bound regions in the `nested` vector. So for each
-            // one we instantiate to a skolemized region, do our work
-            // to produce something like `&'0 int : Copy`, and then
-            // re-bind it. This is a bit of busy-work but preserves
-            // the invariant that we only manipulate free regions, not
-            // bound ones.
-            self.infcx.try(|snapshot| {
-                let (skol_ty, skol_map) =
-                    self.infcx().skolemize_late_bound_regions(&ty::Binder(bound_ty), snapshot);
-                let skol_predicate =
-                    util::predicate_for_builtin_bound(
-                        self.tcx(),
-                        derived_cause.clone(),
-                        bound,
-                        obligation.recursion_depth + 1,
-                        skol_ty);
-                match skol_predicate {
-                    Ok(skol_predicate) => Ok(self.infcx().plug_leaks(skol_map, snapshot,
-                                                                     &skol_predicate)),
-                    Err(ErrorReported) => Err(ErrorReported)
-                }
-            })
-        }).collect::<Result<_, _>>();
-        let obligations = match obligations {
-            Ok(o) => o,
-            Err(ErrorReported) => Vec::new(),
+        let trait_def = match self.tcx().lang_items.from_builtin_kind(bound) {
+            Ok(def_id) => def_id,
+            Err(_) => {
+                self.tcx().sess.bug("builtin trait definition not found");
+            }
         };
+
+        let obligations = self.collect_predicates_for_types(obligation, trait_def, nested);
 
         let obligations = VecPerParamSpace::new(obligations, Vec::new(), Vec::new());
 
@@ -1928,39 +1951,10 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                            nested: Vec<Ty<'tcx>>)
                            -> VtableDefaultImplData<PredicateObligation<'tcx>>
     {
-        let derived_cause = self.derived_cause(obligation, ImplDerivedObligation);
 
-        let obligations = nested.iter().map(|&nested_ty| {
-            // the obligation might be higher-ranked, e.g. for<'a> &'a
-            // int : Copy. In that case, we will wind up with
-            // late-bound regions in the `nested` vector. So for each
-            // one we instantiate to a skolemized region, do our work
-            // to produce something like `&'0 int : Copy`, and then
-            // re-bind it. This is a bit of busy-work but preserves
-            // the invariant that we only manipulate free regions, not
-            // bound ones.
-            self.infcx.try(|snapshot| {
-                let (skol_ty, skol_map) =
-                    self.infcx().skolemize_late_bound_regions(&ty::Binder(nested_ty), snapshot);
-                let skol_predicate =
-                    util::predicate_for_default_trait_impl(
-                        self.tcx(),
-                        derived_cause.clone(),
-                        trait_def_id,
-                        obligation.recursion_depth + 1,
-                        skol_ty);
-                match skol_predicate {
-                    Ok(skol_predicate) => Ok(self.infcx().plug_leaks(skol_map, snapshot,
-                                                                     &skol_predicate)),
-                    Err(ErrorReported) => Err(ErrorReported)
-                }
-            })
-        }).collect::<Result<_, _>>();
-
-        let mut obligations = match obligations {
-            Ok(o) => o,
-            Err(ErrorReported) => Vec::new()
-        };
+        let mut obligations = self.collect_predicates_for_types(obligation,
+                                                                trait_def_id,
+                                                                nested);
 
         let _: Result<(),()> = self.infcx.try(|snapshot| {
             let (_, skol_map) =
@@ -2061,20 +2055,15 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             }
         };
 
-        let obligation_def_id = obligation.predicate.def_id();
-        let upcast_trait_ref = match util::upcast(self.tcx(),
-                                                  poly_trait_ref.clone(),
-                                                  obligation_def_id) {
-            Some(r) => r,
-            None => {
-                self.tcx().sess.span_bug(obligation.cause.span,
-                                         &format!("unable to upcast from {} to {}",
-                                                  poly_trait_ref.repr(self.tcx()),
-                                                  obligation_def_id.repr(self.tcx())));
-            }
-        };
+        // Upcast the object type to the obligation type. There must
+        // be exactly one applicable trait-reference; if this were not
+        // the case, we would have reported an ambiguity error rather
+        // than successfully selecting one of the candidates.
+        let upcast_trait_refs = self.upcast(poly_trait_ref.clone(), obligation);
+        assert_eq!(upcast_trait_refs.len(), 1);
+        let upcast_trait_ref = upcast_trait_refs.into_iter().next().unwrap();
 
-        match self.match_poly_trait_ref(obligation, upcast_trait_ref) {
+        match self.match_poly_trait_ref(obligation, upcast_trait_ref.clone()) {
             Ok(()) => { }
             Err(()) => {
                 self.tcx().sess.span_bug(obligation.cause.span,
@@ -2082,7 +2071,8 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
             }
         }
 
-        VtableObjectData { object_ty: self_ty }
+        VtableObjectData { object_ty: self_ty,
+                           upcast_trait_ref: upcast_trait_ref }
     }
 
     fn confirm_fn_pointer_candidate(&mut self,
@@ -2498,6 +2488,32 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         } else {
             obligation.cause.clone()
         }
+    }
+
+    /// Upcasts an object trait-reference into those that match the obligation.
+    fn upcast(&mut self, obj_trait_ref: ty::PolyTraitRef<'tcx>, obligation: &TraitObligation<'tcx>)
+              -> Vec<ty::PolyTraitRef<'tcx>>
+    {
+        debug!("upcast(obj_trait_ref={}, obligation={})",
+               obj_trait_ref.repr(self.tcx()),
+               obligation.repr(self.tcx()));
+
+        let obligation_def_id = obligation.predicate.def_id();
+        let mut upcast_trait_refs = util::upcast(self.tcx(), obj_trait_ref, obligation_def_id);
+
+        // Retain only those upcast versions that match the trait-ref
+        // we are looking for.  In particular, we know that all of
+        // `upcast_trait_refs` apply to the correct trait, but
+        // possibly with incorrect type parameters. For example, we
+        // may be trying to upcast `Foo` to `Bar<i32>`, but `Foo` is
+        // declared as `trait Foo : Bar<u32>`.
+        upcast_trait_refs.retain(|upcast_trait_ref| {
+            let upcast_trait_ref = upcast_trait_ref.clone();
+            self.infcx.probe(|_| self.match_poly_trait_ref(obligation, upcast_trait_ref)).is_ok()
+        });
+
+        debug!("upcast: upcast_trait_refs={}", upcast_trait_refs.repr(self.tcx()));
+        upcast_trait_refs
     }
 }
 

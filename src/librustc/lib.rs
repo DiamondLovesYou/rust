@@ -31,7 +31,6 @@
 #![feature(int_uint)]
 #![feature(old_io)]
 #![feature(libc)]
-#![feature(env)]
 #![feature(old_path)]
 #![feature(quote)]
 #![feature(rustc_diagnostic_macros)]
@@ -39,8 +38,10 @@
 #![feature(unsafe_destructor)]
 #![feature(staged_api)]
 #![feature(std_misc)]
-#![feature(unicode)]
 #![feature(os)]
+#![feature(path)]
+#![feature(fs)]
+#![feature(io)]
 #![cfg_attr(test, feature(test))]
 
 extern crate arena;

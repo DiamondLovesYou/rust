@@ -69,6 +69,7 @@ pub struct SharedCrateContext<'tcx> {
     symbol_hasher: RefCell<Sha256>,
     tcx: ty::ctxt<'tcx>,
     stats: Stats,
+    check_overflow: bool,
 
     available_monomorphizations: RefCell<FnvHashSet<String>>,
     available_drop_glues: RefCell<FnvHashMap<Ty<'tcx>, String>>,
@@ -245,7 +246,8 @@ impl<'tcx> SharedCrateContext<'tcx> {
                export_map: ExportMap,
                symbol_hasher: Sha256,
                link_meta: LinkMeta,
-               reachable: NodeSet)
+               reachable: NodeSet,
+               check_overflow: bool)
                -> SharedCrateContext<'tcx> {
         let (metadata_llcx, metadata_llmod) = unsafe {
             create_context_and_module(&tcx.sess, "metadata")
@@ -274,6 +276,7 @@ impl<'tcx> SharedCrateContext<'tcx> {
                 llvm_insns: RefCell::new(FnvHashMap()),
                 fn_stats: RefCell::new(Vec::new()),
             },
+            check_overflow: check_overflow,
             available_monomorphizations: RefCell::new(FnvHashSet()),
             available_drop_glues: RefCell::new(FnvHashMap()),
         };
@@ -744,6 +747,10 @@ impl<'b, 'tcx> CrateContext<'b, 'tcx> {
             &format!("the type `{}` is too big for the current architecture",
                     obj.repr(self.tcx())))
     }
+
+    pub fn check_overflow(&self) -> bool {
+        self.shared.check_overflow
+    }
 }
 
 pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<ValueRef> {
@@ -837,59 +844,35 @@ pub fn declare_intrinsic(ccx: &CrateContext, key: & &'static str) -> Option<Valu
     ifn!("llvm.bswap.i32", fn(t_i32) -> t_i32);
     ifn!("llvm.bswap.i64", fn(t_i64) -> t_i64);
 
-    ifn!("llvm.sadd.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.sadd.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.sadd.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.sadd.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1},
-         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.sadd.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1});
+    ifn!("llvm.sadd.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1});
+    ifn!("llvm.sadd.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1});
+    ifn!("llvm.sadd.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1});
 
-    ifn!("llvm.uadd.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.uadd.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.uadd.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.uadd.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1},
-         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.uadd.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1});
+    ifn!("llvm.uadd.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1});
+    ifn!("llvm.uadd.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1});
+    ifn!("llvm.uadd.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1});
 
-    ifn!("llvm.ssub.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.ssub.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.ssub.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.ssub.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1},
-         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.ssub.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1});
+    ifn!("llvm.ssub.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1});
+    ifn!("llvm.ssub.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1});
+    ifn!("llvm.ssub.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1});
 
-    ifn!("llvm.usub.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.usub.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.usub.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.usub.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1},
-         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.usub.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1});
+    ifn!("llvm.usub.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1});
+    ifn!("llvm.usub.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1});
+    ifn!("llvm.usub.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1});
 
-    ifn!("llvm.smul.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.smul.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.smul.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.smul.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1},
-         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.smul.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1});
+    ifn!("llvm.smul.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1});
+    ifn!("llvm.smul.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1});
+    ifn!("llvm.smul.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1});
 
-    ifn!("llvm.umul.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.umul.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.umul.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1},
-         if (!ccx.sess().targeting_pnacl()));
-    ifn!("llvm.umul.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1},
-         if (!ccx.sess().targeting_pnacl()));
+    ifn!("llvm.umul.with.overflow.i8", fn(t_i8, t_i8) -> mk_struct!{t_i8, i1});
+    ifn!("llvm.umul.with.overflow.i16", fn(t_i16, t_i16) -> mk_struct!{t_i16, i1});
+    ifn!("llvm.umul.with.overflow.i32", fn(t_i32, t_i32) -> mk_struct!{t_i32, i1});
+    ifn!("llvm.umul.with.overflow.i64", fn(t_i64, t_i64) -> mk_struct!{t_i64, i1});
 
     ifn!("llvm.lifetime.start", fn(t_i64,i8p) -> void);
     ifn!("llvm.lifetime.end", fn(t_i64, i8p) -> void);
