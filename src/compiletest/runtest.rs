@@ -29,7 +29,7 @@ use std::iter::repeat;
 use std::net::TcpStream;
 use std::old_io::timer;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, ExitStatus};
+use std::process::{Command, Output, ExitStatus, Child};
 use std::str;
 use std::time::Duration;
 use test::MetricMap;
@@ -506,10 +506,11 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
 
         _ if config.targeting_nacl() => {
             use std::env::consts::ARCH;
-            fn make_absolute(p: &Path) -> ::std::old_io::IoResult<Path> {
+            fn make_absolute(p: &Path) -> PathBuf {
                 use std::env;
                 env::current_dir()
                     .map(|cwd| cwd.join(p) )
+                    .unwrap()
             }
 
             let arch_prefix = match ARCH {
@@ -534,8 +535,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
 
             cmds = cmds.replace("run", "continue").to_string();
 
-            let pexe_path = make_absolute(&output_base_name(config, testfile))
-                .unwrap();
+            let pexe_path = make_absolute(&output_base_name(config, testfile));
             let pexe_path = if config.mode == DebugInfoGdb {
                 // The pexe wont have debugging info in it. We need the bc file rustc
                 // also generated.
@@ -545,16 +545,16 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
             };
             let nexe_path =
                 // add an extension, don't replace it:
-                Path::new(format!("{}.nexe", pexe_path.display()));
+                format!("{:?}.nexe", pexe_path);
 
             // write debugger script
             let rust_src_root = find_rust_src_root(config)
                 .expect("Could not find Rust source root");
             let rust_pp_module_rel_path = Path::new("./src/etc");
-            let rust_pp_module_abs_path = rust_src_root.join(rust_pp_module_rel_path)
-                                                       .as_str()
-                                                       .unwrap()
-                                                       .to_string();
+            let rust_pp_module_abs_path = rust_src_root
+                .join(rust_pp_module_rel_path);
+            let rust_pp_module_abs_path = format!("{:?}", rust_pp_module_abs_path);
+
             // write debugger script
             let mut script_str = String::with_capacity(2048);
 
@@ -566,46 +566,48 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
             // GDB's script auto loading safe path
             script_str.push_str(
                 &format!("add-auto-load-safe-path {}\n",
-                         rust_pp_module_abs_path.replace("\\", "\\\\"))[]);
+                         rust_pp_module_abs_path.replace("\\", "\\\\"))[..]);
 
             // The following line actually doesn't have to do anything with
             // pretty printing, it just tells GDB to print values on one line:
             script_str.push_str("set print pretty off\n");
 
             // Add the pretty printer directory to GDB's source-file search path
-            script_str.push_str(&format!("directory {}\n", rust_pp_module_abs_path)[]);
+            script_str.push_str(&format!("directory {}\n", rust_pp_module_abs_path)[..]);
 
             // Load the target executable
             script_str.push_str(&format!("file {}\n",
-                                         nexe_path.as_str().unwrap().replace("\\", "\\\\"))[]);
+                                         nexe_path.replace("\\", "\\\\"))[..]);
 
             // Add line breakpoints
             for line in breakpoint_lines.iter() {
-                script_str.push_str(&format!("break '{}':{}\n",
-                                             testfile.filename_display(),
-                                             *line)[]);
+                script_str.push_str(&format!("break '{:?}':{}\n",
+                                             testfile.file_name().unwrap(),
+                                             *line)[..]);
             }
 
-            script_str.push_str(&cmds[]);
+            script_str.push_str(&cmds[..]);
             script_str.push_str("quit\n");
 
             debug!("script_str = {}", script_str);
             dump_output_file(config,
                              testfile,
-                             &script_str[],
+                             &script_str[..],
                              "debugger.script");
 
             let cross_path = config.nacl_cross_path
                 .clone()
                 .expect("need the NaCl SDK path!");
-            let gdb_path = cross_path.join_many(&["toolchain".to_string(),
-                                                  {
-                                                      let mut s = pnacl_toolchain_prefix();
-                                                      s.push_str("_x86_newlib");
-                                                      s
-                                                  },
-                                                  "bin".to_string(),
-                                                  gdb.clone()]);
+            let mut gdb_path = cross_path.clone();
+            gdb_path.push("toolchain");
+            gdb_path.push(&({
+                let mut s = pnacl_toolchain_prefix();
+                s.push_str("_x86_newlib");
+                s
+            }));
+            gdb_path.push("bin");
+            gdb_path.push(&gdb);
+            let gdb_path = gdb_path;
 
             loop {
                 use std::thread::Builder;
@@ -613,13 +615,14 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                 timer::sleep(Duration::milliseconds(250));
                 let result = Builder::new()
                     .scoped(move || {
-                        tcp::TcpStream::connect("127.0.0.1:4014").unwrap();
-                    })
-                    .join();
+                        TcpStream::connect("127.0.0.1:4014").unwrap();
+                    });
                 if result.is_err() {
                     continue;
+                } else {
+                    result.unwrap().join();
+                    break;
                 }
-                break;
             }
 
             let debugger_script = make_out_name(config, testfile, "debugger.script");
@@ -628,29 +631,29 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                 vec!("-quiet".to_string(),
                      "-batch".to_string(),
                      "-nx".to_string(),
-                     format!("-command={}", debugger_script.as_str().unwrap()));
+                     format!("-command={}", debugger_script.display()));
 
             let procsrv::Result {
                 out,
                 err,
                 status
             } = procsrv::run("",
-                             &format!("{}", gdb_path.display())[],
+                             &format!("{}", gdb_path.display())[..],
                              None,
-                             &debugger_opts[],
+                             &debugger_opts[..],
                              vec!(("".to_string(), "".to_string())),
                              None)
-                .expect(&format!("failed to exec `{}`", gdb_path.display())[]);
+                .expect(&format!("failed to exec `{:?}`", gdb_path)[..]);
             let cmdline = {
                 let cmdline = make_cmdline("",
-                                           &gdb[],
-                                           &debugger_opts[]);
+                                           &gdb[..],
+                                           &debugger_opts[..]);
                 logv(config, format!("executing {}", cmdline));
                 cmdline
             };
 
             debugger_run_result = ProcRes {
-                status: status,
+                status: Status::Normal(status),
                 stdout: out,
                 stderr: err,
                 cmdline: cmdline
@@ -1805,24 +1808,23 @@ fn _arm_push_aux_shared_library(config: &Config, testfile: &Path) {
 
 enum ProcResOrProcessResult {
     ProcResResult(ProcRes),
-    ProcessResult(Process),
+    ProcessResult(Child),
 }
 fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
                             testfile: &Path, env: Vec<(String, String)>,
                             run_background: bool) -> ProcResOrProcessResult {
-    use std::old_io::process::{ExitStatus, ExitSignal};
-    fn make_absolute(p: &Path) -> ::std::old_io::IoResult<Path> {
+    fn make_absolute(p: &Path) -> PathBuf {
         use std::env;
         env::current_dir()
             .map(|cwd| cwd.join(p) )
+            .unwrap()
     }
 
     let cross_path = config.nacl_cross_path
         .clone()
         .expect("need the NaCl SDK path!");
 
-    let pexe_path = make_absolute(&output_base_name(config, testfile))
-        .unwrap();
+    let pexe_path = make_absolute(&output_base_name(config, testfile));
     let pexe_path = if config.mode == DebugInfoGdb {
         // The pexe wont have debugging info in it. We need the bc file rustc
         // also generated.
@@ -1832,18 +1834,20 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     };
     let nexe_path =
         // add an extension, don't replace it:
-        Path::new(format!("{}.nexe", pexe_path.display()));
+        format!("{}.nexe", pexe_path.display());
+    let nexe_path = PathBuf::new(&nexe_path);
 
     let pnacl_trans_args = vec!(format!("-o{}", nexe_path.display()),
                                 format!("{}", pexe_path.display()),
                                 "--cross-path".to_string(),
                                 format!("{}", cross_path.display()));
     let pnacl_trans = {
-        let rustc_path = Path::new(config.rustc_path.as_str().unwrap());
+        let rustc_path = config.rustc_path.clone();
         let pnacl_trans = rustc_path
-            .dir_path()
+            .parent()
+            .unwrap()
             .join("rust-pnacl-trans");
-        if let Some(str) = rustc_path.extension_str() {
+        if let Some(str) = rustc_path.extension() {
             pnacl_trans.with_extension(str)
         } else {
             pnacl_trans
@@ -1851,19 +1855,19 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     };
     match program_output(config,
                          testfile,
-                         &config.compile_lib_path[],
+                         &config.compile_lib_path[..],
                          pnacl_trans.display().to_string(),
                          None,
                          pnacl_trans_args,
                          env.clone(),
                          None) {
-        ProcRes { status: ExitStatus(0), .. } => { }
+        ProcRes { ref status, .. } if status.success() => { }
         res => {
             return ProcResOrProcessResult::ProcResResult(res);
         }
     }
 
-    let _ = fs::unlink(&pexe_path);
+    let _ = fs::remove_file(&pexe_path);
 
     let tools = cross_path.join("tools");
     let nacl_helper_bootstrap = tools.join("nacl_helper_bootstrap_x86_64");
@@ -1890,84 +1894,36 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     let sel_ldr_dsp = nacl_helper_bootstrap.display().to_string();
 
     let mut process = procsrv::run_background("",
-                                              &sel_ldr_dsp[],
+                                              &sel_ldr_dsp[..],
                                               None,
-                                              &sel_ldr_args[],
+                                              &sel_ldr_args[..],
                                               env,
                                               None)
-        .expect(&format!("failed to exec `{}`", sel_ldr_dsp)[]);
+        .expect(&format!("failed to exec `{}`", sel_ldr_dsp)[..]);
 
     if !run_background {
-        process.set_timeout(Some(10_000));
-        match process.wait() {
-            Ok(status) => {
-                return ProcResOrProcessResult::ProcResResult(ProcRes {
-                    status: status,
-                    stdout: String::from_utf8(process.stdout
-                                              .as_mut()
-                                              .unwrap()
-                                              .read_to_end()
-                                              .unwrap()).unwrap(),
-                    stderr: String::from_utf8(process.stderr
-                                              .as_mut()
-                                              .unwrap()
-                                              .read_to_end()
-                                              .unwrap()).unwrap(),
-                    cmdline: make_cmdline("",
-                                          &sel_ldr_dsp[],
-                                          &sel_ldr_args[]),
-                });
-            }
-            Err(..) => {}
-        }
+        let status = process.wait()
+            .unwrap();
+        let mut stdout = String::new();
+        process.stdout
+            .as_mut()
+            .unwrap()
+            .read_to_string(&mut stdout)
+            .unwrap();
 
-        debug!("finished waiting... sending SIGTERM...");
-
-        match process.signal_exit() {
-            Ok(..) => {}
-            Err(e) => panic!("couldn't signal for the test to exit: `{}`", e),
-        }
-        process.set_timeout(Some(1_000));
-        match process.wait() {
-            Ok(status) => {
-                return ProcResOrProcessResult::ProcResResult(ProcRes {
-                    status: status,
-                    stdout: String::from_utf8(process.stdout
-                                              .as_mut()
-                                              .unwrap()
-                                              .read_to_end()
-                                              .unwrap()).unwrap(),
-                    stderr: String::from_utf8(process.stderr
-                                              .as_mut()
-                                              .unwrap()
-                                              .read_to_end()
-                                              .unwrap()).unwrap(),
-                    cmdline: make_cmdline("",
-                                          &sel_ldr_dsp[],
-                                          &sel_ldr_args[]),
-                });
-            }
-            Err(..) => {}
-        }
-
-        debug!("finished waiting for SIGTERM. Killing.");
-
-        let _ = process.signal_kill();
+        let mut stderr = String::new();
+        process.stderr
+            .as_mut()
+            .unwrap()
+            .read_to_string(&mut stderr)
+            .unwrap();
         return ProcResOrProcessResult::ProcResResult(ProcRes {
-            status: ExitSignal(9),
-            stdout: String::from_utf8(process.stdout
-                                      .as_mut()
-                                      .unwrap()
-                                      .read_to_end()
-                                      .unwrap()).unwrap(),
-            stderr: String::from_utf8(process.stderr
-                                      .as_mut()
-                                      .unwrap()
-                                      .read_to_end()
-                                      .unwrap()).unwrap(),
+            status: Status::Normal(status),
+            stdout: stdout,
+            stderr: stderr,
             cmdline: make_cmdline("",
-                                  &sel_ldr_dsp[],
-                                  &sel_ldr_args[]),
+                                  &sel_ldr_dsp[..],
+                                  &sel_ldr_args[..]),
         });
     } else {
         return ProcResOrProcessResult::ProcessResult(process);

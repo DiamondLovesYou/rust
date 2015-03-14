@@ -163,7 +163,7 @@ pub struct Config {
     pub lldb_python_dir: Option<String>,
 
     // NaCl Pepper SDK path
-    pub nacl_cross_path: Option<Path>,
+    pub nacl_cross_path: Option<PathBuf>,
 
     // Explain what's going on
     pub verbose: bool
