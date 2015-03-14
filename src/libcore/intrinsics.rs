@@ -480,9 +480,7 @@ extern "rust-intrinsic" {
     pub fn bswap64(x: u64) -> u64;
 }
 /// The following intrinsics are disallowed on PNaCl:
-/// We sneakily redirect some of them to libm, while the
-/// *.with.overflow functions are just written with manual checks.
-/// They're in all likelyhood slower, but they're effective.
+/// We sneakily redirect them to libm.
 #[cfg(not(target_os = "nacl"))]
 extern "rust-intrinsic" {
 
@@ -505,6 +503,10 @@ extern "rust-intrinsic" {
     pub fn cttz8(x: u8) -> u8;
     /// Returns the number of trailing bits unset in a `u16`.
     pub fn cttz16(x: u16) -> u16;
+
+}
+
+extern "rust-intrinsic" {
 
     /// Performs checked `i8` addition.
     pub fn i8_add_with_overflow(x: i8, y: i8) -> (i8, bool);
@@ -591,82 +593,3 @@ extern "rust-intrinsic" {
 #[inline] pub unsafe fn cttz8(x: u8) -> u8 { cttz32(x as u32) as u8 }
 #[cfg(target_os = "nacl")]
 #[inline] pub unsafe fn cttz16(x: u16) -> u16 { cttz32(x as u32) as u16 }
-
-macro_rules! add_with_overflow {
-    ($ty:ty, $id:ident) => (
-        #[cfg(target_os = "nacl")]
-        pub unsafe fn $id (x: $ty,
-                           y: $ty) -> ($ty,
-                                       bool) {
-            let result = x + y;
-            (result, if y > 0 {
-                    result < x
-                } else if y == 0 {
-                    false
-                } else {
-                    result > x
-                })
-        }
-    )
-}
-macro_rules! sub_with_overflow {
-    ($ty:ty, $id:ident) => (
-        #[cfg(target_os = "nacl")]
-        pub unsafe fn $id (x: $ty,
-                           y: $ty) -> ($ty,
-                                       bool) {
-            let result = x - y;
-            (result, if y > 0 {
-                    result > x
-                } else if y == 0 {
-                    false
-                } else {
-                    result < x
-                })
-        }
-    )
-}
-macro_rules! mul_with_overflow {
-    ($ty:ty, $id:ident) => (
-        #[cfg(target_os = "nacl")]
-        pub unsafe fn $id (x: $ty,
-                           y: $ty) -> ($ty,
-                                       bool) {
-            let result = x * y;
-            (result, if y > 0 {
-                    result < x
-                } else if y == 0 {
-                    false
-                } else {
-                    result > x
-                })
-        }
-    )
-}
-
-add_with_overflow!{i8,  i8_add_with_overflow }
-add_with_overflow!{i16, i16_add_with_overflow}
-add_with_overflow!{i32, i32_add_with_overflow}
-add_with_overflow!{i64, i64_add_with_overflow}
-add_with_overflow!{u8,  u8_add_with_overflow }
-add_with_overflow!{u16, u16_add_with_overflow}
-add_with_overflow!{u32, u32_add_with_overflow}
-add_with_overflow!{u64, u64_add_with_overflow}
-
-sub_with_overflow!{i8,  i8_sub_with_overflow }
-sub_with_overflow!{i16, i16_sub_with_overflow}
-sub_with_overflow!{i32, i32_sub_with_overflow}
-sub_with_overflow!{i64, i64_sub_with_overflow}
-sub_with_overflow!{u8,  u8_sub_with_overflow }
-sub_with_overflow!{u16, u16_sub_with_overflow}
-sub_with_overflow!{u32, u32_sub_with_overflow}
-sub_with_overflow!{u64, u64_sub_with_overflow}
-
-mul_with_overflow!{i8,  i8_mul_with_overflow }
-mul_with_overflow!{i16, i16_mul_with_overflow}
-mul_with_overflow!{i32, i32_mul_with_overflow}
-mul_with_overflow!{i64, i64_mul_with_overflow}
-mul_with_overflow!{u8,  u8_mul_with_overflow }
-mul_with_overflow!{u16, u16_mul_with_overflow}
-mul_with_overflow!{u32, u32_mul_with_overflow}
-mul_with_overflow!{u64, u64_mul_with_overflow}
