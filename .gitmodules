@@ -6,8 +6,7 @@
 	url = https://github.com/rust-lang/hoedown.git
 [submodule "src/jemalloc"]
 	path = src/jemalloc
-	url = https://github.com/DiamondLovesYou/jemalloc.git
-        branch = rust-pnacl
+	url = https://github.com/rust-lang/jemalloc.git
 [submodule "src/rust-installer"]
 	path = src/rust-installer
 	url = https://github.com/rust-lang/rust-installer
