@@ -752,7 +752,7 @@ pub fn link_pnacl_module(sess: &Session,
     let linker = pnacl_host_tool(sess, "ld.gold");
     let mut cmd = Command::new(&linker);
     cmd.arg("--oformat=elf32-i386-nacl");
-    cmd.arg(&format!("-plugin={:?}", sess.gold_plugin_path()));
+    cmd.arg(&format!("-plugin={}", sess.gold_plugin_path().display()));
     cmd.arg("-plugin-opt=emit-llvm");
     cmd.arg("-nostdlib");
     cmd.arg("--undef-sym-check");
