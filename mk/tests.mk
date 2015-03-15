@@ -255,7 +255,6 @@ tidy-basic:
 .PHONY: tidy-binaries
 tidy-binaries:
 		@$(call E, check: binaries)
-		    -and -not -regex '^$(S)src/nacl-binutils.*' \
 		$(Q)find $(S)src -type f -perm +a+x \
 		    -not -name '*.rs' -and -not -name '*.py' \
 		    -and -not -name '*.sh' \
