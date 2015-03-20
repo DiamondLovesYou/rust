@@ -9,6 +9,9 @@
 // except according to those terms.
 
 //! Blocking posix-based file I/O
+#![allow(deprecated)]
+
+#![allow(deprecated)] // this module itself is essentially deprecated
 
 use prelude::v1::*;
 
@@ -256,12 +259,12 @@ pub fn chown(p: &Path, uid: int, gid: int) -> IoResult<()> {
 
 pub fn readlink(p: &Path) -> IoResult<Path> {
     #[cfg(not(target_libc = "newlib"))]
-    fn pathconf(p: *mut libc::c_char) -> i64 {
-        unsafe { libc::pathconf(p, libc::_PC_NAME_MAX) as i64 }
+    unsafe fn pathconf(p: *mut libc::c_char) -> i64 {
+        libc::pathconf(p, libc::_PC_NAME_MAX) as i64
     }
     #[cfg(target_libc = "newlib")]
-    fn pathconf(_: *mut libc::c_char) -> i64 {
-        unsafe { libc::sysconf(libc::_PC_NAME_MAX) as i64 }
+    unsafe fn pathconf(_: *mut libc::c_char) -> i64 {
+        libc::sysconf(libc::_PC_NAME_MAX) as i64
     }
 
     let c_path = try!(cstr(p));

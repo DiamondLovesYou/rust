@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![allow(deprecated)]
+
 use prelude::v1::*;
 
 use old_io::net::ip;
@@ -135,10 +137,6 @@ impl TcpAcceptor {
         }
 
         Err(sys_common::eof())
-    }
-
-    pub fn socket_name(&mut self) -> IoResult<ip::SocketAddr> {
-        net::sockname(self.fd(), libc::getsockname)
     }
 
     pub fn set_timeout(&mut self, timeout: Option<u64>) {

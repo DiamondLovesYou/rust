@@ -193,14 +193,9 @@ pub trait Copy : MarkerTrait {
 /// the `sync` crate do ensure that any mutation cannot cause data
 /// races.  Hence these types are `Sync`.
 ///
-/// Users writing their own types with interior mutability (or anything
-/// else that is not thread-safe) should use the `NoSync` marker type
-/// (from `std::marker`) to ensure that the compiler doesn't
-/// consider the user-defined type to be `Sync`.  Any types with
-/// interior mutability must also use the `std::cell::UnsafeCell` wrapper
-/// around the value(s) which can be mutated when behind a `&`
-/// reference; not doing this is undefined behaviour (for example,
-/// `transmute`-ing from `&T` to `&mut T` is illegal).
+/// Any types with interior mutability must also use the `std::cell::UnsafeCell` wrapper around the
+/// value(s) which can be mutated when behind a `&` reference; not doing this is undefined
+/// behaviour (for example, `transmute`-ing from `&T` to `&mut T` is illegal).
 #[stable(feature = "rust1", since = "1.0.0")]
 #[lang="sync"]
 #[rustc_on_unimplemented = "`{Self}` cannot be shared between threads safely"]
@@ -293,7 +288,7 @@ impl<T:?Sized> MarkerTrait for T { }
 /// can extend `MarkerTrait`, which is equivalent to
 /// `PhantomFn<Self>`.
 ///
-/// # Example
+/// # Examples
 ///
 /// As an example, consider a trait with no methods like `Even`, meant
 /// to represent types that are "even":
@@ -351,7 +346,45 @@ pub trait PhantomFn<A:?Sized,R:?Sized=()> { }
 /// instance, it will behave *as if* an instance of the type `T` were
 /// present for the purpose of various automatic analyses.
 ///
-/// For example, embedding a `PhantomData<T>` will inform the compiler
+/// # Examples
+///
+/// When handling external resources over a foreign function interface, `PhantomData<T>` can
+/// prevent mismatches by enforcing types in the method implementations, although the struct
+/// doesn't actually contain values of the resource type.
+///
+/// ```
+/// # trait ResType { fn foo(&self); };
+/// # struct ParamType;
+/// # mod foreign_lib {
+/// # pub fn new(_: usize) -> *mut () { 42 as *mut () }
+/// # pub fn do_stuff(_: *mut (), _: usize) {}
+/// # }
+/// # fn convert_params(_: ParamType) -> usize { 42 }
+/// use std::marker::PhantomData;
+/// use std::mem;
+///
+/// struct ExternalResource<R> {
+///    resource_handle: *mut (),
+///    resource_type: PhantomData<R>,
+/// }
+///
+/// impl<R: ResType> ExternalResource<R> {
+///     fn new() -> ExternalResource<R> {
+///         let size_of_res = mem::size_of::<R>();
+///         ExternalResource {
+///             resource_handle: foreign_lib::new(size_of_res),
+///             resource_type: PhantomData,
+///         }
+///     }
+///
+///     fn do_stuff(&self, param: ParamType) {
+///         let foreign_params = convert_params(param);
+///         foreign_lib::do_stuff(self.resource_handle, foreign_params);
+///     }
+/// }
+/// ```
+///
+/// Another example: embedding a `PhantomData<T>` will inform the compiler
 /// that one or more instances of the type `T` could be dropped when
 /// instances of the type itself is dropped, though that may not be
 /// apparent from the other structure of the type itself. This is

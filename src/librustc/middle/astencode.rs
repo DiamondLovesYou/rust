@@ -32,17 +32,17 @@ use middle::ty::{self, Ty, MethodCall, MethodCallee, MethodOrigin};
 use util::ppaux::ty_to_string;
 
 use syntax::{ast, ast_map, ast_util, codemap, fold};
-use syntax::ast_util::PostExpansionMethod;
 use syntax::codemap::Span;
 use syntax::fold::Folder;
 use syntax::parse::token;
 use syntax::ptr::P;
 use syntax;
 
-use std::old_io::Seek;
+use std::cell::Cell;
+use std::io::SeekFrom;
+use std::io::prelude::*;
 use std::num::FromPrimitive;
 use std::rc::Rc;
-use std::cell::Cell;
 
 use rbml::reader;
 use rbml::writer::Encoder;
@@ -51,7 +51,7 @@ use serialize;
 use serialize::{Decodable, Decoder, DecoderHelpers, Encodable};
 use serialize::{EncoderHelpers};
 
-#[cfg(test)] use rbml::io::SeekableMemWriter;
+#[cfg(test)] use std::io::Cursor;
 #[cfg(test)] use syntax::parse;
 #[cfg(test)] use syntax::print::pprust;
 
@@ -81,15 +81,12 @@ pub fn encode_inlined_item(ecx: &e::EncodeContext,
     let id = match ii {
         e::IIItemRef(i) => i.id,
         e::IIForeignRef(i) => i.id,
-        e::IITraitItemRef(_, &ast::ProvidedMethod(ref m)) => m.id,
-        e::IITraitItemRef(_, &ast::RequiredMethod(ref m)) => m.id,
-        e::IITraitItemRef(_, &ast::TypeTraitItem(ref ti)) => ti.ty_param.id,
-        e::IIImplItemRef(_, &ast::MethodImplItem(ref m)) => m.id,
-        e::IIImplItemRef(_, &ast::TypeImplItem(ref ti)) => ti.id,
+        e::IITraitItemRef(_, ti) => ti.id,
+        e::IIImplItemRef(_, ii) => ii.id,
     };
     debug!("> Encoding inlined item: {} ({:?})",
            ecx.tcx.map.path_to_string(id),
-           rbml_w.writer.tell());
+           rbml_w.writer.seek(SeekFrom::Current(0)));
 
     // Folding could be avoided with a smarter encoder.
     let ii = simplify_ast(ii);
@@ -103,7 +100,7 @@ pub fn encode_inlined_item(ecx: &e::EncodeContext,
 
     debug!("< Encoded inlined fn: {} ({:?})",
            ecx.tcx.map.path_to_string(id),
-           rbml_w.writer.tell());
+           rbml_w.writer.seek(SeekFrom::Current(0)));
 }
 
 impl<'a, 'b, 'c, 'tcx> ast_map::FoldOps for &'a DecodeContext<'b, 'c, 'tcx> {
@@ -157,19 +154,8 @@ pub fn decode_inlined_item<'tcx>(cdata: &cstore::crate_metadata,
         let ident = match *ii {
             ast::IIItem(ref i) => i.ident,
             ast::IIForeign(ref i) => i.ident,
-            ast::IITraitItem(_, ref ti) => {
-                match *ti {
-                    ast::ProvidedMethod(ref m) => m.pe_ident(),
-                    ast::RequiredMethod(ref ty_m) => ty_m.ident,
-                    ast::TypeTraitItem(ref ti) => ti.ty_param.ident,
-                }
-            },
-            ast::IIImplItem(_, ref m) => {
-                match *m {
-                    ast::MethodImplItem(ref m) => m.pe_ident(),
-                    ast::TypeImplItem(ref ti) => ti.ident,
-                }
-            }
+            ast::IITraitItem(_, ref ti) => ti.ident,
+            ast::IIImplItem(_, ref ii) => ii.ident
         };
         debug!("Fn named: {}", token::get_ident(ident));
         debug!("< Decoded inlined fn: {}::{}",
@@ -412,38 +398,16 @@ fn simplify_ast(ii: e::InlinedItemRef) -> ast::InlinedItem {
                             .expect_one("expected one item"))
         }
         e::IITraitItemRef(d, ti) => {
-            ast::IITraitItem(d, match *ti {
-                ast::ProvidedMethod(ref m) => {
-                    ast::ProvidedMethod(
-                        fold::noop_fold_method(m.clone(), &mut fld)
-                            .expect_one("noop_fold_method must produce \
-                                         exactly one method"))
-                }
-                ast::RequiredMethod(ref ty_m) => {
-                    ast::RequiredMethod(
-                        fold::noop_fold_type_method(ty_m.clone(), &mut fld))
-                }
-                ast::TypeTraitItem(ref associated_type) => {
-                    ast::TypeTraitItem(
-                        P(fold::noop_fold_associated_type(
-                            (**associated_type).clone(),
-                            &mut fld)))
-                }
-            })
+            ast::IITraitItem(d,
+                fold::noop_fold_trait_item(P(ti.clone()), &mut fld)
+                    .expect_one("noop_fold_trait_item must produce \
+                                 exactly one trait item"))
         }
-        e::IIImplItemRef(d, m) => {
-            ast::IIImplItem(d, match *m {
-                ast::MethodImplItem(ref m) => {
-                    ast::MethodImplItem(
-                        fold::noop_fold_method(m.clone(), &mut fld)
-                            .expect_one("noop_fold_method must produce \
-                                         exactly one method"))
-                }
-                ast::TypeImplItem(ref td) => {
-                    ast::TypeImplItem(
-                        P(fold::noop_fold_typedef((**td).clone(), &mut fld)))
-                }
-            })
+        e::IIImplItemRef(d, ii) => {
+            ast::IIImplItem(d,
+                fold::noop_fold_impl_item(P(ii.clone()), &mut fld)
+                    .expect_one("noop_fold_impl_item must produce \
+                                 exactly one impl item"))
         }
         e::IIForeignRef(i) => {
             ast::IIForeign(fold::noop_fold_foreign_item(P(i.clone()), &mut fld))
@@ -2011,7 +1975,7 @@ fn mk_ctxt() -> parse::ParseSess {
 #[cfg(test)]
 fn roundtrip(in_item: Option<P<ast::Item>>) {
     let in_item = in_item.unwrap();
-    let mut wr = SeekableMemWriter::new();
+    let mut wr = Cursor::new(Vec::new());
     encode_item_ast(&mut Encoder::new(&mut wr), &*in_item);
     let rbml_doc = rbml::Doc::new(wr.get_ref());
     let out_item = decode_item_ast(rbml_doc);

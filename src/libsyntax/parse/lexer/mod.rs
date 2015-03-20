@@ -777,13 +777,6 @@ impl<'a> StringReader<'a> {
         }
     }
 
-    fn old_escape_warning(&mut self, sp: Span) {
-        self.span_diagnostic
-            .span_warn(sp, "\\U00ABCD12 and \\uABCD escapes are deprecated");
-        self.span_diagnostic
-            .fileline_help(sp, "use \\u{ABCD12} escapes instead");
-    }
-
     /// Scan for a single (possibly escaped) byte or char
     /// in a byte, (non-raw) byte string, char, or (non-raw) string literal.
     /// `start` is the position of `first_source_char`, which is already consumed.
@@ -803,21 +796,8 @@ impl<'a> StringReader<'a> {
                         return match e {
                             'n' | 'r' | 't' | '\\' | '\'' | '"' | '0' => true,
                             'x' => self.scan_byte_escape(delim, !ascii_only),
-                            'u' if !ascii_only => {
-                                if self.curr == Some('{') {
-                                    self.scan_unicode_escape(delim)
-                                } else {
-                                    let res = self.scan_hex_digits(4, delim, false);
-                                    let sp = codemap::mk_sp(escaped_pos, self.last_pos);
-                                    self.old_escape_warning(sp);
-                                    res
-                                }
-                            }
-                            'U' if !ascii_only => {
-                                let res = self.scan_hex_digits(8, delim, false);
-                                let sp = codemap::mk_sp(escaped_pos, self.last_pos);
-                                self.old_escape_warning(sp);
-                                res
+                            'u' if self.curr_is('{') => {
+                                self.scan_unicode_escape(delim)
                             }
                             '\n' if delim == '"' => {
                                 self.consume_whitespace();
@@ -1490,11 +1470,11 @@ mod test {
     use diagnostic;
     use parse::token;
     use parse::token::{str_to_ident};
-    use std::old_io::util;
+    use std::io;
 
     fn mk_sh() -> diagnostic::SpanHandler {
         // FIXME (#22405): Replace `Box::new` with `box` here when/if possible.
-        let emitter = diagnostic::EmitterWriter::new(Box::new(util::NullWriter), None);
+        let emitter = diagnostic::EmitterWriter::new(Box::new(io::sink()), None);
         let handler = diagnostic::mk_handler(true, Box::new(emitter));
         diagnostic::mk_span_handler(handler, CodeMap::new())
     }

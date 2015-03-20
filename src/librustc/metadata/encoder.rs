@@ -30,6 +30,8 @@ use util::nodemap::{FnvHashMap, NodeMap, NodeSet};
 use serialize::Encodable;
 use std::cell::RefCell;
 use std::hash::{Hash, Hasher, SipHasher};
+use std::io::prelude::*;
+use std::io::{Cursor, SeekFrom};
 use syntax::abi;
 use syntax::ast::{self, DefId, NodeId};
 use syntax::ast_map::{PathElem, PathElems};
@@ -47,7 +49,6 @@ use syntax::visit::Visitor;
 use syntax::visit;
 use syntax;
 use rbml::writer::Encoder;
-use rbml::io::SeekableMemWriter;
 
 /// A borrowed version of `ast::InlinedItem`.
 pub enum InlinedItemRef<'a> {
@@ -808,7 +809,7 @@ fn encode_info_for_method<'a, 'tcx>(ecx: &EncodeContext<'a, 'tcx>,
                                     impl_path: PathElems,
                                     is_default_impl: bool,
                                     parent_id: NodeId,
-                                    ast_item_opt: Option<&ast::ImplItem>) {
+                                    impl_item_opt: Option<&ast::ImplItem>) {
 
     debug!("encode_info_for_method: {:?} {:?}", m.def_id,
            token::get_name(m.name));
@@ -826,21 +827,20 @@ fn encode_info_for_method<'a, 'tcx>(ecx: &EncodeContext<'a, 'tcx>,
 
     let elem = ast_map::PathName(m.name);
     encode_path(rbml_w, impl_path.chain(Some(elem).into_iter()));
-    match ast_item_opt {
-        Some(&ast::MethodImplItem(ref ast_method)) => {
-            encode_attributes(rbml_w, &ast_method.attrs);
+    if let Some(impl_item) = impl_item_opt {
+        if let ast::MethodImplItem(ref sig, _) = impl_item.node {
+            encode_attributes(rbml_w, &impl_item.attrs);
             let scheme = ty::lookup_item_type(ecx.tcx, m.def_id);
             let any_types = !scheme.generics.types.is_empty();
-            if any_types || is_default_impl || attr::requests_inline(&ast_method.attrs) {
+            if any_types || is_default_impl || attr::requests_inline(&impl_item.attrs) {
                 encode_inlined_item(ecx, rbml_w, IIImplItemRef(local_def(parent_id),
-                                                               ast_item_opt.unwrap()));
+                                                               impl_item));
             }
             if !any_types {
                 encode_symbol(ecx, rbml_w, m.def_id.node);
             }
-            encode_method_argument_names(rbml_w, ast_method.pe_fn_decl());
+            encode_method_argument_names(rbml_w, &sig.decl);
         }
-        Some(_) | None => {}
     }
 
     rbml_w.end_tag();
@@ -851,7 +851,7 @@ fn encode_info_for_associated_type(ecx: &EncodeContext,
                                    associated_type: &ty::AssociatedType,
                                    impl_path: PathElems,
                                    parent_id: NodeId,
-                                   typedef_opt: Option<P<ast::Typedef>>) {
+                                   impl_item_opt: Option<&ast::ImplItem>) {
     debug!("encode_info_for_associated_type({:?},{:?})",
            associated_type.def_id,
            token::get_name(associated_type.name));
@@ -873,13 +873,9 @@ fn encode_info_for_associated_type(ecx: &EncodeContext,
     let elem = ast_map::PathName(associated_type.name);
     encode_path(rbml_w, impl_path.chain(Some(elem).into_iter()));
 
-    match typedef_opt {
-        None => {}
-        Some(typedef) => {
-            encode_attributes(rbml_w, &typedef.attrs);
-            encode_type(ecx, rbml_w, ty::node_id_to_type(ecx.tcx,
-                                                         typedef.id));
-        }
+    if let Some(ii) = impl_item_opt {
+        encode_attributes(rbml_w, &ii.attrs);
+        encode_type(ecx, rbml_w, ty::node_id_to_type(ecx.tcx, ii.id));
     }
 
     rbml_w.end_tag();
@@ -1226,7 +1222,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
         let num_implemented_methods = ast_items.len();
         for (i, &trait_item_def_id) in items.iter().enumerate() {
             let ast_item = if i < num_implemented_methods {
-                Some(&ast_items[i])
+                Some(&*ast_items[i])
             } else {
                 None
             };
@@ -1236,11 +1232,8 @@ fn encode_info_for_item(ecx: &EncodeContext,
                 pos: rbml_w.mark_stable_position(),
             });
 
-            let trait_item_type =
-                ty::impl_or_trait_item(tcx, trait_item_def_id.def_id());
-            match (trait_item_type, ast_item) {
-                (ty::MethodTraitItem(ref method_type),
-                 Some(&ast::MethodImplItem(_))) => {
+            match ty::impl_or_trait_item(tcx, trait_item_def_id.def_id()) {
+                ty::MethodTraitItem(ref method_type) => {
                     encode_info_for_method(ecx,
                                            rbml_w,
                                            &**method_type,
@@ -1249,31 +1242,13 @@ fn encode_info_for_item(ecx: &EncodeContext,
                                            item.id,
                                            ast_item)
                 }
-                (ty::MethodTraitItem(ref method_type), _) => {
-                    encode_info_for_method(ecx,
-                                           rbml_w,
-                                           &**method_type,
-                                           path.clone(),
-                                           false,
-                                           item.id,
-                                           None)
-                }
-                (ty::TypeTraitItem(ref associated_type),
-                 Some(&ast::TypeImplItem(ref typedef))) => {
+                ty::TypeTraitItem(ref associated_type) => {
                     encode_info_for_associated_type(ecx,
                                                     rbml_w,
                                                     &**associated_type,
                                                     path.clone(),
                                                     item.id,
-                                                    Some((*typedef).clone()))
-                }
-                (ty::TypeTraitItem(ref associated_type), _) => {
-                    encode_info_for_associated_type(ecx,
-                                                    rbml_w,
-                                                    &**associated_type,
-                                                    path.clone(),
-                                                    item.id,
-                                                    None)
+                                                    ast_item)
                 }
             }
         }
@@ -1288,6 +1263,7 @@ fn encode_info_for_item(ecx: &EncodeContext,
         let trait_predicates = ty::lookup_predicates(tcx, def_id);
         encode_unsafety(rbml_w, trait_def.unsafety);
         encode_paren_sugar(rbml_w, trait_def.paren_sugar);
+        encode_defaulted(rbml_w, ty::trait_has_default_impl(tcx, def_id));
         encode_associated_type_names(rbml_w, &trait_def.associated_type_names);
         encode_generics(rbml_w, ecx, &trait_def.generics, &trait_predicates, tag_item_generics);
         encode_predicates(rbml_w, ecx, &ty::lookup_super_predicates(tcx, def_id),
@@ -1386,35 +1362,29 @@ fn encode_info_for_item(ecx: &EncodeContext,
 
             encode_parent_sort(rbml_w, 't');
 
-            let trait_item = &ms[i];
-            let encode_trait_item = |rbml_w: &mut Encoder| {
-                // If this is a static method, we've already
-                // encoded this.
-                if is_nonstatic_method {
-                    // FIXME: I feel like there is something funny
-                    // going on.
-                    encode_bounds_and_type_for_item(rbml_w, ecx, item_def_id.def_id().local_id());
-                }
-            };
-            match trait_item {
-                &ast::RequiredMethod(ref m) => {
-                    encode_attributes(rbml_w, &m.attrs);
-                    encode_trait_item(rbml_w);
-                    encode_item_sort(rbml_w, 'r');
-                    encode_method_argument_names(rbml_w, &*m.decl);
+            let trait_item = &*ms[i];
+            encode_attributes(rbml_w, &trait_item.attrs);
+            match trait_item.node {
+                ast::MethodTraitItem(ref sig, ref body) => {
+                    // If this is a static method, we've already
+                    // encoded this.
+                    if is_nonstatic_method {
+                        // FIXME: I feel like there is something funny
+                        // going on.
+                        encode_bounds_and_type_for_item(rbml_w, ecx,
+                            item_def_id.def_id().local_id());
+                    }
+
+                    if body.is_some() {
+                        encode_item_sort(rbml_w, 'p');
+                        encode_inlined_item(ecx, rbml_w, IITraitItemRef(def_id, trait_item));
+                    } else {
+                        encode_item_sort(rbml_w, 'r');
+                    }
+                    encode_method_argument_names(rbml_w, &sig.decl);
                 }
 
-                &ast::ProvidedMethod(ref m) => {
-                    encode_attributes(rbml_w, &m.attrs);
-                    encode_trait_item(rbml_w);
-                    encode_item_sort(rbml_w, 'p');
-                    encode_inlined_item(ecx, rbml_w, IITraitItemRef(def_id, trait_item));
-                    encode_method_argument_names(rbml_w, &*m.pe_fn_decl());
-                }
-
-                &ast::TypeTraitItem(ref associated_type) => {
-                    encode_attributes(rbml_w,
-                                      &associated_type.attrs);
+                ast::TypeTraitItem(..) => {
                     encode_item_sort(rbml_w, 't');
                 }
             }
@@ -1561,7 +1531,7 @@ fn encode_info_for_items(ecx: &EncodeContext,
 // Path and definition ID indexing
 
 fn encode_index<T, F>(rbml_w: &mut Encoder, index: Vec<entry<T>>, mut write_fn: F) where
-    F: FnMut(&mut SeekableMemWriter, &T),
+    F: FnMut(&mut Cursor<Vec<u8>>, &T),
     T: Hash,
 {
     let mut buckets: Vec<Vec<entry<T>>> = (0..256u16).map(|_| Vec::new()).collect();
@@ -1582,8 +1552,8 @@ fn encode_index<T, F>(rbml_w: &mut Encoder, index: Vec<entry<T>>, mut write_fn: 
             rbml_w.start_tag(tag_index_buckets_bucket_elt);
             assert!(elt.pos < 0xffff_ffff);
             {
-                let wr: &mut SeekableMemWriter = rbml_w.writer;
-                wr.write_be_u32(elt.pos as u32);
+                let wr: &mut Cursor<Vec<u8>> = rbml_w.writer;
+                write_be_u32(wr, elt.pos as u32);
             }
             write_fn(rbml_w.writer, &elt.val);
             rbml_w.end_tag();
@@ -1594,17 +1564,26 @@ fn encode_index<T, F>(rbml_w: &mut Encoder, index: Vec<entry<T>>, mut write_fn: 
     rbml_w.start_tag(tag_index_table);
     for pos in &bucket_locs {
         assert!(*pos < 0xffff_ffff);
-        let wr: &mut SeekableMemWriter = rbml_w.writer;
-        wr.write_be_u32(*pos as u32);
+        let wr: &mut Cursor<Vec<u8>> = rbml_w.writer;
+        write_be_u32(wr, *pos as u32);
     }
     rbml_w.end_tag();
     rbml_w.end_tag();
 }
 
-fn write_i64(writer: &mut SeekableMemWriter, &n: &i64) {
-    let wr: &mut SeekableMemWriter = writer;
+fn write_i64(writer: &mut Cursor<Vec<u8>>, &n: &i64) {
+    let wr: &mut Cursor<Vec<u8>> = writer;
     assert!(n < 0x7fff_ffff);
-    wr.write_be_u32(n as u32);
+    write_be_u32(wr, n as u32);
+}
+
+fn write_be_u32(w: &mut Write, u: u32) {
+    w.write_all(&[
+        (u >> 24) as u8,
+        (u >> 16) as u8,
+        (u >>  8) as u8,
+        (u >>  0) as u8,
+    ]);
 }
 
 fn encode_meta_item(rbml_w: &mut Encoder, mi: &ast::MetaItem) {
@@ -1658,6 +1637,11 @@ fn encode_unsafety(rbml_w: &mut Encoder, unsafety: ast::Unsafety) {
 fn encode_paren_sugar(rbml_w: &mut Encoder, paren_sugar: bool) {
     let byte: u8 = if paren_sugar {1} else {0};
     rbml_w.wr_tagged_u8(tag_paren_sugar, byte);
+}
+
+fn encode_defaulted(rbml_w: &mut Encoder, is_defaulted: bool) {
+    let byte: u8 = if is_defaulted {1} else {0};
+    rbml_w.wr_tagged_u8(tag_defaulted_trait, byte);
 }
 
 fn encode_associated_type_names(rbml_w: &mut Encoder, names: &[ast::Name]) {
@@ -1955,13 +1939,13 @@ fn encode_dylib_dependency_formats(rbml_w: &mut Encoder, ecx: &EncodeContext) {
 pub const metadata_encoding_version : &'static [u8] = &[b'r', b'u', b's', b't', 0, 0, 0, 2 ];
 
 pub fn encode_metadata(parms: EncodeParams, krate: &ast::Crate) -> Vec<u8> {
-    let mut wr = SeekableMemWriter::new();
+    let mut wr = Cursor::new(Vec::new());
     encode_metadata_inner(&mut wr, parms, krate);
 
     // RBML compacts the encoded bytes whenever appropriate,
     // so there are some garbages left after the end of the data.
-    let metalen = wr.tell().unwrap() as uint;
-    let mut v = wr.unwrap();
+    let metalen = wr.seek(SeekFrom::Current(0)).unwrap() as uint;
+    let mut v = wr.into_inner();
     v.truncate(metalen);
     assert_eq!(v.len(), metalen);
 
@@ -1991,7 +1975,7 @@ pub fn encode_metadata(parms: EncodeParams, krate: &ast::Crate) -> Vec<u8> {
     return v;
 }
 
-fn encode_metadata_inner(wr: &mut SeekableMemWriter,
+fn encode_metadata_inner(wr: &mut Cursor<Vec<u8>>,
                          parms: EncodeParams,
                          krate: &ast::Crate) {
     struct Stats {
@@ -2058,64 +2042,64 @@ fn encode_metadata_inner(wr: &mut SeekableMemWriter,
     encode_hash(&mut rbml_w, &ecx.link_meta.crate_hash);
     encode_dylib_dependency_formats(&mut rbml_w, &ecx);
 
-    let mut i = rbml_w.writer.tell().unwrap();
+    let mut i = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap();
     encode_attributes(&mut rbml_w, &krate.attrs);
-    stats.attr_bytes = rbml_w.writer.tell().unwrap() - i;
+    stats.attr_bytes = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap() - i;
 
-    i = rbml_w.writer.tell().unwrap();
+    i = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap();
     encode_crate_deps(&mut rbml_w, ecx.cstore);
-    stats.dep_bytes = rbml_w.writer.tell().unwrap() - i;
+    stats.dep_bytes = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap() - i;
 
     // Encode the language items.
-    i = rbml_w.writer.tell().unwrap();
+    i = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap();
     encode_lang_items(&ecx, &mut rbml_w);
-    stats.lang_item_bytes = rbml_w.writer.tell().unwrap() - i;
+    stats.lang_item_bytes = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap() - i;
 
     // Encode the native libraries used
-    i = rbml_w.writer.tell().unwrap();
+    i = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap();
     encode_native_libraries(&ecx, &mut rbml_w);
-    stats.native_lib_bytes = rbml_w.writer.tell().unwrap() - i;
+    stats.native_lib_bytes = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap() - i;
 
     // Encode the plugin registrar function
-    i = rbml_w.writer.tell().unwrap();
+    i = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap();
     encode_plugin_registrar_fn(&ecx, &mut rbml_w);
-    stats.plugin_registrar_fn_bytes = rbml_w.writer.tell().unwrap() - i;
+    stats.plugin_registrar_fn_bytes = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap() - i;
 
     // Encode codemap
-    i = rbml_w.writer.tell().unwrap();
+    i = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap();
     encode_codemap(&ecx, &mut rbml_w);
-    stats.codemap_bytes = rbml_w.writer.tell().unwrap() - i;
+    stats.codemap_bytes = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap() - i;
 
     // Encode macro definitions
-    i = rbml_w.writer.tell().unwrap();
+    i = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap();
     encode_macro_defs(&mut rbml_w, krate);
-    stats.macro_defs_bytes = rbml_w.writer.tell().unwrap() - i;
+    stats.macro_defs_bytes = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap() - i;
 
     // Encode the def IDs of impls, for coherence checking.
-    i = rbml_w.writer.tell().unwrap();
+    i = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap();
     encode_impls(&ecx, krate, &mut rbml_w);
-    stats.impl_bytes = rbml_w.writer.tell().unwrap() - i;
+    stats.impl_bytes = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap() - i;
 
     // Encode miscellaneous info.
-    i = rbml_w.writer.tell().unwrap();
+    i = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap();
     encode_misc_info(&ecx, krate, &mut rbml_w);
     encode_reachable_extern_fns(&ecx, &mut rbml_w);
-    stats.misc_bytes = rbml_w.writer.tell().unwrap() - i;
+    stats.misc_bytes = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap() - i;
 
     // Encode and index the items.
     rbml_w.start_tag(tag_items);
-    i = rbml_w.writer.tell().unwrap();
+    i = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap();
     let items_index = encode_info_for_items(&ecx, &mut rbml_w, krate);
-    stats.item_bytes = rbml_w.writer.tell().unwrap() - i;
+    stats.item_bytes = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap() - i;
 
-    i = rbml_w.writer.tell().unwrap();
+    i = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap();
     encode_index(&mut rbml_w, items_index, write_i64);
-    stats.index_bytes = rbml_w.writer.tell().unwrap() - i;
+    stats.index_bytes = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap() - i;
     rbml_w.end_tag();
 
     encode_struct_field_attrs(&mut rbml_w, krate);
 
-    stats.total_bytes = rbml_w.writer.tell().unwrap();
+    stats.total_bytes = rbml_w.writer.seek(SeekFrom::Current(0)).unwrap();
 
     if tcx.sess.meta_stats() {
         for e in rbml_w.writer.get_ref() {
@@ -2143,12 +2127,12 @@ fn encode_metadata_inner(wr: &mut SeekableMemWriter,
 
 // Get the encoded string for a type
 pub fn encoded_ty<'tcx>(tcx: &ty::ctxt<'tcx>, t: Ty<'tcx>) -> String {
-    let mut wr = SeekableMemWriter::new();
+    let mut wr = Cursor::new(Vec::new());
     tyencode::enc_ty(&mut Encoder::new(&mut wr), &tyencode::ctxt {
         diag: tcx.sess.diagnostic(),
         ds: def_to_string,
         tcx: tcx,
         abbrevs: &RefCell::new(FnvHashMap())
     }, t);
-    String::from_utf8(wr.unwrap()).unwrap()
+    String::from_utf8(wr.into_inner()).unwrap()
 }

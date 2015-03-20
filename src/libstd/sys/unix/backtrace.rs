@@ -84,10 +84,10 @@
 /// all unix platforms we support right now, so it at least gets the job done.
 
 use prelude::v1::*;
-use os::unix::prelude::*;
+use io::prelude::*;
 
-use ffi::{CStr, AsOsStr};
-use old_io::IoResult;
+use ffi::CStr;
+use io;
 use libc;
 use mem;
 use str;
@@ -106,7 +106,7 @@ use sys_common::backtrace::*;
 /// only viable option.
 #[cfg(all(target_os = "ios", target_arch = "arm"))]
 #[inline(never)]
-pub fn write(w: &mut Writer) -> IoResult<()> {
+pub fn write(w: &mut Write) -> io::Result<()> {
     use result;
 
     extern {
@@ -118,7 +118,7 @@ pub fn write(w: &mut Writer) -> IoResult<()> {
     // local, it still displays much nicer backtraces when a
     // couple of tasks panic simultaneously
     static LOCK: StaticMutex = MUTEX_INIT;
-    let _g = unsafe { LOCK.lock() };
+    let _g = LOCK.lock();
 
     try!(writeln!(w, "stack backtrace:"));
     // 100 lines should be enough
@@ -135,22 +135,22 @@ pub fn write(w: &mut Writer) -> IoResult<()> {
 
 #[cfg(all(target_os = "nacl", target_arch = "le32"))]
 #[inline(never)]
-pub fn write(_w: &mut Writer) -> IoResult<()> {
-    use sys_common;
-    Err(sys_common::unimpl())
+pub fn write(_w: &mut Write) -> io::Result<()> {
+    use io::ErrorKind;
+    Err(io::Error::new(ErrorKind::PermissionDenied,
+                       "can't read the stack to find the backtrace",
+                       None))
 }
 
 #[cfg(not(any(all(target_os = "ios", target_arch = "arm"),
               all(target_os = "nacl", target_arch = "le32"))))]
 #[inline(never)] // if we know this is a function call, we can skip it when
                  // tracing
-pub fn write(w: &mut Writer) -> IoResult<()> {
-    use old_io::IoError;
-
+pub fn write(w: &mut Write) -> io::Result<()> {
     struct Context<'a> {
         idx: int,
-        writer: &'a mut (Writer+'a),
-        last_error: Option<IoError>,
+        writer: &'a mut (Write+'a),
+        last_error: Option<io::Error>,
     }
 
     // When using libbacktrace, we use some necessary global state, so we
@@ -159,7 +159,7 @@ pub fn write(w: &mut Writer) -> IoResult<()> {
     // I/O done here is blocking I/O, not green I/O, so we don't have to
     // worry about this being a native vs green mutex.
     static LOCK: StaticMutex = MUTEX_INIT;
-    let _g = unsafe { LOCK.lock() };
+    let _g = LOCK.lock();
 
     try!(writeln!(w, "stack backtrace:"));
 
@@ -232,8 +232,8 @@ pub fn write(w: &mut Writer) -> IoResult<()> {
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-fn print(w: &mut Writer, idx: int, addr: *mut libc::c_void,
-         _symaddr: *mut libc::c_void) -> IoResult<()> {
+fn print(w: &mut Write, idx: int, addr: *mut libc::c_void,
+         _symaddr: *mut libc::c_void) -> io::Result<()> {
     use intrinsics;
     #[repr(C)]
     struct Dl_info {
@@ -258,16 +258,20 @@ fn print(w: &mut Writer, idx: int, addr: *mut libc::c_void,
 }
 
 #[cfg(target_os = "nacl")]
-fn print(_w: &mut Writer, _idx: int, _addr: *mut libc::c_void,
-         _symaddr: *mut libc::c_void) -> IoResult<()> {
-    use sys_common;
-    Err(sys_common::unimpl())
+fn print(_w: &mut Write, _idx: int, _addr: *mut libc::c_void,
+         _symaddr: *mut libc::c_void) -> io::Result<()> {
+    use io::ErrorKind;
+    Err(io::Error::new(ErrorKind::PermissionDenied,
+                       "can't read the stack to find the backtrace",
+                       None))
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "nacl")))]
-fn print(w: &mut Writer, idx: int, addr: *mut libc::c_void,
-         symaddr: *mut libc::c_void) -> IoResult<()> {
+fn print(w: &mut Write, idx: int, addr: *mut libc::c_void,
+         symaddr: *mut libc::c_void) -> io::Result<()> {
     use env;
+    use ffi::AsOsStr;
+    use os::unix::prelude::*;
     use ptr;
 
     ////////////////////////////////////////////////////////////////////////
@@ -456,8 +460,8 @@ fn print(w: &mut Writer, idx: int, addr: *mut libc::c_void,
 }
 
 // Finally, after all that work above, we can emit a symbol.
-fn output(w: &mut Writer, idx: int, addr: *mut libc::c_void,
-          s: Option<&[u8]>) -> IoResult<()> {
+fn output(w: &mut Write, idx: int, addr: *mut libc::c_void,
+          s: Option<&[u8]>) -> io::Result<()> {
     try!(write!(w, "  {:2}: {:2$?} - ", idx, addr, HEX_WIDTH));
     match s.and_then(|s| str::from_utf8(s).ok()) {
         Some(string) => try!(demangle(w, string)),
@@ -467,8 +471,8 @@ fn output(w: &mut Writer, idx: int, addr: *mut libc::c_void,
 }
 
 #[allow(dead_code)]
-fn output_fileline(w: &mut Writer, file: &[u8], line: libc::c_int,
-                   more: bool) -> IoResult<()> {
+fn output_fileline(w: &mut Write, file: &[u8], line: libc::c_int,
+                   more: bool) -> io::Result<()> {
     let file = str::from_utf8(file).ok().unwrap_or("<unknown>");
     // prior line: "  ##: {:2$} - func"
     try!(write!(w, "      {:3$}at {}:{}", "", file, line, HEX_WIDTH));

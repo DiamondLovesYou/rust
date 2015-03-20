@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![allow(deprecated)] // this module itself is essentially deprecated
+
 use prelude::v1::*;
 
 use collections;
@@ -27,7 +29,6 @@ use ptr;
 use str;
 use sync::{StaticMutex, MUTEX_INIT};
 use sys::fs::FileDesc;
-
 use sys::timer;
 use sys_common::{AsInner, timeout};
 
@@ -127,8 +128,6 @@ impl Process {
         use libc::funcs::extra::msvcrt::get_osfhandle;
 
         use mem;
-        use iter::IteratorExt;
-        use str::StrExt;
 
         if cfg.gid().is_some() || cfg.uid().is_some() {
             return Err(IoError {

@@ -9,6 +9,9 @@
 // except according to those terms.
 
 #![unstable(feature = "tempdir", reason = "needs an RFC before stabilization")]
+#![deprecated(since = "1.0.0",
+              reason = "use the `tempdir` crate from crates.io instead")]
+#![allow(deprecated)]
 
 use prelude::v1::*;
 

@@ -848,7 +848,7 @@ impl CodeMap {
 
                     let span_comes_from_this_expansion =
                         info.callee.span.map_or(span == info.call_site, |mac_span| {
-                            mac_span.lo <= span.lo && span.hi < mac_span.hi
+                            mac_span.lo <= span.lo && span.hi <= mac_span.hi
                         });
 
                     debug!("span_allows_unstable: from this expansion? {}, allows unstable? {}",
@@ -922,7 +922,7 @@ mod test {
     }
 
     #[test]
-    #[should_fail]
+    #[should_panic]
     fn t2 () {
         let cm = CodeMap::new();
         let fm = cm.new_filemap("blork.rs".to_string(),

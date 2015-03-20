@@ -8,12 +8,15 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![allow(deprecated)]
+
+use prelude::v1::*;
+
 use old_io::net::ip;
 use old_io::IoResult;
 use libc;
 use mem;
 use ptr;
-use prelude::v1::*;
 use super::{last_error, last_net_error, sock_t};
 use sync::Arc;
 use sync::atomic::{AtomicBool, Ordering};

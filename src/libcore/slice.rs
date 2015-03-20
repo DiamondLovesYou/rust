@@ -520,10 +520,10 @@ impl<T> ops::Index<ops::Range<usize>> for [T] {
         assert!(index.start <= index.end);
         assert!(index.end <= self.len());
         unsafe {
-            transmute(RawSlice {
-                    data: self.as_ptr().offset(index.start as isize),
-                    len: index.end - index.start
-                })
+            from_raw_parts (
+                self.as_ptr().offset(index.start as isize),
+                index.end - index.start
+            )
         }
     }
 }
@@ -559,10 +559,10 @@ impl<T> ops::IndexMut<ops::Range<usize>> for [T] {
         assert!(index.start <= index.end);
         assert!(index.end <= self.len());
         unsafe {
-            transmute(RawSlice {
-                    data: self.as_ptr().offset(index.start as isize),
-                    len: index.end - index.start
-                })
+            from_raw_parts_mut(
+                self.as_mut_ptr().offset(index.start as isize),
+                index.end - index.start
+            )
         }
     }
 }
@@ -731,7 +731,21 @@ macro_rules! make_slice {
             diff / mem::size_of::<$t>()
         };
         unsafe {
-            transmute::<_, $result>(RawSlice { data: $start, len: len })
+            from_raw_parts($start, len)
+        }
+    }}
+}
+
+macro_rules! make_mut_slice {
+    ($t: ty => $result: ty: $start: expr, $end: expr) => {{
+        let diff = $end as usize - $start as usize;
+        let len = if mem::size_of::<T>() == 0 {
+            diff
+        } else {
+            diff / mem::size_of::<$t>()
+        };
+        unsafe {
+            from_raw_parts_mut($start, len)
         }
     }}
 }
@@ -898,7 +912,7 @@ impl<'a, T> ops::IndexMut<ops::RangeFrom<usize>> for IterMut<'a, T> {
 impl<'a, T> ops::IndexMut<RangeFull> for IterMut<'a, T> {
     #[inline]
     fn index_mut(&mut self, _index: &RangeFull) -> &mut [T] {
-        make_slice!(T => &mut [T]: self.ptr, self.end)
+        make_mut_slice!(T => &mut [T]: self.ptr, self.end)
     }
 }
 
@@ -912,7 +926,7 @@ impl<'a, T> IterMut<'a, T> {
     /// restricted lifetimes that do not consume the iterator.
     #[unstable(feature = "core")]
     pub fn into_slice(self) -> &'a mut [T] {
-        make_slice!(T => &'a mut [T]: self.ptr, self.end)
+        make_mut_slice!(T => &'a mut [T]: self.ptr, self.end)
     }
 }
 
@@ -1404,7 +1418,7 @@ impl<'a, T> ExactSizeIterator for ChunksMut<'a, T> {}
 #[unstable(feature = "core")]
 pub fn ref_slice<'a, A>(s: &'a A) -> &'a [A] {
     unsafe {
-        transmute(RawSlice { data: s, len: 1 })
+        from_raw_parts(s, 1)
     }
 }
 
@@ -1412,8 +1426,7 @@ pub fn ref_slice<'a, A>(s: &'a A) -> &'a [A] {
 #[unstable(feature = "core")]
 pub fn mut_ref_slice<'a, A>(s: &'a mut A) -> &'a mut [A] {
     unsafe {
-        let ptr: *const A = transmute(s);
-        transmute(RawSlice { data: ptr, len: 1 })
+        from_raw_parts_mut(s, 1)
     }
 }
 
@@ -1433,7 +1446,7 @@ pub fn mut_ref_slice<'a, A>(s: &'a mut A) -> &'a mut [A] {
 /// function taking the lifetime of a host value for the slice, or by explicit
 /// annotation.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
 /// use std::slice;
@@ -1446,7 +1459,7 @@ pub fn mut_ref_slice<'a, A>(s: &'a mut A) -> &'a mut [A] {
 /// }
 /// ```
 #[inline]
-#[unstable(feature = "core")]
+#[stable(feature = "rust1", since = "1.0.0")]
 pub unsafe fn from_raw_parts<'a, T>(p: *const T, len: usize) -> &'a [T] {
     transmute(RawSlice { data: p, len: len })
 }
@@ -1458,7 +1471,7 @@ pub unsafe fn from_raw_parts<'a, T>(p: *const T, len: usize) -> &'a [T] {
 /// as not being able to provide a non-aliasing guarantee of the returned
 /// mutable slice.
 #[inline]
-#[unstable(feature = "core")]
+#[stable(feature = "rust1", since = "1.0.0")]
 pub unsafe fn from_raw_parts_mut<'a, T>(p: *mut T, len: usize) -> &'a mut [T] {
     transmute(RawSlice { data: p, len: len })
 }
@@ -1476,7 +1489,7 @@ pub unsafe fn from_raw_parts_mut<'a, T>(p: *mut T, len: usize) -> &'a mut [T] {
 /// valid for `len` elements, nor whether the lifetime provided is a suitable
 /// lifetime for the returned slice.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
 /// use std::slice;

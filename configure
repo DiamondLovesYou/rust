@@ -430,6 +430,10 @@ case $CFG_OSTYPE in
         CFG_CPUTYPE=x86_64
         ;;
 
+#   Win 8 # uname -s on 64-bit cygwin does not contain WOW64, so simply use uname -m to detect arch (works in my install)
+    CYGWIN_NT-6.3)
+    	CFG_OSTYPE=pc-windows-gnu
+    	;;
 # We do not detect other OS such as XP/2003 using 64 bit using uname.
 # If we want to in the future, we will need to use Cygwin - Chuck's csih helper in /usr/lib/csih/winProductName.exe or alternative.
     *)
@@ -699,8 +703,8 @@ probe CFG_ADB        adb
 
 if [ ! -z "$CFG_PANDOC" ]
 then
+    # Extract "MAJOR MINOR" from Pandoc's version number
     PV_MAJOR_MINOR=$(pandoc --version | grep '^pandoc' |
-        # Extract "MAJOR MINOR" from Pandoc's version number
         sed -E 's/pandoc(.exe)? ([0-9]+)\.([0-9]+).*/\2 \3/')
 
     MIN_PV_MAJOR="1"
@@ -758,8 +762,9 @@ fi
 # Force bitrig to build with clang; gcc doesn't like us there
 if [ $CFG_OSTYPE = unknown-bitrig ]
 then
-    step_msg "on Bitrig, forcing use of clang"
+    step_msg "on Bitrig, forcing use of clang, disabling jemalloc"
     CFG_ENABLE_CLANG=1
+    CFG_ENABLE_JEMALLOC=0
 fi
 
 if [ -z "$CFG_ENABLE_CLANG" -a -z "$CFG_GCC" ]
@@ -820,11 +825,11 @@ then
     LLVM_VERSION=$($LLVM_CONFIG --version)
 
     case $LLVM_VERSION in
-        (3.[2-6]*)
+        (3.[5-6]*)
             msg "found ok version of LLVM: $LLVM_VERSION"
             ;;
         (*)
-            err "bad LLVM version: $LLVM_VERSION, need >=3.0svn"
+            err "bad LLVM version: $LLVM_VERSION, need >=3.5"
             ;;
     esac
 fi

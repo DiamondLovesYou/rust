@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// Do not remove on snapshot creation. Needed for bootstrap. (Issue #22364)
+#![cfg_attr(stage0, feature(custom_attribute))]
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -24,14 +26,12 @@
 
 #![feature(box_syntax)]
 #![feature(collections)]
-#![feature(core)]
 #![feature(int_uint)]
 #![feature(libc)]
 #![feature(link_args)]
 #![feature(staged_api)]
-#![feature(std_misc)]
+#![cfg_attr(unix, feature(std_misc))]
 #![feature(rustc_private)]
-#![feature(path)]
 
 extern crate libc;
 #[macro_use] #[no_link] extern crate rustc_bitflags;
@@ -61,7 +61,7 @@ pub use self::Linkage::*;
 
 use std::ffi::CString;
 use std::cell::RefCell;
-use std::{raw, mem};
+use std::{slice, mem};
 use libc::{c_uint, c_ushort, uint64_t, c_int, size_t, c_char};
 use libc::{c_longlong, c_ulonglong, c_void};
 use libc::c_uchar;
@@ -2252,10 +2252,7 @@ type RustStringRepr = *mut RefCell<Vec<u8>>;
 pub unsafe extern "C" fn rust_llvm_string_write_impl(sr: RustStringRef,
                                                      ptr: *const c_char,
                                                      size: size_t) {
-    let slice: &[u8] = mem::transmute(raw::Slice {
-        data: ptr as *const u8,
-        len: size as uint,
-    });
+    let slice = slice::from_raw_parts(ptr as *const u8, size as uint);
 
     let sr: RustStringRepr = mem::transmute(sr);
     (*sr).borrow_mut().push_all(slice);

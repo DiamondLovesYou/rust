@@ -8,10 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![allow(deprecated)]
+
 use prelude::v1::*;
 
 use sys::fs::FileDesc;
-use libc::{self, c_int, c_ulong, funcs};
+use libc::{self, c_int, c_ulong};
 use old_io::{self, IoResult, IoError};
 use sys::c;
 use sys_common;
@@ -21,6 +23,8 @@ pub struct TTY {
 }
 
 #[cfg(any(target_os = "macos",
+          target_os = "ios",
+          target_os = "dragonfly",
           target_os = "freebsd",
           target_os = "bitrig",
           target_os = "openbsd"))]
@@ -52,12 +56,7 @@ impl TTY {
         Err(sys_common::unimpl())
     }
 
-    #[cfg(any(target_os = "linux",
-              target_os = "android",
-              target_os = "macos",
-              target_os = "freebsd",
-              target_os = "bitrig",
-              target_os = "openbsd"))]
+    #[cfg(not(target_os = "nacl"))]
     pub fn get_winsize(&mut self) -> IoResult<(int, int)> {
         unsafe {
             #[repr(C)]
@@ -80,13 +79,8 @@ impl TTY {
             }
         }
     }
-
-    #[cfg(any(target_os = "ios",
-              target_os = "dragonfly",
-              target_os = "nacl"))]
+    #[cfg(target_os = "nacl")]
     pub fn get_winsize(&mut self) -> IoResult<(int, int)> {
         Err(sys_common::unimpl())
     }
-
-    pub fn isatty(&self) -> bool { false }
 }

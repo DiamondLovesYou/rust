@@ -8,6 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+
+// Do not remove on snapshot creation. Needed for bootstrap. (Issue #22364)
+#![cfg_attr(stage0, feature(custom_attribute))]
 #![crate_name = "rustc_bitflags"]
 #![feature(staged_api)]
 #![staged_api]
@@ -26,7 +29,7 @@
 /// The flags should only be defined for integer types, otherwise unexpected
 /// type errors may occur at compile time.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```{.rust}
 /// #[macro_use] extern crate rustc_bitflags;
@@ -83,7 +86,7 @@
 ///     let mut flags = FLAG_A | FLAG_B;
 ///     flags.clear();
 ///     assert!(flags.is_empty());
-///     assert_eq!(format!("{:?}", flags).as_slice(), "hi!");
+///     assert_eq!(format!("{:?}", flags), "hi!");
 /// }
 /// ```
 ///

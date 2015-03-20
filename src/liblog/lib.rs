@@ -155,6 +155,8 @@
 //! they're turned off (just a load and an integer comparison). This also means that
 //! if logging is disabled, none of the components of the log will be executed.
 
+// Do not remove on snapshot creation. Needed for bootstrap. (Issue #22364)
+#![cfg_attr(stage0, feature(custom_attribute))]
 #![crate_name = "log"]
 #![unstable(feature = "rustc_private",
             reason = "use the crates.io `log` library instead")]
@@ -172,14 +174,14 @@
 #![feature(box_syntax)]
 #![feature(int_uint)]
 #![feature(core)]
-#![feature(old_io)]
 #![feature(std_misc)]
+#![feature(io)]
 
 use std::boxed;
 use std::cell::RefCell;
 use std::fmt;
-use std::old_io::LineBufferedWriter;
-use std::old_io;
+use std::io::{self, Stderr};
+use std::io::prelude::*;
 use std::mem;
 use std::env;
 use std::ptr;
@@ -235,9 +237,7 @@ pub trait Logger {
     fn log(&mut self, record: &LogRecord);
 }
 
-struct DefaultLogger {
-    handle: LineBufferedWriter<old_io::stdio::StdWriter>,
-}
+struct DefaultLogger { handle: Stderr }
 
 /// Wraps the log level with fmt implementations.
 #[derive(Copy, PartialEq, PartialOrd, Debug)]
@@ -298,7 +298,7 @@ pub fn log(level: u32, loc: &'static LogLocation, args: fmt::Arguments) {
     let mut logger = LOCAL_LOGGER.with(|s| {
         s.borrow_mut().take()
     }).unwrap_or_else(|| {
-        box DefaultLogger { handle: old_io::stderr() } as Box<Logger + Send>
+        box DefaultLogger { handle: io::stderr() } as Box<Logger + Send>
     });
     logger.log(&LogRecord {
         level: LogLevel(level),

@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![allow(deprecated)]
+
 use prelude::v1::*;
 
 use ffi::CString;
@@ -143,7 +145,7 @@ impl UnixStream {
     fn lock_nonblocking<'a>(&'a self) -> Guard<'a> {
         let ret = Guard {
             fd: self.fd(),
-            guard: unsafe { self.inner.lock.lock().unwrap() },
+            guard: self.inner.lock.lock().unwrap(),
         };
         set_nonblocking(self.fd(), true);
         ret

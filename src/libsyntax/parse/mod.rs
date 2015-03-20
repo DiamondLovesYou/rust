@@ -754,7 +754,6 @@ pub fn integer_lit(s: &str, suffix: Option<&str>, sd: &SpanHandler, sp: Span) ->
 mod test {
     use super::*;
     use std::rc::Rc;
-    use serialize::json;
     use codemap::{Span, BytePos, Pos, Spanned, NO_EXPANSION};
     use owned_slice::OwnedSlice;
     use ast;
@@ -813,7 +812,7 @@ mod test {
                    }))
     }
 
-    #[should_fail]
+    #[should_panic]
     #[test] fn bad_path_expr_1() {
         string_to_expr("::abc::def::return".to_string());
     }

@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// Do not remove on snapshot creation. Needed for bootstrap. (Issue #22364)
+#![cfg_attr(stage0, feature(custom_attribute))]
 #![crate_name = "rustdoc"]
 #![unstable(feature = "rustdoc")]
 #![staged_api]
@@ -24,9 +26,8 @@
 #![feature(core)]
 #![feature(exit_status)]
 #![feature(int_uint)]
-#![feature(old_io)]
+#![feature(set_panic)]
 #![feature(libc)]
-#![feature(os)]
 #![feature(old_path)]
 #![feature(rustc_private)]
 #![feature(staged_api)]
@@ -35,9 +36,9 @@
 #![feature(unicode)]
 #![feature(str_words)]
 #![feature(io)]
-#![feature(fs)]
-#![feature(path)]
-#![feature(tempdir)]
+#![feature(file_path)]
+#![feature(path_ext)]
+#![feature(path_relative_from)]
 
 extern crate arena;
 extern crate getopts;
@@ -47,6 +48,7 @@ extern crate rustc_trans;
 extern crate rustc_driver;
 extern crate rustc_resolve;
 extern crate rustc_lint;
+extern crate rustc_back;
 extern crate serialize;
 extern crate syntax;
 extern crate "test" as testing;
@@ -359,6 +361,7 @@ fn parse_externs(matches: &getopts::Matches) -> Result<core::Externs, String> {
 /// generated from the cleaned AST of the crate.
 ///
 /// This form of input will run all of the plug/cleaning passes
+#[allow(deprecated)] // for old Path in plugin manager
 fn rust_input(cratefile: &str, externs: core::Externs, matches: &getopts::Matches) -> Output {
     let mut default_passes = !matches.opt_present("no-defaults");
     let mut passes = matches.opt_strs("passes");
@@ -461,7 +464,7 @@ fn rust_input(cratefile: &str, externs: core::Externs, matches: &getopts::Matche
 fn json_input(input: &str) -> Result<Output, String> {
     let mut bytes = Vec::new();
     match File::open(input).and_then(|mut f| f.read_to_end(&mut bytes)) {
-        Ok(()) => {}
+        Ok(_) => {}
         Err(e) => return Err(format!("couldn't open {}: {}", input, e)),
     };
     match json::from_reader(&mut &bytes[..]) {

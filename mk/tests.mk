@@ -374,7 +374,7 @@ $(3)/stage$(1)/test/$(4)test-$(2)$$(X_$(2)): \
 	$(Q)CFG_LLVM_LINKAGE_FILE=$$(LLVM_LINKAGE_PATH_$(3)) \
 	    $$(subst @,,$$(STAGE$(1)_T_$(2)_H_$(3))) -o $$@ $$< --test \
 		-L "$$(RT_OUTPUT_DIR_$(2))" \
-		-L "$$(LLVM_LIBDIR_$(2))" \
+		$$(LLVM_LIBDIR_RUSTFLAGS_$(2)) \
 		$$(RUSTFLAGS_$(4)_$(2))
 
 endef
@@ -610,7 +610,7 @@ TEST_SREQ$(1)_T_$(2)_H_$(3) = \
 
 # The tests select when to use debug configuration on their own;
 # remove directive, if present, from CFG_RUSTC_FLAGS (issue #7898).
-CTEST_RUSTC_FLAGS := $$(subst --cfg ndebug,,$$(CFG_RUSTC_FLAGS))
+CTEST_RUSTC_FLAGS := $$(subst -C debug-assertions,,$$(subst -C debug-assertions=on,,$$(CFG_RUSTC_FLAGS)))
 
 # The tests cannot be optimized while the rest of the compiler is optimized, so
 # filter out the optimization (if any) from rustc and then figure out if we need

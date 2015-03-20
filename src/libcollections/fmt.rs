@@ -198,7 +198,7 @@
 //!         // for details, and the function `pad` can be used to pad strings.
 //!         let decimals = f.precision().unwrap_or(3);
 //!         let string = f64::to_str_exact(magnitude, decimals);
-//!         f.pad_integral(true, "", string.as_slice())
+//!         f.pad_integral(true, "", &string)
 //!     }
 //! }
 //!
@@ -420,7 +420,7 @@ use string;
 ///
 ///   * args - a structure of arguments generated via the `format_args!` macro.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
 /// use std::fmt;

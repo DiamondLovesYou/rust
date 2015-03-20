@@ -13,8 +13,8 @@ use io::prelude::*;
 use os::unix::prelude::*;
 
 use ffi::{CString, CStr, OsString, AsOsStr, OsStr};
-use io::{self, Error, Seek, SeekFrom};
-use libc::{self, c_int, c_void, size_t, off_t, c_char, mode_t};
+use io::{self, Error, SeekFrom};
+use libc::{self, c_int, size_t, off_t, c_char, mode_t};
 use mem;
 use path::{Path, PathBuf};
 use ptr;
@@ -324,26 +324,14 @@ pub fn rmdir(p: &Path) -> io::Result<()> {
     Ok(())
 }
 
-pub fn chown(p: &Path, uid: isize, gid: isize) -> io::Result<()> {
-    let p = try!(cstr(p));
-    try!(cvt_r(|| unsafe {
-        libc::chown(p.as_ptr(), uid as libc::uid_t, gid as libc::gid_t)
-    }));
-    Ok(())
-}
-
 pub fn readlink(p: &Path) -> io::Result<PathBuf> {
     #[cfg(not(target_libc = "newlib"))]
-    fn pathconf(p: *mut libc::c_char) -> i64 {
-        unsafe {
-            libc::pathconf(p, libc::_PC_NAME_MAX) as i64
-        }
+    unsafe fn pathconf(p: *mut libc::c_char) -> i64 {
+        libc::pathconf(p, libc::_PC_NAME_MAX) as i64
     }
     #[cfg(target_libc = "newlib")]
-    fn pathconf(_: *mut libc::c_char) -> i64 {
-        unsafe {
-            libc::sysconf(libc::_PC_NAME_MAX) as i64
-        }
+    unsafe fn pathconf(_: *mut libc::c_char) -> i64 {
+        libc::sysconf(libc::_PC_NAME_MAX) as i64
     }
 
     let c_path = try!(cstr(p));

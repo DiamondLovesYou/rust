@@ -1,4 +1,4 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,16 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[lang="foo"]   //~ ERROR language items are subject to change
-trait Foo {}
-
-extern "rust-intrinsic" {   //~ ERROR intrinsics are subject to change
-    fn bar();
+trait Foo {
+    pub type Foo; //~ ERROR expected one of `extern`, `fn`, `type`, or `unsafe`, found `pub`
 }
 
-extern "rust-intrinsic" fn baz() {  //~ ERROR intrinsics are subject to change
-}
-
-fn main() {
-}
-
+fn main() {}

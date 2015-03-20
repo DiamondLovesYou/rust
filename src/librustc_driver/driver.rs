@@ -828,7 +828,9 @@ fn write_out_deps(sess: &Session,
         // Build a list of files used to compile the output and
         // write Makefile-compatible dependency rules
         let files: Vec<String> = sess.codemap().files.borrow()
-                                   .iter().filter(|fmap| fmap.is_real_file())
+                                   .iter()
+                                   .filter(|fmap| fmap.is_real_file())
+                                   .filter(|fmap| !fmap.is_imported())
                                    .map(|fmap| escape_dep_filename(&fmap.name))
                                    .collect();
         let mut file = try!(fs::File::create(&deps_filename));
@@ -939,7 +941,7 @@ pub fn build_output_filenames(input: &Input,
             // We want to toss everything after the final '.'
             let dirpath = match *odir {
                 Some(ref d) => d.clone(),
-                None => PathBuf::new(".")
+                None => PathBuf::new("")
             };
 
             // If a crate name is present, we use it as the link name
@@ -966,8 +968,11 @@ pub fn build_output_filenames(input: &Input,
             if *odir != None {
                 sess.warn("ignoring --out-dir flag due to -o flag.");
             }
+
+            let cur_dir = Path::new("");
+
             OutputFilenames {
-                out_directory: out_file.parent().unwrap().to_path_buf(),
+                out_directory: out_file.parent().unwrap_or(cur_dir).to_path_buf(),
                 out_filestem: out_file.file_stem().unwrap()
                                       .to_str().unwrap().to_string(),
                 single_output_file: ofile,

@@ -25,6 +25,7 @@ use serialize::{Decodable, Decoder, Encodable, Encoder};
 use std::fmt;
 use std::mem;
 use std::ops::Deref;
+#[allow(deprecated)]
 use std::old_path::BytesContainer;
 use std::rc::Rc;
 
@@ -561,11 +562,11 @@ declare_special_idents_and_keywords! {
         (39,                         Virtual,    "virtual");
         (40,                         While,      "while");
         (41,                         Continue,   "continue");
-        (42,                         Proc,       "proc");
-        (43,                         Box,        "box");
-        (44,                         Const,      "const");
-        (45,                         Where,      "where");
+        (42,                         Box,        "box");
+        (43,                         Const,      "const");
+        (44,                         Where,      "where");
         'reserved:
+        (45,                         Proc,       "proc");
         (46,                         Alignof,    "alignof");
         (47,                         Become,     "become");
         (48,                         Offsetof,   "offsetof");
@@ -638,6 +639,7 @@ impl Deref for InternedString {
     fn deref(&self) -> &str { &*self.string }
 }
 
+#[allow(deprecated)]
 impl BytesContainer for InternedString {
     fn container_as_bytes<'a>(&'a self) -> &'a [u8] {
         // FIXME #12938: This is a workaround for the incorrect signature

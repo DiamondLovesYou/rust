@@ -19,13 +19,9 @@
 #![feature(unboxed_closures)]
 #![feature(std_misc)]
 #![feature(test)]
-#![feature(unicode)]
 #![feature(core)]
-#![feature(path)]
-#![feature(os)]
-#![feature(io)]
-#![feature(fs)]
 #![feature(net)]
+#![feature(path_ext)]
 
 #![deny(warnings)]
 
@@ -37,7 +33,6 @@ extern crate log;
 
 use std::env;
 use std::fs;
-use std::old_io;
 use std::path::{Path, PathBuf};
 use std::thunk::Thunk;
 use getopts::{optopt, optflag, reqopt};
@@ -264,7 +259,11 @@ pub fn run_tests(config: &Config) {
     // sadly osx needs some file descriptor limits raised for running tests in
     // parallel (especially when we have lots and lots of child processes).
     // For context, see #8904
-    old_io::test::raise_fd_limit();
+    #[allow(deprecated)]
+    fn raise_fd_limit() {
+        std::old_io::test::raise_fd_limit();
+    }
+    raise_fd_limit();
     // Prevent issue #21352 UAC blocking .exe containing 'patch' etc. on Windows
     // If #11207 is resolved (adding manifest to .exe) this becomes unnecessary
     env::set_var("__COMPAT_LAYER", "RunAsInvoker");
@@ -355,7 +354,7 @@ pub fn make_test<F>(config: &Config, testfile: &Path, f: F) -> test::TestDescAnd
         desc: test::TestDesc {
             name: make_test_name(config, testfile),
             ignore: header::is_test_ignored(config, testfile),
-            should_fail: test::ShouldFail::No,
+            should_panic: test::ShouldPanic::No,
         },
         testfn: f(),
     }

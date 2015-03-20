@@ -26,7 +26,7 @@ use core::num::Int;
 use core::slice;
 use core::str::Split;
 
-use u_char::CharExt as UCharExt; // conflicts with core::prelude::CharExt
+use char::CharExt as UCharExt; // conflicts with core::prelude::CharExt
 use tables::grapheme::GraphemeCat;
 
 /// An iterator over the words of a string, separated by a sequence of whitespace
@@ -479,7 +479,7 @@ impl<'a> Iterator for Utf16Items<'a> {
 /// Create an iterator over the UTF-16 encoded codepoints in `v`,
 /// returning invalid surrogates as `LoneSurrogate`s.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
 /// use unicode::str::Utf16Item::{ScalarValue, LoneSurrogate};

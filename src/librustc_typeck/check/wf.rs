@@ -118,7 +118,7 @@ impl<'ccx, 'tcx> CheckTypeWellFormedVisitor<'ccx, 'tcx> {
 
                 self.check_variances_for_type_defn(item, ast_generics);
             }
-            ast::ItemTrait(_, ref ast_generics, _, _) => {
+            ast::ItemTrait(_, ref ast_generics, _, ref items) => {
                 let trait_predicates =
                     ty::lookup_predicates(ccx.tcx, local_def(item.id));
                 reject_non_type_param_bounds(
@@ -127,6 +127,14 @@ impl<'ccx, 'tcx> CheckTypeWellFormedVisitor<'ccx, 'tcx> {
                     &trait_predicates);
                 self.check_variances(item, ast_generics, &trait_predicates,
                                      self.tcx().lang_items.phantom_fn());
+                if ty::trait_has_default_impl(ccx.tcx, local_def(item.id)) {
+                    if !items.is_empty() {
+                        ccx.tcx.sess.span_err(
+                            item.span,
+                            "traits with default impls (`e.g. unsafe impl Trait for ..`) must \
+                            have no methods or associated items")
+                    }
+                }
             }
             _ => {}
         }
@@ -403,9 +411,9 @@ impl<'ccx, 'tcx> CheckTypeWellFormedVisitor<'ccx, 'tcx> {
             Some(def_id) => {
                 self.tcx().sess.fileline_help(
                     span,
-                    format!("consider removing `{}` or using a marker such as `{}`",
-                            param_name.user_string(self.tcx()),
-                            ty::item_path_str(self.tcx(), def_id)).as_slice());
+                    &format!("consider removing `{}` or using a marker such as `{}`",
+                             param_name.user_string(self.tcx()),
+                             ty::item_path_str(self.tcx(), def_id)));
             }
             None => {
                 // no lang items, no help!
@@ -490,28 +498,24 @@ impl<'ccx, 'tcx, 'v> Visitor<'v> for CheckTypeWellFormedVisitor<'ccx, 'tcx> {
         visit::walk_fn(self, fk, fd, b, span)
     }
 
-    fn visit_trait_item(&mut self, t: &'v ast::TraitItem) {
-        match t {
-            &ast::TraitItem::ProvidedMethod(_) |
-            &ast::TraitItem::TypeTraitItem(_) => {},
-            &ast::TraitItem::RequiredMethod(ref method) => {
-                match ty::impl_or_trait_item(self.tcx(), local_def(method.id)) {
-                    ty::ImplOrTraitItem::MethodTraitItem(ty_method) => {
-                        reject_non_type_param_bounds(
-                            self.tcx(),
-                            method.span,
-                            &ty_method.predicates);
-                        reject_shadowing_type_parameters(
-                            self.tcx(),
-                            method.span,
-                            &ty_method.generics);
-                    }
-                    _ => {}
+    fn visit_trait_item(&mut self, trait_item: &'v ast::TraitItem) {
+        if let ast::MethodTraitItem(_, None) = trait_item.node {
+            match ty::impl_or_trait_item(self.tcx(), local_def(trait_item.id)) {
+                ty::ImplOrTraitItem::MethodTraitItem(ty_method) => {
+                    reject_non_type_param_bounds(
+                        self.tcx(),
+                        trait_item.span,
+                        &ty_method.predicates);
+                    reject_shadowing_type_parameters(
+                        self.tcx(),
+                        trait_item.span,
+                        &ty_method.generics);
                 }
+                _ => {}
             }
         }
 
-        visit::walk_trait_item(self, t)
+        visit::walk_trait_item(self, trait_item)
     }
 }
 

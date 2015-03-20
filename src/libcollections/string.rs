@@ -24,7 +24,7 @@ use core::iter::{IntoIterator, FromIterator};
 use core::mem;
 use core::ops::{self, Deref, Add, Index};
 use core::ptr;
-use core::raw::Slice as RawSlice;
+use core::slice;
 use unicode::str as unicode_str;
 use unicode::str::Utf16Item;
 
@@ -139,7 +139,7 @@ impl String {
     /// ```rust
     /// let input = b"Hello \xF0\x90\x80World";
     /// let output = String::from_utf8_lossy(input);
-    /// assert_eq!(output.as_slice(), "Hello \u{FFFD}World");
+    /// assert_eq!(output, "Hello \u{FFFD}World");
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn from_utf8_lossy<'a>(v: &'a [u8]) -> Cow<'a, str> {
@@ -314,6 +314,7 @@ impl String {
     /// Creates a new `String` from a length, capacity, and pointer.
     ///
     /// This is unsafe because:
+    ///
     /// * We call `Vec::from_raw_parts` to get a `Vec<u8>`;
     /// * We assume that the `Vec` contains valid UTF-8.
     #[inline]
@@ -355,7 +356,7 @@ impl String {
     /// ```
     /// let mut s = String::from_str("foo");
     /// s.push_str("bar");
-    /// assert_eq!(s.as_slice(), "foobar");
+    /// assert_eq!(s, "foobar");
     /// ```
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
@@ -450,7 +451,7 @@ impl String {
     /// s.push('1');
     /// s.push('2');
     /// s.push('3');
-    /// assert_eq!(s.as_slice(), "abc123");
+    /// assert_eq!(s, "abc123");
     /// ```
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
@@ -467,11 +468,11 @@ impl String {
         unsafe {
             // Attempt to not use an intermediate buffer by just pushing bytes
             // directly onto this string.
-            let slice = RawSlice {
-                data: self.vec.as_ptr().offset(cur_len as isize),
-                len: 4,
-            };
-            let used = ch.encode_utf8(mem::transmute(slice)).unwrap_or(0);
+            let slice = slice::from_raw_parts_mut (
+                self.vec.as_mut_ptr().offset(cur_len as isize),
+                4
+            );
+            let used = ch.encode_utf8(slice).unwrap_or(0);
             self.vec.set_len(cur_len + used);
         }
     }
@@ -503,7 +504,7 @@ impl String {
     /// ```
     /// let mut s = String::from_str("hello");
     /// s.truncate(2);
-    /// assert_eq!(s.as_slice(), "he");
+    /// assert_eq!(s, "he");
     /// ```
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
@@ -622,7 +623,7 @@ impl String {
     ///     assert!(vec == &[104, 101, 108, 108, 111]);
     ///     vec.reverse();
     /// }
-    /// assert_eq!(s.as_slice(), "olleh");
+    /// assert_eq!(s, "olleh");
     /// ```
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
@@ -1232,14 +1233,14 @@ mod tests {
     }
 
     #[test]
-    #[should_fail]
+    #[should_panic]
     fn test_str_truncate_invalid_len() {
         let mut s = String::from_str("12345");
         s.truncate(6);
     }
 
     #[test]
-    #[should_fail]
+    #[should_panic]
     fn test_str_truncate_split_codepoint() {
         let mut s = String::from_str("\u{FC}"); // ü
         s.truncate(1);
@@ -1272,7 +1273,7 @@ mod tests {
         assert_eq!(s, "ไทย中华Vit Nam; foobar");
     }
 
-    #[test] #[should_fail]
+    #[test] #[should_panic]
     fn remove_bad() {
         "ศ".to_string().remove(1);
     }
@@ -1286,8 +1287,8 @@ mod tests {
         assert_eq!(s, "ệfooยbar");
     }
 
-    #[test] #[should_fail] fn insert_bad1() { "".to_string().insert(1, 't'); }
-    #[test] #[should_fail] fn insert_bad2() { "ệ".to_string().insert(1, 't'); }
+    #[test] #[should_panic] fn insert_bad1() { "".to_string().insert(1, 't'); }
+    #[test] #[should_panic] fn insert_bad2() { "ệ".to_string().insert(1, 't'); }
 
     #[test]
     fn test_slicing() {

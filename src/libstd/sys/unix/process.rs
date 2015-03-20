@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![allow(deprecated)] // this module itself is essentially deprecated
+
 use prelude::v1::*;
 use self::Req::*;
 
@@ -15,7 +17,7 @@ use collections::HashMap;
 use ffi::CString;
 use hash::Hash;
 use old_io::process::{ProcessExit, ExitStatus, ExitSignal};
-use old_io::{self, IoResult, IoError, EndOfFile};
+use old_io::{IoResult, EndOfFile};
 use libc::{self, pid_t, c_void, c_int};
 use mem;
 use os;
@@ -31,14 +33,9 @@ pub use sys_common::ProcessConfig;
 
 helper_init! { static HELPER: Helper<Req> }
 
-/// Unix-specific extensions to the Command builder
-pub struct CommandExt {
-    uid: Option<u32>,
-    gid: Option<u32>,
-}
-
 #[cfg(target_os = "nacl")]
 fn permission_denied() -> IoError {
+    use old_io;
     IoError {
         kind: old_io::PermissionDenied,
         desc: "(P)NaCl is sandboxed and thus can't create processes",
@@ -360,7 +357,7 @@ impl Process {
         // The actual communication between the helper thread and this thread is
         // quite simple, just a channel moving data around.
 
-        unsafe { HELPER.boot(register_sigchld, waitpid_helper) }
+        HELPER.boot(register_sigchld, waitpid_helper);
 
         match self.try_wait() {
             Some(ret) => return Ok(ret),
@@ -368,7 +365,7 @@ impl Process {
         }
 
         let (tx, rx) = channel();
-        unsafe { HELPER.send(NewChild(self.pid, tx, deadline)); }
+        HELPER.send(NewChild(self.pid, tx, deadline));
         return match rx.recv() {
             Ok(e) => Ok(e),
             Err(..) => Err(timeout("wait timed out")),
@@ -452,8 +449,15 @@ impl Process {
                             Ok(NewChild(pid, tx, deadline)) => {
                                 active.push((pid, tx, deadline));
                             }
+                            // Once we've been disconnected it means the main
+                            // thread is exiting (at_exit has run). We could
+                            // still have active waiter for other threads, so
+                            // we're just going to drop them all on the floor.
+                            // This means that they won't receive a "you're
+                            // done" message in which case they'll be considered
+                            // as timed out, but more generally errors will
+                            // start propagating.
                             Err(TryRecvError::Disconnected) => {
-                                assert!(active.len() == 0);
                                 break 'outer;
                             }
                             Err(TryRecvError::Empty) => break,

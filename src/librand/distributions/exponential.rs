@@ -57,7 +57,7 @@ impl Rand for Exp1 {
 /// This distribution has density function: `f(x) = lambda *
 /// exp(-lambda * x)` for `x > 0`.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
 /// use std::rand;
@@ -109,12 +109,12 @@ mod test {
         }
     }
     #[test]
-    #[should_fail]
+    #[should_panic]
     fn test_exp_invalid_lambda_zero() {
         Exp::new(0.0);
     }
     #[test]
-    #[should_fail]
+    #[should_panic]
     fn test_exp_invalid_lambda_neg() {
         Exp::new(-10.0);
     }

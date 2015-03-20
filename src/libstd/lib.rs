@@ -94,7 +94,8 @@
 //! to all code by default. [`macros`](macros/index.html) contains
 //! all the standard macros, such as `assert!`, `panic!`, `println!`,
 //! and `format!`, also available to all Rust code.
-
+// Do not remove on snapshot creation. Needed for bootstrap. (Issue #22364)
+#![cfg_attr(stage0, feature(custom_attribute))]
 #![crate_name = "std"]
 #![stable(feature = "rust1", since = "1.0.0")]
 #![staged_api]
@@ -272,12 +273,17 @@ pub mod collections;
 pub mod thread;
 pub mod sync;
 
+#[macro_use]
+#[cfg_attr(target_os = "nacl", allow(dead_code))]
+#[cfg_attr(target_os = "nacl", allow(unused_imports))]
+#[path = "sys/common/mod.rs"] mod sys_common;
+
 #[cfg(unix)]
+#[cfg_attr(target_os = "nacl", allow(dead_code))]
+#[cfg_attr(target_os = "nacl", allow(unused_imports))]
 #[path = "sys/unix/mod.rs"] mod sys;
 #[cfg(windows)]
 #[path = "sys/windows/mod.rs"] mod sys;
-
-#[path = "sys/common/mod.rs"] mod sys_common;
 
 pub mod rt;
 mod panicking;
@@ -296,6 +302,7 @@ mod std {
     pub use sync; // used for select!()
     pub use error; // used for try!()
     pub use fmt; // used for any formatting strings
+    #[allow(deprecated)]
     pub use old_io; // used for println!()
     pub use option; // used for bitflags!{}
     pub use rt; // used for panic!()

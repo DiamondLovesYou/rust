@@ -16,11 +16,7 @@
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/DiagnosticPrinter.h"
 
-#if LLVM_VERSION_MINOR >= 5
 #include "llvm/IR/CallSite.h"
-#else
-#include "llvm/Support/CallSite.h"
-#endif
 
 #if LLVM_VERSION_MINOR < 6
 namespace llvm {
@@ -41,7 +37,6 @@ using namespace llvm::object;
 
 static char *LastError;
 
-#if LLVM_VERSION_MINOR >= 5
 extern "C" LLVMMemoryBufferRef
 LLVMRustCreateMemoryBufferWithContentsOfFile(const char *Path) {
   ErrorOr<std::unique_ptr<MemoryBuffer>> buf_or = MemoryBuffer::getFile(Path,
@@ -53,18 +48,6 @@ LLVMRustCreateMemoryBufferWithContentsOfFile(const char *Path) {
   }
   return wrap(buf_or.get().release());
 }
-#else
-extern "C" LLVMMemoryBufferRef
-LLVMRustCreateMemoryBufferWithContentsOfFile(const char *Path) {
-  OwningPtr<MemoryBuffer> buf;
-  error_code err = MemoryBuffer::getFile(Path, buf, -1, false);
-  if (err) {
-      LLVMRustSetLastError(err.message().c_str());
-      return NULL;
-  }
-  return wrap(buf.take());
-}
-#endif
 
 extern "C" char *LLVMRustGetLastError(void) {
   char *ret = LastError;
@@ -124,7 +107,6 @@ extern "C" void LLVMAddCallSiteAttribute(LLVMValueRef Instr, unsigned index, uin
 }
 
 
-#if LLVM_VERSION_MINOR >= 5
 extern "C" void LLVMAddDereferenceableCallSiteAttr(LLVMValueRef Instr, unsigned idx, uint64_t b) {
   CallSite Call = CallSite(unwrap<Instruction>(Instr));
   AttrBuilder B;
@@ -134,9 +116,6 @@ extern "C" void LLVMAddDereferenceableCallSiteAttr(LLVMValueRef Instr, unsigned 
                                        AttributeSet::get(Call->getContext(),
                                                          idx, B)));
 }
-#else
-extern "C" void LLVMAddDereferenceableCallSiteAttr(LLVMValueRef, unsigned, uint64_t) {}
-#endif
 
 extern "C" void LLVMAddFunctionAttribute(LLVMValueRef Fn, unsigned index, uint64_t Val) {
   Function *A = unwrap<Function>(Fn);
@@ -145,16 +124,12 @@ extern "C" void LLVMAddFunctionAttribute(LLVMValueRef Fn, unsigned index, uint64
   A->addAttributes(index, AttributeSet::get(A->getContext(), index, B));
 }
 
-#if LLVM_VERSION_MINOR >= 5
 extern "C" void LLVMAddDereferenceableAttr(LLVMValueRef Fn, unsigned index, uint64_t bytes) {
   Function *A = unwrap<Function>(Fn);
   AttrBuilder B;
   B.addDereferenceableAttr(bytes);
   A->addAttributes(index, AttributeSet::get(A->getContext(), index, B));
 }
-#else
-extern "C" void LLVMAddDereferenceableAttr(LLVMValueRef, unsigned, uint64_t) {}
-#endif
 
 extern "C" void LLVMAddFunctionAttrString(LLVMValueRef Fn, unsigned index, const char *Name) {
   Function *F = unwrap<Function>(Fn);
@@ -207,10 +182,8 @@ extern "C" LLVMValueRef LLVMBuildAtomicCmpXchg(LLVMBuilderRef B,
                                                AtomicOrdering order,
                                                AtomicOrdering failure_order) {
     return wrap(unwrap(B)->CreateAtomicCmpXchg(unwrap(target), unwrap(old),
-                                               unwrap(source), order
-#if LLVM_VERSION_MINOR >= 5
-                                               , failure_order
-#endif
+                                               unwrap(source), order,
+                                               failure_order
                                                ));
 }
 extern "C" LLVMValueRef LLVMBuildAtomicFence(LLVMBuilderRef B, AtomicOrdering order) {
@@ -255,11 +228,7 @@ DIT unwrapDI(LLVMMetadataRef ref) {
     return DIT(ref ? unwrap<MDNode>(ref) : NULL);
 }
 
-#if LLVM_VERSION_MINOR >= 5
 extern "C" const uint32_t LLVMRustDebugMetadataVersion = DEBUG_METADATA_VERSION;
-#else
-extern "C" const uint32_t LLVMRustDebugMetadataVersion = 1;
-#endif
 
 extern "C" void LLVMRustAddModuleFlag(LLVMModuleRef M,
                                       const char *name,
@@ -391,10 +360,8 @@ extern "C" LLVMMetadataRef LLVMDIBuilderCreateStructType(
         unwrapDI<DIType>(DerivedFrom),
         unwrapDI<DIArray>(Elements),
         RunTimeLang,
-        unwrapDI<DIType>(VTableHolder)
-#if LLVM_VERSION_MINOR >= 4
-        ,UniqueId
-#endif
+        unwrapDI<DIType>(VTableHolder),
+        UniqueId
         ));
 }
 
@@ -473,9 +440,7 @@ extern "C" LLVMMetadataRef LLVMDIBuilderCreateVariable(
 #if LLVM_VERSION_MINOR < 6
     if (AddrOpsCount > 0) {
         SmallVector<llvm::Value *, 16> addr_ops;
-        // Hack to get the context without modifying the fn sig.
-        auto &VMContext = Builder->createNullPtrType()->getContext();
-        llvm::Type *Int64Ty = Type::getInt64Ty(VMContext);
+        llvm::Type *Int64Ty = Type::getInt64Ty(unwrap<MDNode>(Scope)->getContext());
         for (unsigned i = 0; i < AddrOpsCount; ++i)
             addr_ops.push_back(ConstantInt::get(Int64Ty, AddrOps[i]));
 
@@ -532,7 +497,11 @@ extern "C" LLVMMetadataRef LLVMDIBuilderGetOrCreateArray(
     LLVMMetadataRef* Ptr,
     unsigned Count) {
     return wrap(Builder->getOrCreateArray(
+#if LLVM_VERSION_MINOR >= 6
         ArrayRef<Metadata*>(unwrap(Ptr), Count)));
+#else
+        ArrayRef<Value*>(reinterpret_cast<Value**>(Ptr), Count)));
+#endif
 }
 
 extern "C" LLVMValueRef LLVMDIBuilderInsertDeclareAtEnd(
@@ -637,18 +606,10 @@ extern "C" LLVMMetadataRef LLVMDIBuilderCreateUnionType(
         AlignInBits,
         Flags,
         unwrapDI<DIArray>(Elements),
-        RunTimeLang
-#if LLVM_VERSION_MINOR >= 4
-        ,UniqueId
-#endif
+        RunTimeLang,
+        UniqueId
         ));
 }
-
-#if LLVM_VERSION_MINOR < 5
-extern "C" void LLVMSetUnnamedAddr(LLVMValueRef Value, LLVMBool Unnamed) {
-    unwrap<GlobalValue>(Value)->setUnnamedAddr(Unnamed);
-}
-#endif
 
 extern "C" LLVMMetadataRef LLVMDIBuilderCreateTemplateTypeParameter(
     DIBuilderRef Builder,
@@ -753,7 +714,6 @@ static bool MaterializeModule(Module* M) {
   }
 }
 
-#if LLVM_VERSION_MINOR >= 5
 extern "C" bool
 LLVMRustLinkInExternalBitcode(LLVMModuleRef dst, char *bc, size_t len) {
     Module *Dst = unwrap(dst);
@@ -790,30 +750,6 @@ LLVMRustLinkInExternalBitcode(LLVMModuleRef dst, char *bc, size_t len) {
     }
     return true;
 }
-#else
-extern "C" bool
-LLVMRustLinkInExternalBitcode(LLVMModuleRef dst, char *bc, size_t len) {
-    Module *Dst = unwrap(dst);
-    MemoryBuffer* buf = MemoryBuffer::getMemBufferCopy(StringRef(bc, len));
-    std::string Err;
-    Module *Src = llvm::getLazyBitcodeModule(buf, Dst->getContext(), &Err);
-    if (!Src) {
-        LLVMRustSetLastError(Err.c_str());
-        delete buf;
-        return false;
-    }
-
-    if(!MaterializeModule(Dst)) {
-      return false;
-    }
-
-    if (Linker::LinkModules(Dst, Src, Linker::DestroySource, &Err)) {
-        LLVMRustSetLastError(Err.c_str());
-        return false;
-    }
-    return true;
-}
-#endif
 
 extern "C" bool
 LLVMRustLinkInModule(LLVMModuleRef dest, LLVMModuleRef src) {
@@ -835,7 +771,6 @@ LLVMRustLinkInModule(LLVMModuleRef dest, LLVMModuleRef src) {
   return true;
 }
 
-#if LLVM_VERSION_MINOR >= 5
 extern "C" void*
 LLVMRustOpenArchive(char *path) {
     ErrorOr<std::unique_ptr<MemoryBuffer>> buf_or = MemoryBuffer::getFile(path,
@@ -868,23 +803,6 @@ LLVMRustOpenArchive(char *path) {
 
     return ret;
 }
-#else
-extern "C" void*
-LLVMRustOpenArchive(char *path) {
-    OwningPtr<MemoryBuffer> buf;
-    error_code err = MemoryBuffer::getFile(path, buf, -1, false);
-    if (err) {
-        LLVMRustSetLastError(err.message().c_str());
-        return NULL;
-    }
-    Archive *ret = new Archive(buf.take(), err);
-    if (err) {
-        LLVMRustSetLastError(err.message().c_str());
-        return NULL;
-    }
-    return ret;
-}
-#endif
 
 extern "C" const char*
 #if LLVM_VERSION_MINOR >= 6
@@ -895,21 +813,12 @@ LLVMRustArchiveReadSection(OwningBinary<Archive> *ob, char *name, size_t *size) 
 LLVMRustArchiveReadSection(Archive *ar, char *name, size_t *size) {
 #endif
 
-#if LLVM_VERSION_MINOR >= 5
     Archive::child_iterator child = ar->child_begin(),
                               end = ar->child_end();
     for (; child != end; ++child) {
         ErrorOr<StringRef> name_or_err = child->getName();
         if (name_or_err.getError()) continue;
         StringRef sect_name = name_or_err.get();
-#else
-    Archive::child_iterator child = ar->begin_children(),
-                              end = ar->end_children();
-    for (; child != end; ++child) {
-        StringRef sect_name;
-        error_code err = child->getName(sect_name);
-        if (err) continue;
-#endif
         if (sect_name.trim(" ") == name) {
             StringRef buf = child->getBuffer();
             *size = buf.size();
@@ -958,18 +867,11 @@ LLVMRustDestroyArchive(Archive *ar) {
     delete ar;
 }
 
-#if LLVM_VERSION_MINOR >= 5
 extern "C" void
 LLVMRustSetDLLExportStorageClass(LLVMValueRef Value) {
     GlobalValue *V = unwrap<GlobalValue>(Value);
     V->setDLLStorageClass(GlobalValue::DLLExportStorageClass);
 }
-#else
-extern "C" void
-LLVMRustSetDLLExportStorageClass(LLVMValueRef Value) {
-    LLVMSetLinkage(Value, LLVMDLLExportLinkage);
-}
-#endif
 
 extern "C" int
 LLVMVersionMinor() {
@@ -999,11 +901,7 @@ inline section_iterator *unwrap(LLVMSectionIteratorRef SI) {
 extern "C" int
 LLVMRustGetSectionName(LLVMSectionIteratorRef SI, const char **ptr) {
     StringRef ret;
-#if LLVM_VERSION_MINOR >= 5
     if (std::error_code ec = (*unwrap(SI))->getName(ret))
-#else
-    if (error_code ec = (*unwrap(SI))->getName(ret))
-#endif
       report_fatal_error(ec.message());
     *ptr = ret.data();
     return ret.size();

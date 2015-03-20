@@ -33,7 +33,7 @@ use distributions::{Sample, IndependentSample};
 /// primitive integer types satisfy this property, and the float types
 /// normally satisfy it, but rounding may mean `high` can occur.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
 /// use std::rand::distributions::{IndependentSample, Range};
@@ -169,12 +169,12 @@ mod tests {
     use distributions::{Sample, IndependentSample};
     use super::Range as Range;
 
-    #[should_fail]
+    #[should_panic]
     #[test]
     fn test_range_bad_limits_equal() {
         Range::new(10, 10);
     }
-    #[should_fail]
+    #[should_panic]
     #[test]
     fn test_range_bad_limits_flipped() {
         Range::new(10, 5);

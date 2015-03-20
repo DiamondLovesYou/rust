@@ -30,6 +30,7 @@ use rustc_back::target::Target;
 use std::path::{Path, PathBuf, AsPath};
 use std::cell::{Cell, RefCell};
 use std::env;
+use std::ffi;
 use std::fmt;
 
 pub mod config;
@@ -322,9 +323,9 @@ impl Session {
     }
 
     // Emits a fatal error if path is not writeable.
-    pub fn check_writeable_output<T: AsPath + ?Sized + fmt::Debug>(&self,
-                                                                   path: &T,
-                                                                   name: &str) {
+    pub fn check_writeable_output<T: ?Sized>(&self, path: &T, name: &str)
+        where T: AsPath + ffi::AsOsStr + fmt::Debug
+    {
         use std::fs::metadata;
         use std::io::ErrorKind;
 
@@ -341,9 +342,9 @@ impl Session {
 
     // checks if we're saving temps or if we're emitting the specified type.
     // If neither, the file is unlinked from the filesystem.
-    pub fn remove_temp<T: AsPath + ?Sized + fmt::Debug>(&self,
-                                                        path: &T,
-                                                        t: OutputType) {
+    pub fn remove_temp<T: ?Sized>(&self, path: &T, t: OutputType)
+        where T: AsPath + ffi::AsOsStr + fmt::Debug
+    {
         use std::fs;
         if self.opts.cg.save_temps ||
             self.opts.output_types.contains(&t) {

@@ -46,7 +46,7 @@
 //! suitable for passing to any API that actually operates on the path; it is only intended for
 //! display.
 //!
-//! ## Example
+//! ## Examples
 //!
 //! ```rust
 //! use std::old_io::fs::PathExtensions;
@@ -60,6 +60,7 @@
 //! ```
 
 #![unstable(feature = "old_path")]
+#![deprecated(since = "1.0.0", reason = "use std::path instead")]
 #![allow(deprecated)] // seriously this is all deprecated
 #![allow(unused_imports)]
 
@@ -140,7 +141,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// Creates a new Path from a byte vector or string.
     /// The resulting Path will always be normalized.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -164,7 +165,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// Creates a new Path from a byte vector or string, if possible.
     /// The resulting Path will always be normalized.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -186,7 +187,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// Returns the path as a string, if possible.
     /// If the path is not representable in utf-8, this returns None.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -203,7 +204,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
 
     /// Returns the path as a byte vector
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -217,7 +218,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
 
     /// Converts the Path into an owned byte vector
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -232,7 +233,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
 
     /// Returns an object that implements `Display` for printing paths
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -250,7 +251,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     ///
     /// If there is no filename, nothing will be printed.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -267,7 +268,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// Returns the directory component of `self`, as a byte vector (with no trailing separator).
     /// If `self` has no directory component, returns ['.'].
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -282,7 +283,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// Returns the directory component of `self`, as a string, if possible.
     /// See `dirname` for details.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -301,7 +302,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// If `self` represents the root of the file hierarchy, returns None.
     /// If `self` is "." or "..", returns None.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -316,7 +317,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// Returns the file component of `self`, as a string, if possible.
     /// See `filename` for details.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -335,7 +336,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// The stem is the portion of the filename just before the last '.'.
     /// If there is no '.', the entire filename is returned.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -362,7 +363,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// Returns the stem of the filename of `self`, as a string, if possible.
     /// See `filestem` for details.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -382,7 +383,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// If there is no extension, None is returned.
     /// If the filename ends in '.', the empty vector is returned.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -409,7 +410,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// Returns the extension of the filename of `self`, as a string, if possible.
     /// See `extension` for details.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -427,7 +428,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// Replaces the filename portion of the path with the given byte vector or string.
     /// If the replacement name is [], this is equivalent to popping the path.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -453,7 +454,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// If the argument is [] or "", this removes the extension.
     /// If `self` has no filename, this is a no-op.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -503,7 +504,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// byte vector or string.
     /// See `set_filename` for details.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -528,7 +529,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// byte vector or string.
     /// See `set_extension` for details.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -552,7 +553,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// Returns the directory component of `self`, as a Path.
     /// If `self` represents the root of the filesystem hierarchy, returns `self`.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -571,7 +572,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     ///
     /// If `self` is not absolute, or vol/cwd-relative in the case of Windows, this returns None.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -586,7 +587,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// Pushes a path (as a byte vector or string) onto `self`.
     /// If the argument represents an absolute path, it replaces `self`.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -610,7 +611,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// Pushes multiple paths (as byte vectors or strings) onto `self`.
     /// See `push` for details.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -639,7 +640,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// Returns `true` if the receiver was modified, or `false` if it already
     /// represented the root of the file hierarchy.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -656,7 +657,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// (as a byte vector or string).
     /// If the given path is absolute, the new Path will represent just that.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -681,7 +682,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// (as byte vectors or strings).
     /// See `join` for details.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -703,7 +704,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// An absolute path is defined as one that, when joined to another path, will
     /// yield back the same absolute path.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -720,7 +721,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// But for Windows paths, it also means the path is not volume-relative or
     /// relative to the current working directory.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -738,7 +739,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// If both paths are relative, they are compared as though they are relative
     /// to the same parent path.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -757,7 +758,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
     /// If `self` is absolute and `base` is relative, or on Windows if both
     /// paths refer to separate drives, an absolute path is returned.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();
@@ -773,7 +774,7 @@ pub trait GenericPath: Clone + GenericPathUnsafe {
 
     /// Returns whether the relative path `child` is a suffix of `self`.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # foo();

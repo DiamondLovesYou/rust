@@ -109,10 +109,10 @@ pub struct Config {
     pub logfile: Option<PathBuf>,
 
     // Write out a json file containing any metrics of the run
-    pub save_metrics: Option<Path>,
+    pub save_metrics: Option<PathBuf>,
 
     // Write and ratchet a metrics file
-    pub ratchet_metrics: Option<Path>,
+    pub ratchet_metrics: Option<PathBuf>,
 
     // Percent change in metrics to consider noise
     pub ratchet_noise_percent: Option<f64>,

@@ -147,29 +147,13 @@ pub fn record_extern_fqn(cx: &DocContext, did: ast::DefId, kind: clean::TypeKind
 
 pub fn build_external_trait(cx: &DocContext, tcx: &ty::ctxt,
                             did: ast::DefId) -> clean::Trait {
-    use clean::TraitMethod;
-
     let def = ty::lookup_trait_def(tcx, did);
     let trait_items = ty::trait_items(tcx, did).clean(cx);
-    let provided = ty::provided_trait_methods(tcx, did);
-    let items = trait_items.into_iter().map(|trait_item| {
-        match trait_item.inner {
-            clean::TyMethodItem(_) => {
-                if provided.iter().any(|a| a.def_id == trait_item.def_id) {
-                    TraitMethod::ProvidedMethod(trait_item)
-                } else {
-                    TraitMethod::RequiredMethod(trait_item)
-                }
-            },
-            clean::AssociatedTypeItem(_) => TraitMethod::TypeTraitItem(trait_item),
-            _ => unreachable!()
-        }
-    });
     let predicates = ty::lookup_predicates(tcx, did);
     clean::Trait {
         unsafety: def.unsafety,
         generics: (&def.generics, &predicates, subst::TypeSpace).clean(cx),
-        items: items.collect(),
+        items: trait_items,
         bounds: vec![], // supertraits can be found in the list of predicates
     }
 }
@@ -275,26 +259,43 @@ fn build_impls(cx: &DocContext, tcx: &ty::ctxt,
     impls.into_iter().filter_map(|a| a).collect()
 }
 
-fn build_impl(cx: &DocContext, tcx: &ty::ctxt,
+fn build_impl(cx: &DocContext,
+              tcx: &ty::ctxt,
               did: ast::DefId) -> Option<clean::Item> {
     if !cx.inlined.borrow_mut().as_mut().unwrap().insert(did) {
         return None
     }
 
+    let attrs = load_attrs(cx, tcx, did);
     let associated_trait = csearch::get_impl_trait(tcx, did);
-    // If this is an impl for a #[doc(hidden)] trait, be sure to not inline it.
-    match associated_trait {
-        Some(ref t) => {
-            let trait_attrs = load_attrs(cx, tcx, t.def_id);
-            if trait_attrs.iter().any(|a| is_doc_hidden(a)) {
-                return None
-            }
+    if let Some(ref t) = associated_trait {
+        // If this is an impl for a #[doc(hidden)] trait, be sure to not inline
+        let trait_attrs = load_attrs(cx, tcx, t.def_id);
+        if trait_attrs.iter().any(|a| is_doc_hidden(a)) {
+            return None
         }
-        None => {}
     }
 
-    let attrs = load_attrs(cx, tcx, did);
-    let ty = ty::lookup_item_type(tcx, did);
+    // If this is a defaulted impl, then bail out early here
+    if csearch::is_default_impl(&tcx.sess.cstore, did) {
+        return Some(clean::Item {
+            inner: clean::DefaultImplItem(clean::DefaultImpl {
+                // FIXME: this should be decoded
+                unsafety: ast::Unsafety::Normal,
+                trait_: match associated_trait.as_ref().unwrap().clean(cx) {
+                    clean::TraitBound(polyt, _) => polyt.trait_,
+                    clean::RegionBound(..) => unreachable!(),
+                },
+            }),
+            source: clean::Span::empty(),
+            name: None,
+            attrs: attrs,
+            visibility: Some(ast::Inherited),
+            stability: stability::lookup(tcx, did).clean(cx),
+            def_id: did,
+        });
+    }
+
     let predicates = ty::lookup_predicates(tcx, did);
     let trait_items = csearch::get_impl_items(&tcx.sess.cstore, did)
             .iter()
@@ -346,8 +347,10 @@ fn build_impl(cx: &DocContext, tcx: &ty::ctxt,
         }
     }).collect();
     let polarity = csearch::get_impl_polarity(tcx, did);
+    let ty = ty::lookup_item_type(tcx, did);
     return Some(clean::Item {
         inner: clean::ImplItem(clean::Impl {
+            unsafety: ast::Unsafety::Normal, // FIXME: this should be decoded
             derived: clean::detect_derived(&attrs),
             trait_: associated_trait.clean(cx).map(|bound| {
                 match bound {

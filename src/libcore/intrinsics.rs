@@ -178,6 +178,7 @@ extern "rust-intrinsic" {
     /// with optimization of surrounding code and reduce performance. It should
     /// not be used if the invariant can be discovered by the optimizer on its
     /// own, or if it does not enable any significant optimizations.
+    #[cfg(not(target_os = "nacl"))]
     pub fn assume(b: bool);
 
     /// Execute a breakpoint trap, for inspection by a debugger.
@@ -506,6 +507,9 @@ extern "rust-intrinsic" {
 
 }
 
+#[cfg(target_os = "nacl")]
+pub fn assume(_: bool) { }
+
 extern "rust-intrinsic" {
 
     /// Performs checked `i8` addition.
@@ -561,11 +565,7 @@ extern "rust-intrinsic" {
     pub fn u32_mul_with_overflow(x: u32, y: u32) -> (u32, bool);
     /// Performs checked `u64` multiplication.
     pub fn u64_mul_with_overflow(x: u64, y: u64) -> (u64, bool);
-}
 
-// SNAP 880fb89
-#[cfg(not(stage0))]
-extern "rust-intrinsic" {
     /// Returns (a + b) mod 2^N, where N is the width of N in bits.
     pub fn overflowing_add<T>(a: T, b: T) -> T;
     /// Returns (a - b) mod 2^N, where N is the width of N in bits.

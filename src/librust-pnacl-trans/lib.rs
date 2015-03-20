@@ -15,8 +15,7 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/master/")]
 
-#![feature(rustc_private, os, libc, std_misc, collections, core, fs, io,
-           exit_status, path)]
+#![feature(rustc_private, libc, collections, core, exit_status)]
 
 extern crate getopts;
 extern crate libc;
@@ -49,7 +48,7 @@ pub fn host_triple() -> &'static str {
 }
 
 fn get_native_arch() -> &'static str {
-    use std::os::consts::ARCH;
+    use std::env::consts::ARCH;
     match ARCH {
         "x86" => "i686",
         _ => ARCH,
@@ -342,11 +341,13 @@ pub fn main() {
         s.push_str("_pnacl");
         s
     });
-    toolchain_path.push("translator");
-    toolchain_path.push(arch);
-    toolchain_path.push("lib");
 
-    let tcp = toolchain_path.clone();
+
+    let mut tcp = toolchain_path.clone();
+    tcp.push("translator");
+    tcp.push(arch);
+    tcp.push("lib");
+
     let crtbegin = tcp.clone()
         .join("crtbegin.o")
         .into_os_string()
@@ -396,7 +397,7 @@ pub fn main() {
         .chain(nexe_link_args_suffix.into_iter())
         .collect();
 
-    let mut gold = tcp.clone();
+    let mut gold = toolchain_path.clone();
     gold.push("bin");
     gold.push("le32-nacl-ld.gold");
     let gold = gold;

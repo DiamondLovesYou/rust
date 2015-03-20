@@ -73,7 +73,7 @@ impl Rand for StandardNormal {
 /// This uses the ZIGNOR variant of the Ziggurat method, see
 /// `StandardNormal` for more details.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
 /// use std::rand;
@@ -121,7 +121,7 @@ impl IndependentSample<f64> for Normal {
 /// If `X` is log-normal distributed, then `ln(X)` is `N(mean,
 /// std_dev**2)` distributed.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```rust
 /// use std::rand;
@@ -175,7 +175,7 @@ mod tests {
         }
     }
     #[test]
-    #[should_fail]
+    #[should_panic]
     fn test_normal_invalid_sd() {
         Normal::new(10.0, -1.0);
     }
@@ -191,7 +191,7 @@ mod tests {
         }
     }
     #[test]
-    #[should_fail]
+    #[should_panic]
     fn test_log_normal_invalid_sd() {
         LogNormal::new(10.0, -1.0);
     }

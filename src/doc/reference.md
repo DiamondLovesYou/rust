@@ -229,14 +229,14 @@ cases mentioned in [Number literals](#number-literals) below.
 
 ##### Characters and strings
 
-|   | Example | Number of `#` pairs allowed | Available characters | Escapes | Equivalent to |
-|---|---------|-----------------------------|----------------------|---------|---------------|
-| [Character](#character-literals) | `'H'` | `N/A` | All unicode | `\'` & [Byte escapes](#byte-escapes) & [Unicode escapes](#unicode-escapes) | `N/A` |
-| [String](#string-literals) | `"hello"` | `N/A` | All unicode | `\"` & [Byte escapes](#byte-escapes) & [Unicode escapes](#unicode-escapes) | `N/A` |
-| [Raw](#raw-string-literals) | `r##"hello"##`  | `0...` | All unicode | `N/A` | `N/A` |
-| [Byte](#byte-literals) | `b'H'` | `N/A` | All ASCII | `\'` & [Byte escapes](#byte-escapes) | `u8` |
-| [Byte string](#byte-string-literals) | `b"hello"` | `N/A`  | All ASCII | `\"` & [Byte escapes](#byte-escapes) | `&'static [u8]` |
-| [Raw byte string](#raw-byte-string-literals) | `br##"hello"##` | `0...` | All ASCII | `N/A` | `&'static [u8]` (unsure...not stated) |
+|                                              | Example         | `#` sets   | Characters  | Escapes             |
+|----------------------------------------------|-----------------|------------|-------------|---------------------|
+| [Character](#character-literals)             | `'H'`           | `N/A`      | All Unicode | `\'` & [Byte](#byte-escapes) & [Unicode](#unicode-escapes) |
+| [String](#string-literals)                   | `"hello"`       | `N/A`      | All Unicode | `\"` & [Byte](#byte-escapes) & [Unicode](#unicode-escapes) |
+| [Raw](#raw-string-literals)                  | `r#"hello"#`    | `0...`     | All Unicode | `N/A`                                                      |
+| [Byte](#byte-literals)                       | `b'H'`          | `N/A`      | All ASCII   | `\'` & [Byte](#byte-escapes)                               |
+| [Byte string](#byte-string-literals)         | `b"hello"`      | `N/A`      | All ASCII   | `\"` & [Byte](#byte-escapes)                               |
+| [Raw byte string](#raw-byte-string-literals) | `br#"hello"#`   | `0...`     | All ASCII   | `N/A`                                                      |
 
 ##### Byte escapes
 
@@ -2429,6 +2429,10 @@ The currently implemented features of the reference compiler are:
                        so that new attributes can be added in a bacwards compatible
                        manner (RFC 572).
 
+* `custom_derive` - Allows the use of `#[derive(Foo,Bar)]` as sugar for
+                    `#[derive_Foo] #[derive_Bar]`, which can be user-defined syntax
+                    extensions.
+
 * `intrinsics` - Allows use of the "rust-intrinsics" ABI. Compiler intrinsics
                  are inherently unstable and no promise about them is made.
 
@@ -2843,7 +2847,7 @@ automatically dereferenced to make the field access possible.
 ### Array expressions
 
 ```{.ebnf .gram}
-array_expr : '[' "mut" ? vec_elems? ']' ;
+array_expr : '[' "mut" ? array_elems? ']' ;
 
 array_elems : [expr [',' expr]*] | [expr ';' expr] ;
 ```
@@ -3002,10 +3006,6 @@ A type cast expression is denoted with the binary operator `as`.
 
 Executing an `as` expression casts the value on the left-hand side to the type
 on the right-hand side.
-
-A numeric value can be cast to any numeric type. A raw pointer value can be
-cast to or from any integral type or raw pointer type. Any other cast is
-unsupported and will fail to compile.
 
 An example of an `as` expression:
 

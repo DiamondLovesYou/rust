@@ -21,11 +21,14 @@
 //! nor can it decode WTF-8 from arbitrary bytes.
 //! WTF-8 strings can be obtained from UTF-8, UTF-16, or code points.
 
+// this module is imported from @SimonSapin's repo and has tons of dead code on
+// unix (it's mostly used on windows), so don't worry about dead code here.
+#![allow(dead_code)]
+
 use core::prelude::*;
 
 use core::char::{encode_utf8_raw, encode_utf16_raw};
 use core::str::{char_range_at_raw, next_code_point};
-use core::raw::Slice as RawSlice;
 
 use ascii::*;
 use borrow::Cow;
@@ -210,10 +213,10 @@ impl Wtf8Buf {
         unsafe {
             // Attempt to not use an intermediate buffer by just pushing bytes
             // directly onto this string.
-            let slice = RawSlice {
-                data: self.bytes.as_ptr().offset(cur_len as int),
-                len: 4,
-            };
+            let slice = slice::from_raw_parts_mut(
+                self.bytes.as_mut_ptr().offset(cur_len as int),
+                4
+            );
             let used = encode_utf8_raw(code_point.value, mem::transmute(slice))
                 .unwrap_or(0);
             self.bytes.set_len(cur_len + used);
@@ -721,10 +724,11 @@ pub fn is_code_point_boundary(slice: &Wtf8, index: uint) -> bool {
 /// Copied from core::str::raw::slice_unchecked
 #[inline]
 pub unsafe fn slice_unchecked(s: &Wtf8, begin: uint, end: uint) -> &Wtf8 {
-    mem::transmute(RawSlice {
-        data: s.bytes.as_ptr().offset(begin as int),
-        len: end - begin,
-    })
+    // memory layout of an &[u8] and &Wtf8 are the same
+    mem::transmute(slice::from_raw_parts(
+        s.bytes.as_ptr().offset(begin as int),
+        end - begin
+    ))
 }
 
 /// Copied from core::str::raw::slice_error_fail
@@ -1030,14 +1034,14 @@ mod tests {
     }
 
     #[test]
-    #[should_fail]
+    #[should_panic]
     fn wtf8buf_truncate_fail_code_point_boundary() {
         let mut string = Wtf8Buf::from_str("aé");
         string.truncate(2);
     }
 
     #[test]
-    #[should_fail]
+    #[should_panic]
     fn wtf8buf_truncate_fail_longer() {
         let mut string = Wtf8Buf::from_str("aé");
         string.truncate(4);
@@ -1133,7 +1137,7 @@ mod tests {
     }
 
     #[test]
-    #[should_fail]
+    #[should_panic]
     fn wtf8_slice_not_code_point_boundary() {
         &Wtf8::from_str("aé 💩")[2.. 4];
     }
@@ -1144,7 +1148,7 @@ mod tests {
     }
 
     #[test]
-    #[should_fail]
+    #[should_panic]
     fn wtf8_slice_from_not_code_point_boundary() {
         &Wtf8::from_str("aé 💩")[2..];
     }
@@ -1155,7 +1159,7 @@ mod tests {
     }
 
     #[test]
-    #[should_fail]
+    #[should_panic]
     fn wtf8_slice_to_not_code_point_boundary() {
         &Wtf8::from_str("aé 💩")[5..];
     }

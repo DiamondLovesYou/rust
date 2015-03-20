@@ -9,19 +9,22 @@
 // except according to those terms.
 
 #![allow(missing_docs)]
-#![allow(dead_code)]
 
 use old_io::{self, IoError, IoResult};
 use prelude::v1::*;
 use sys::{last_error, retry};
 use ffi::CString;
 use num::Int;
+
+#[allow(deprecated)]
 use old_path::BytesContainer;
+
 use collections;
+
+#[macro_use] pub mod helper_thread;
 
 pub mod backtrace;
 pub mod condvar;
-pub mod helper_thread;
 pub mod mutex;
 pub mod net;
 pub mod net2;
@@ -34,6 +37,7 @@ pub mod wtf8;
 
 // common error constructors
 
+#[allow(deprecated)]
 pub fn eof() -> IoError {
     IoError {
         kind: old_io::EndOfFile,
@@ -42,6 +46,7 @@ pub fn eof() -> IoError {
     }
 }
 
+#[allow(deprecated)]
 pub fn timeout(desc: &'static str) -> IoError {
     IoError {
         kind: old_io::TimedOut,
@@ -50,6 +55,7 @@ pub fn timeout(desc: &'static str) -> IoError {
     }
 }
 
+#[allow(deprecated)]
 pub fn short_write(n: uint, desc: &'static str) -> IoError {
     IoError {
         kind: if n == 0 { old_io::TimedOut } else { old_io::ShortWrite(n) },
@@ -58,6 +64,7 @@ pub fn short_write(n: uint, desc: &'static str) -> IoError {
     }
 }
 
+#[allow(deprecated)]
 pub fn unimpl() -> IoError {
     IoError {
         kind: old_io::IoUnavailable,
@@ -67,6 +74,7 @@ pub fn unimpl() -> IoError {
 }
 
 // unix has nonzero values as errors
+#[allow(deprecated)]
 pub fn mkerr_libc<T: Int>(ret: T) -> IoResult<()> {
     if ret != Int::zero() {
         Err(last_error())
@@ -120,6 +128,7 @@ pub trait FromInner<Inner> {
 }
 
 #[doc(hidden)]
+#[allow(deprecated)]
 pub trait ProcessConfig<K: BytesContainer, V: BytesContainer> {
     fn program(&self) -> &CString;
     fn args(&self) -> &[CString];

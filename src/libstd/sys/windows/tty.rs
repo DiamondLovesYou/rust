@@ -25,6 +25,8 @@
 //! wrapper that performs encoding/decoding, this implementation should switch
 //! to working in raw UTF-16, with such a wrapper around it.
 
+#![allow(deprecated)]
+
 use prelude::v1::*;
 
 use old_io::{self, IoError, IoResult, MemReader};
@@ -38,7 +40,7 @@ use str::from_utf8;
 use super::c::{ENABLE_ECHO_INPUT, ENABLE_EXTENDED_FLAGS};
 use super::c::{ENABLE_INSERT_MODE, ENABLE_LINE_INPUT};
 use super::c::{ENABLE_PROCESSED_INPUT, ENABLE_QUICK_EDIT_MODE};
-use super::c::{CONSOLE_SCREEN_BUFFER_INFO};
+use super::c::CONSOLE_SCREEN_BUFFER_INFO;
 use super::c::{ReadConsoleW, WriteConsoleW, GetConsoleMode, SetConsoleMode};
 use super::c::{GetConsoleScreenBufferInfo};
 

@@ -18,7 +18,7 @@ CFG_RELEASE_NUM=1.0.0
 # An optional number to put after the label, e.g. '.2' -> '-beta.2'
 # NB Make sure it starts with a dot to conform to semver pre-release
 # versions (section 9)
-CFG_PRERELEASE_VERSION=.2
+CFG_PRERELEASE_VERSION=
 
 CFG_FILENAME_EXTRA=4e7c5e5c
 
@@ -30,8 +30,8 @@ CFG_PACKAGE_VERS=$(CFG_RELEASE_NUM)
 CFG_DISABLE_UNSTABLE_FEATURES=1
 endif
 ifeq ($(CFG_RELEASE_CHANNEL),beta)
-CFG_RELEASE=$(CFG_RELEASE_NUM)-alpha$(CFG_PRERELEASE_VERSION)
-CFG_PACKAGE_VERS=$(CFG_RELEASE_NUM)-alpha$(CFG_PRERELEASE_VERSION)
+CFG_RELEASE=$(CFG_RELEASE_NUM)-beta$(CFG_PRERELEASE_VERSION)
+CFG_PACKAGE_VERS=$(CFG_RELEASE_NUM)-beta$(CFG_PRERELEASE_VERSION)
 CFG_DISABLE_UNSTABLE_FEATURES=1
 endif
 ifeq ($(CFG_RELEASE_CHANNEL),nightly)
@@ -130,7 +130,7 @@ ifdef CFG_DISABLE_DEBUG
   CFG_RUSTC_FLAGS += --cfg ndebug
 else
   $(info cfg: enabling more debugging (CFG_ENABLE_DEBUG))
-  CFG_RUSTC_FLAGS += --cfg debug
+  CFG_RUSTC_FLAGS += --cfg debug -C debug-assertions=on
 endif
 
 ifdef SAVE_TEMPS
@@ -297,6 +297,7 @@ LLVM_VERSION_$(1)=$$(shell "$$(LLVM_CONFIG_$(1))" --version)
 LLVM_BINDIR_$(1)=$$(shell "$$(LLVM_CONFIG_$(1))" --bindir)
 LLVM_INCDIR_$(1)=$$(shell "$$(LLVM_CONFIG_$(1))" --includedir)
 LLVM_LIBDIR_$(1)=$$(shell "$$(LLVM_CONFIG_$(1))" --libdir)
+LLVM_LIBDIR_RUSTFLAGS_$(1)=-L "$$(LLVM_LIBDIR_$(1))"
 LLVM_LIBS_$(1)=$$(shell "$$(LLVM_CONFIG_$(1))" --libs $$(LLVM_COMPONENTS))
 LLVM_LDFLAGS_$(1)=$$(shell "$$(LLVM_CONFIG_$(1))" --ldflags)
 # On FreeBSD, it may search wrong headers (that are for pre-installed LLVM),

@@ -12,7 +12,8 @@
 //!
 //! See [std::collections](../std/collections) for a detailed discussion of collections in Rust.
 
-
+// Do not remove on snapshot creation. Needed for bootstrap. (Issue #22364)
+#![cfg_attr(stage0, feature(custom_attribute))]
 #![crate_name = "collections"]
 #![unstable(feature = "collections")]
 #![staged_api]
@@ -174,6 +175,7 @@ mod prelude {
 }
 
 /// An endpoint of a range of keys.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum Bound<T> {
     /// An inclusive bound.
     Included(T),

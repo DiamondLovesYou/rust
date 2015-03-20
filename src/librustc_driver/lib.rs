@@ -14,6 +14,8 @@
 //!
 //! This API is completely unstable and subject to change.
 
+// Do not remove on snapshot creation. Needed for bootstrap. (Issue #22364)
+#![cfg_attr(stage0, feature(custom_attribute))]
 #![crate_name = "rustc_driver"]
 #![unstable(feature = "rustc_private")]
 #![staged_api]
@@ -27,19 +29,15 @@
 #![feature(collections)]
 #![feature(core)]
 #![feature(int_uint)]
-#![feature(old_io)]
 #![feature(libc)]
-#![feature(os)]
 #![feature(quote)]
 #![feature(rustc_diagnostic_macros)]
 #![feature(rustc_private)]
 #![feature(unsafe_destructor)]
 #![feature(staged_api)]
-#![feature(unicode)]
 #![feature(exit_status)]
-#![feature(path)]
 #![feature(io)]
-#![feature(fs)]
+#![feature(set_panic)]
 
 extern crate arena;
 extern crate flate;
@@ -76,10 +74,11 @@ use rustc::util::common::time;
 
 use std::cmp::Ordering::Equal;
 use std::env;
+use std::io::{self, Read, Write};
 use std::iter::repeat;
-use std::old_io::{self, stdio};
 use std::path::PathBuf;
-use std::sync::mpsc::channel;
+use std::str;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use rustc::session::early_error;
@@ -173,8 +172,8 @@ fn make_input(free_matches: &[String]) -> Option<(Input, Option<PathBuf>)> {
     if free_matches.len() == 1 {
         let ifile = &free_matches[0][..];
         if ifile == "-" {
-            let contents = old_io::stdin().read_to_end().unwrap();
-            let src = String::from_utf8(contents).unwrap();
+            let mut src = String::new();
+            io::stdin().read_to_string(&mut src).unwrap();
             Some((Input::Str(src), None))
         } else {
             Some((Input::File(PathBuf::new(ifile)), Some(PathBuf::new(ifile))))
@@ -618,8 +617,7 @@ Available lint options:
 
     let print_lint_groups = |lints: Vec<(&'static str, Vec<lint::LintId>)>| {
         for (name, to) in lints {
-            let name = name.chars().map(|x| x.to_lowercase())
-                           .collect::<String>().replace("_", "-");
+            let name = name.to_lowercase().replace("_", "-");
             let desc = to.into_iter().map(|x| x.as_str().replace("_", "-"))
                          .collect::<Vec<String>>().connect(", ");
             println!("    {}  {}",
@@ -688,39 +686,57 @@ pub fn handle_options(mut args: Vec<String>) -> Option<getopts::Matches> {
         return None;
     }
 
-    let matches =
-        match getopts::getopts(&args[..], &config::optgroups()) {
-            Ok(m) => m,
-            Err(f_stable_attempt) => {
-                // redo option parsing, including unstable options this time,
-                // in anticipation that the mishandled option was one of the
-                // unstable ones.
-                let all_groups : Vec<getopts::OptGroup>
-                    = config::rustc_optgroups().into_iter().map(|x|x.opt_group).collect();
-                match getopts::getopts(&args, &all_groups) {
-                    Ok(m_unstable) => {
-                        let r = m_unstable.opt_strs("Z");
-                        let include_unstable_options = r.iter().any(|x| *x == "unstable-options");
-                        if include_unstable_options {
-                            m_unstable
+    fn allows_unstable_options(matches: &getopts::Matches) -> bool {
+        let r = matches.opt_strs("Z");
+        r.iter().any(|x| *x == "unstable-options")
+    }
+
+    fn parse_all_options(args: &Vec<String>) -> getopts::Matches {
+        let all_groups : Vec<getopts::OptGroup>
+            = config::rustc_optgroups().into_iter().map(|x|x.opt_group).collect();
+        match getopts::getopts(&args[..], &all_groups) {
+            Ok(m) => {
+                if !allows_unstable_options(&m) {
+                    // If -Z unstable-options was not specified, verify that
+                    // no unstable options were present.
+                    for opt in config::rustc_optgroups().into_iter().filter(|x| !x.is_stable()) {
+                        let opt_name = if !opt.opt_group.long_name.is_empty() {
+                            &opt.opt_group.long_name
                         } else {
-                            early_error(&f_stable_attempt.to_string());
+                            &opt.opt_group.short_name
+                        };
+                        if m.opt_present(opt_name) {
+                            early_error(&format!("use of unstable option '{}' requires \
+                                                  -Z unstable-options", opt_name));
                         }
                     }
-                    Err(_) => {
-                        // ignore the error from the unstable attempt; just
-                        // pass the error we got from the first try.
-                        early_error(&f_stable_attempt.to_string());
-                    }
                 }
+                m
             }
-        };
+            Err(f) => early_error(&f.to_string())
+        }
+    }
 
-    let r = matches.opt_strs("Z");
-    let include_unstable_options = r.iter().any(|x| *x == "unstable-options");
+    // As a speed optimization, first try to parse the command-line using just
+    // the stable options.
+    let matches = match getopts::getopts(&args[..], &config::optgroups()) {
+        Ok(ref m) if allows_unstable_options(m) => {
+            // If -Z unstable-options was specified, redo parsing with the
+            // unstable options to ensure that unstable options are defined
+            // in the returned getopts::Matches.
+            parse_all_options(&args)
+        }
+        Ok(m) => m,
+        Err(_) => {
+            // redo option parsing, including unstable options this time,
+            // in anticipation that the mishandled option was one of the
+            // unstable ones.
+            parse_all_options(&args)
+        }
+    };
 
     if matches.opt_present("h") || matches.opt_present("help") {
-        usage(matches.opt_present("verbose"), include_unstable_options);
+        usage(matches.opt_present("verbose"), allows_unstable_options(&matches));
         return None;
     }
 
@@ -775,12 +791,20 @@ fn parse_crate_attrs(sess: &Session, input: &Input) ->
 ///
 /// The diagnostic emitter yielded to the procedure should be used for reporting
 /// errors of the compiler.
+#[allow(deprecated)]
 pub fn monitor<F:FnOnce()+Send+'static>(f: F) {
     const STACK_SIZE: uint = 8 * 1024 * 1024; // 8MB
 
-    let (tx, rx) = channel();
-    let w = old_io::ChanWriter::new(tx);
-    let mut r = old_io::ChanReader::new(rx);
+    struct Sink(Arc<Mutex<Vec<u8>>>);
+    impl Write for Sink {
+        fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+            Write::write(&mut *self.0.lock().unwrap(), data)
+        }
+        fn flush(&mut self) -> io::Result<()> { Ok(()) }
+    }
+
+    let data = Arc::new(Mutex::new(Vec::new()));
+    let err = Sink(data.clone());
 
     let mut cfg = thread::Builder::new().name("rustc".to_string());
 
@@ -790,7 +814,7 @@ pub fn monitor<F:FnOnce()+Send+'static>(f: F) {
         cfg = cfg.stack_size(STACK_SIZE);
     }
 
-    match cfg.spawn(move || { stdio::set_stderr(box w); f() }).unwrap().join() {
+    match cfg.spawn(move || { io::set_panic(box err); f() }).unwrap().join() {
         Ok(()) => { /* fallthrough */ }
         Err(value) => {
             // Thread panicked without emitting a fatal diagnostic
@@ -817,22 +841,13 @@ pub fn monitor<F:FnOnce()+Send+'static>(f: F) {
                     emitter.emit(None, &note[..], None, diagnostic::Note)
                 }
 
-                match r.read_to_string() {
-                    Ok(s) => println!("{}", s),
-                    Err(e) => {
-                        emitter.emit(None,
-                                     &format!("failed to read internal \
-                                              stderr: {}", e),
-                                     None,
-                                     diagnostic::Error)
-                    }
-                }
+                println!("{}", str::from_utf8(&data.lock().unwrap()).unwrap());
             }
 
             // Panic so the process returns a failure code, but don't pollute the
             // output with some unnecessary panic messages, we've already
             // printed everything that we needed to.
-            old_io::stdio::set_stderr(box old_io::util::NullWriter);
+            io::set_panic(box io::sink());
             panic!();
         }
     }

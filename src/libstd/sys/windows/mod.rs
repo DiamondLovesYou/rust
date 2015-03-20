@@ -24,17 +24,6 @@ use os::windows::{OsStrExt, OsStringExt};
 use path::PathBuf;
 use sync::{Once, ONCE_INIT};
 
-macro_rules! helper_init { (static $name:ident: Helper<$m:ty>) => (
-    static $name: Helper<$m> = Helper {
-        lock: ::sync::MUTEX_INIT,
-        cond: ::sync::CONDVAR_INIT,
-        chan: ::cell::UnsafeCell { value: 0 as *mut ::sync::mpsc::Sender<$m> },
-        signal: ::cell::UnsafeCell { value: 0 },
-        initialized: ::cell::UnsafeCell { value: false },
-        shutdown: ::cell::UnsafeCell { value: false },
-    };
-) }
-
 pub mod backtrace;
 pub mod c;
 pub mod condvar;
@@ -75,6 +64,7 @@ pub type msglen_t = libc::c_int;
 pub unsafe fn close_sock(sock: sock_t) { let _ = libc::closesocket(sock); }
 
 // windows has zero values as errors
+#[allow(deprecated)]
 fn mkerr_winbool(ret: libc::c_int) -> IoResult<()> {
     if ret == 0 {
         Err(last_error())
@@ -83,6 +73,7 @@ fn mkerr_winbool(ret: libc::c_int) -> IoResult<()> {
     }
 }
 
+#[allow(deprecated)]
 pub fn last_error() -> IoError {
     let errno = os::errno() as i32;
     let mut err = decode_error(errno);
@@ -90,6 +81,7 @@ pub fn last_error() -> IoError {
     err
 }
 
+#[allow(deprecated)]
 pub fn last_net_error() -> IoError {
     let errno = unsafe { c::WSAGetLastError() as i32 };
     let mut err = decode_error(errno);
@@ -97,11 +89,13 @@ pub fn last_net_error() -> IoError {
     err
 }
 
+#[allow(deprecated)]
 pub fn last_gai_error(_errno: i32) -> IoError {
     last_net_error()
 }
 
 /// Convert an `errno` value into a high-level error variant and description.
+#[allow(deprecated)]
 pub fn decode_error(errno: i32) -> IoError {
     let (kind, desc) = match errno {
         libc::EOF => (old_io::EndOfFile, "end of file"),
@@ -145,6 +139,7 @@ pub fn decode_error(errno: i32) -> IoError {
     IoError { kind: kind, desc: desc, detail: None }
 }
 
+#[allow(deprecated)]
 pub fn decode_error_detailed(errno: i32) -> IoError {
     let mut err = decode_error(errno);
     err.detail = Some(os::error_string(errno));
@@ -189,11 +184,13 @@ pub fn ms_to_timeval(ms: u64) -> libc::timeval {
     }
 }
 
+#[allow(deprecated)]
 pub fn wouldblock() -> bool {
     let err = os::errno();
     err == libc::WSAEWOULDBLOCK as i32
 }
 
+#[allow(deprecated)]
 pub fn set_nonblocking(fd: sock_t, nb: bool) {
     let mut set = nb as libc::c_ulong;
     if unsafe { c::ioctlsocket(fd, c::FIONBIO, &mut set) } != 0 {
@@ -216,15 +213,8 @@ pub fn init_net() {
     }
 }
 
-pub fn unimpl() -> IoError {
-    IoError {
-        kind: old_io::IoUnavailable,
-        desc: "operation is not implemented",
-        detail: None,
-    }
-}
-
-fn to_utf16(s: Option<&str>) -> IoResult<Vec<u16>> {
+#[allow(deprecated)]
+pub fn to_utf16(s: Option<&str>) -> IoResult<Vec<u16>> {
     match s {
         Some(s) => Ok(to_utf16_os(OsStr::from_str(s))),
         None => Err(IoError {
@@ -302,6 +292,7 @@ fn fill_utf16_buf_base<F1, F2, T>(mut f1: F1, f2: F2) -> Result<T, ()>
     }
 }
 
+#[allow(deprecated)]
 fn fill_utf16_buf<F1, F2, T>(f1: F1, f2: F2) -> IoResult<T>
     where F1: FnMut(*mut u16, libc::DWORD) -> libc::DWORD,
           F2: FnOnce(&[u16]) -> T

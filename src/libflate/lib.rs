@@ -14,6 +14,8 @@
 //! [def]: https://en.wikipedia.org/wiki/DEFLATE
 //! [mz]: https://code.google.com/p/miniz/
 
+// Do not remove on snapshot creation. Needed for bootstrap. (Issue #22364)
+#![cfg_attr(stage0, feature(custom_attribute))]
 #![crate_name = "flate"]
 #![unstable(feature = "rustc_private")]
 #![staged_api]
@@ -23,7 +25,6 @@
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/")]
 
-#![feature(core)]
 #![feature(int_uint)]
 #![feature(libc)]
 #![feature(staged_api)]

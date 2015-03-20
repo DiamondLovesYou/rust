@@ -82,7 +82,7 @@ use syntax::abi;
 use syntax::ast::{CrateNum, DefId, Ident, ItemTrait, LOCAL_CRATE};
 use syntax::ast::{MutImmutable, MutMutable, Name, NamedField, NodeId};
 use syntax::ast::{StmtExpr, StmtSemi, StructField, UnnamedField, Visibility};
-use syntax::ast_util::{self, is_local, lit_is_str, local_def, PostExpansionMethod};
+use syntax::ast_util::{self, is_local, lit_is_str, local_def};
 use syntax::attr::{self, AttrMetaMethods};
 use syntax::codemap::Span;
 use syntax::parse::token::{self, InternedString, special_idents};
@@ -757,8 +757,8 @@ pub struct ctxt<'tcx> {
     /// Maps a trait onto a list of impls of that trait.
     pub trait_impls: RefCell<DefIdMap<Rc<RefCell<Vec<ast::DefId>>>>>,
 
-    /// Maps a trait onto a list of *default* trait implementations
-    default_trait_impls: RefCell<DefIdMap<ast::DefId>>,
+    /// A set of traits that have a default impl
+    traits_with_default_impls: RefCell<DefIdMap<()>>,
 
     /// Maps a DefId of a type to a list of its inherent impls.
     /// Contains implementations of methods that are inherent to a type.
@@ -2286,8 +2286,8 @@ impl<'a, 'tcx> ParameterEnvironment<'a, 'tcx> {
     pub fn for_item(cx: &'a ctxt<'tcx>, id: NodeId) -> ParameterEnvironment<'a, 'tcx> {
         match cx.map.find(id) {
             Some(ast_map::NodeImplItem(ref impl_item)) => {
-                match **impl_item {
-                    ast::MethodImplItem(ref method) => {
+                match impl_item.node {
+                    ast::MethodImplItem(_, ref body) => {
                         let method_def_id = ast_util::local_def(id);
                         match ty::impl_or_trait_item(cx, method_def_id) {
                             MethodTraitItem(ref method_ty) => {
@@ -2295,10 +2295,10 @@ impl<'a, 'tcx> ParameterEnvironment<'a, 'tcx> {
                                 let method_bounds = &method_ty.predicates;
                                 construct_parameter_environment(
                                     cx,
-                                    method.span,
+                                    impl_item.span,
                                     method_generics,
                                     method_bounds,
-                                    method.pe_body().id)
+                                    body.id)
                             }
                             TypeTraitItem(_) => {
                                 cx.sess
@@ -2313,18 +2313,19 @@ impl<'a, 'tcx> ParameterEnvironment<'a, 'tcx> {
                                      can't create a parameter environment \
                                      for type impl items")
                     }
+                    ast::MacImplItem(_) => cx.sess.bug("unexpanded macro")
                 }
             }
-            Some(ast_map::NodeTraitItem(trait_method)) => {
-                match *trait_method {
-                    ast::RequiredMethod(ref required) => {
-                        cx.sess.span_bug(required.span,
+            Some(ast_map::NodeTraitItem(trait_item)) => {
+                match trait_item.node {
+                    ast::MethodTraitItem(_, None) => {
+                        cx.sess.span_bug(trait_item.span,
                                          "ParameterEnvironment::for_item():
                                           can't create a parameter \
                                           environment for required trait \
                                           methods")
                     }
-                    ast::ProvidedMethod(ref method) => {
+                    ast::MethodTraitItem(_, Some(ref body)) => {
                         let method_def_id = ast_util::local_def(id);
                         match ty::impl_or_trait_item(cx, method_def_id) {
                             MethodTraitItem(ref method_ty) => {
@@ -2332,10 +2333,10 @@ impl<'a, 'tcx> ParameterEnvironment<'a, 'tcx> {
                                 let method_bounds = &method_ty.predicates;
                                 construct_parameter_environment(
                                     cx,
-                                    method.span,
+                                    trait_item.span,
                                     method_generics,
                                     method_bounds,
-                                    method.pe_body().id)
+                                    body.id)
                             }
                             TypeTraitItem(_) => {
                                 cx.sess
@@ -2345,7 +2346,7 @@ impl<'a, 'tcx> ParameterEnvironment<'a, 'tcx> {
                             }
                         }
                     }
-                    ast::TypeTraitItem(_) => {
+                    ast::TypeTraitItem(..) => {
                         cx.sess.bug("ParameterEnvironment::from_item(): \
                                      can't create a parameter environment \
                                      for type trait items")
@@ -2591,7 +2592,7 @@ pub fn mk_ctxt<'tcx>(s: Session,
         destructor_for_type: RefCell::new(DefIdMap()),
         destructors: RefCell::new(DefIdSet()),
         trait_impls: RefCell::new(DefIdMap()),
-        default_trait_impls: RefCell::new(DefIdMap()),
+        traits_with_default_impls: RefCell::new(DefIdMap()),
         inherent_impls: RefCell::new(DefIdMap()),
         impl_items: RefCell::new(DefIdMap()),
         used_unsafe: RefCell::new(NodeSet()),
@@ -5080,39 +5081,23 @@ pub fn provided_source(cx: &ctxt, id: ast::DefId) -> Option<ast::DefId> {
 pub fn provided_trait_methods<'tcx>(cx: &ctxt<'tcx>, id: ast::DefId)
                                     -> Vec<Rc<Method<'tcx>>> {
     if is_local(id) {
-        match cx.map.find(id.node) {
-            Some(ast_map::NodeItem(item)) => {
-                match item.node {
-                    ItemTrait(_, _, _, ref ms) => {
-                        let (_, p) =
-                            ast_util::split_trait_methods(&ms[..]);
-                        p.iter()
-                         .map(|m| {
-                            match impl_or_trait_item(
-                                    cx,
-                                    ast_util::local_def(m.id)) {
-                                MethodTraitItem(m) => m,
-                                TypeTraitItem(_) => {
-                                    cx.sess.bug("provided_trait_methods(): \
-                                                 split_trait_methods() put \
-                                                 associated types in the \
-                                                 provided method bucket?!")
-                                }
-                            }
-                         }).collect()
+        if let ItemTrait(_, _, _, ref ms) = cx.map.expect_item(id.node).node {
+            ms.iter().filter_map(|ti| {
+                if let ast::MethodTraitItem(_, Some(_)) = ti.node {
+                    match impl_or_trait_item(cx, ast_util::local_def(ti.id)) {
+                        MethodTraitItem(m) => Some(m),
+                        TypeTraitItem(_) => {
+                            cx.sess.bug("provided_trait_methods(): \
+                                         associated type found from \
+                                         looking up ProvidedMethod?!")
+                        }
                     }
-                    _ => {
-                        cx.sess.bug(&format!("provided_trait_methods: `{:?}` is \
-                                             not a trait",
-                                            id))
-                    }
+                } else {
+                    None
                 }
-            }
-            _ => {
-                cx.sess.bug(&format!("provided_trait_methods: `{:?}` is not a \
-                                     trait",
-                                    id))
-            }
+            }).collect()
+        } else {
+            cx.sess.bug(&format!("provided_trait_methods: `{:?}` is not a trait", id))
         }
     } else {
         csearch::get_provided_trait_methods(cx, id)
@@ -5485,7 +5470,7 @@ pub fn enum_variants<'tcx>(cx: &ctxt<'tcx>, id: ast::DefId)
                                         Err(err) => {
                                             span_err!(cx.sess, err.span, E0305,
                                                       "constant evaluation error: {}",
-                                                      err.description().as_slice());
+                                                      err.description());
                                         }
                                     }
                                 } else {
@@ -5606,8 +5591,7 @@ pub fn predicates<'tcx>(
 pub fn get_attrs<'tcx>(tcx: &'tcx ctxt, did: DefId)
                        -> Cow<'tcx, [ast::Attribute]> {
     if is_local(did) {
-        let item = tcx.map.expect_item(did.node);
-        Cow::Borrowed(&item.attrs)
+        Cow::Borrowed(tcx.map.attrs(did.node))
     } else {
         Cow::Owned(csearch::get_item_attrs(&tcx.sess.cstore, did))
     }
@@ -5854,16 +5838,13 @@ pub fn eval_repeat_count(tcx: &ctxt, count_expr: &ast::Expr) -> uint {
             let found = match val {
                 const_eval::const_uint(count) => return count as uint,
                 const_eval::const_int(count) if count >= 0 => return count as uint,
-                const_eval::const_int(_) =>
-                    "negative integer",
-                const_eval::const_float(_) =>
-                    "float",
-                const_eval::const_str(_) =>
-                    "string",
-                const_eval::const_bool(_) =>
-                    "boolean",
-                const_eval::const_binary(_) =>
-                    "binary array"
+                const_eval::const_int(_) => "negative integer",
+                const_eval::const_float(_) => "float",
+                const_eval::const_str(_) => "string",
+                const_eval::const_bool(_) => "boolean",
+                const_eval::const_binary(_) => "binary array",
+                const_eval::Struct(..) => "struct",
+                const_eval::Tuple(_) => "tuple"
             };
             span_err!(tcx.sess, count_expr.span, E0306,
                 "expected positive integer for repeat count, found {}",
@@ -5975,31 +5956,21 @@ pub fn item_variances(tcx: &ctxt, item_id: ast::DefId) -> Rc<ItemVariances> {
         || Rc::new(csearch::get_item_variances(&tcx.sess.cstore, item_id)))
 }
 
-pub fn trait_default_impl(tcx: &ctxt, trait_def_id: DefId) -> Option<ast::DefId> {
-    match tcx.default_trait_impls.borrow().get(&trait_def_id) {
-        Some(id) => Some(*id),
-        None => None
-    }
-}
-
 pub fn trait_has_default_impl(tcx: &ctxt, trait_def_id: DefId) -> bool {
+    populate_implementations_for_trait_if_necessary(tcx, trait_def_id);
     match tcx.lang_items.to_builtin_kind(trait_def_id) {
         Some(BoundSend) | Some(BoundSync) => true,
-        _ => tcx.default_trait_impls.borrow().contains_key(&trait_def_id)
+        _ => tcx.traits_with_default_impls.borrow().contains_key(&trait_def_id),
     }
 }
 
 /// Records a trait-to-implementation mapping.
-pub fn record_default_trait_implementation(tcx: &ctxt,
-                                           trait_def_id: DefId,
-                                           impl_def_id: DefId) {
-
+pub fn record_trait_has_default_impl(tcx: &ctxt, trait_def_id: DefId) {
     // We're using the latest implementation found as the reference one.
     // Duplicated implementations are caught and reported in the coherence
     // step.
-    tcx.default_trait_impls.borrow_mut().insert(trait_def_id, impl_def_id);
+    tcx.traits_with_default_impls.borrow_mut().insert(trait_def_id, ());
 }
-
 
 /// Records a trait-to-implementation mapping.
 pub fn record_trait_implementation(tcx: &ctxt,
@@ -6031,8 +6002,7 @@ pub fn populate_implementations_for_type_if_necessary(tcx: &ctxt,
     debug!("populate_implementations_for_type_if_necessary: searching for {:?}", type_id);
 
     let mut inherent_impls = Vec::new();
-    csearch::each_implementation_for_type(&tcx.sess.cstore, type_id,
-            |impl_def_id| {
+    csearch::each_implementation_for_type(&tcx.sess.cstore, type_id, |impl_def_id| {
         let impl_items = csearch::get_impl_items(&tcx.sess.cstore, impl_def_id);
 
         // Record the trait->implementation mappings, if applicable.
@@ -6078,27 +6048,20 @@ pub fn populate_implementations_for_trait_if_necessary(
     if trait_id.krate == LOCAL_CRATE {
         return
     }
+
     if tcx.populated_external_traits.borrow().contains(&trait_id) {
         return
     }
 
-    csearch::each_implementation_for_trait(&tcx.sess.cstore, trait_id,
-            |implementation_def_id|{
+    if csearch::is_defaulted_trait(&tcx.sess.cstore, trait_id) {
+        record_trait_has_default_impl(tcx, trait_id);
+    }
+
+    csearch::each_implementation_for_trait(&tcx.sess.cstore, trait_id, |implementation_def_id| {
         let impl_items = csearch::get_impl_items(&tcx.sess.cstore, implementation_def_id);
 
-        if csearch::is_default_trait(&tcx.sess.cstore, implementation_def_id) {
-            record_default_trait_implementation(tcx, trait_id,
-                                                implementation_def_id);
-            tcx.populated_external_traits.borrow_mut().insert(trait_id);
-
-            // Nothing else to do for default trait implementations since
-            // they are not allowed to have type parameters, methods, or any
-            // other item that could be associated to a trait implementation.
-            return;
-        } else {
-            // Record the trait->implementation mapping.
-            record_trait_implementation(tcx, trait_id, implementation_def_id);
-        }
+        // Record the trait->implementation mapping.
+        record_trait_implementation(tcx, trait_id, implementation_def_id);
 
         // For any methods that use a default implementation, add them to
         // the map. This is a bit unfortunate.
@@ -6108,8 +6071,8 @@ pub fn populate_implementations_for_trait_if_necessary(
                 MethodTraitItem(method) => {
                     if let Some(source) = method.provided_source {
                         tcx.provided_method_sources
-                           .borrow_mut()
-                           .insert(method_def_id, source);
+                            .borrow_mut()
+                            .insert(method_def_id, source);
                     }
                 }
                 TypeTraitItem(_) => {}

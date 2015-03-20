@@ -19,6 +19,12 @@
 //! instances as clients.
 
 #![allow(missing_docs)]
+#![deprecated(since = "1.0.0",
+              reason = "will be removed to be reintroduced at a later date; \
+                        in the meantime consider using the `unix_socket` crate \
+                        for unix sockets; there is currently no replacement \
+                        for named pipes")]
+#![unstable(feature = "old_io")]
 
 use prelude::v1::*;
 
@@ -44,7 +50,7 @@ impl UnixStream {
     ///
     /// The returned stream will be closed when the object falls out of scope.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```rust
     /// # #![allow(unused_must_use)]
@@ -169,7 +175,7 @@ impl UnixListener {
     ///
     /// This listener will be closed when it falls out of scope.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// # fn foo() {

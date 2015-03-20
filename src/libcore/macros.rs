@@ -33,7 +33,7 @@ macro_rules! panic {
 /// This will invoke the `panic!` macro if the provided expression cannot be
 /// evaluated to `true` at runtime.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// // the panic message for these assertions is the stringified value of the
@@ -71,7 +71,7 @@ macro_rules! assert {
 ///
 /// On panic, this macro will print the values of the expressions.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// let a = 3;
@@ -100,12 +100,14 @@ macro_rules! assert_eq {
 /// This will invoke the `panic!` macro if the provided expression cannot be
 /// evaluated to `true` at runtime.
 ///
-/// Unlike `assert!`, `debug_assert!` statements can be disabled by passing
-/// `--cfg ndebug` to the compiler. This makes `debug_assert!` useful for
-/// checks that are too expensive to be present in a release build but may be
-/// helpful during development.
+/// Unlike `assert!`, `debug_assert!` statements are only enabled in non
+/// optimized builds by default. An optimized build will omit all
+/// `debug_assert!` statements unless `-C debug-assertions` is passed to the
+/// compiler. This makes `debug_assert!` useful for checks that are too
+/// expensive to be present in a release build but may be helpful during
+/// development.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// // the panic message for these assertions is the stringified value of the
@@ -125,7 +127,7 @@ macro_rules! assert_eq {
 #[macro_export]
 #[stable(feature = "rust1", since = "1.0.0")]
 macro_rules! debug_assert {
-    ($($arg:tt)*) => (if cfg!(not(ndebug)) { assert!($($arg)*); })
+    ($($arg:tt)*) => (if cfg!(debug_assertions) { assert!($($arg)*); })
 }
 
 /// Asserts that two expressions are equal to each other, testing equality in
@@ -133,12 +135,14 @@ macro_rules! debug_assert {
 ///
 /// On panic, this macro will print the values of the expressions.
 ///
-/// Unlike `assert_eq!`, `debug_assert_eq!` statements can be disabled by
-/// passing `--cfg ndebug` to the compiler. This makes `debug_assert_eq!`
-/// useful for checks that are too expensive to be present in a release build
-/// but may be helpful during development.
+/// Unlike `assert_eq!`, `debug_assert_eq!` statements are only enabled in non
+/// optimized builds by default. An optimized build will omit all
+/// `debug_assert_eq!` statements unless `-C debug-assertions` is passed to the
+/// compiler. This makes `debug_assert_eq!` useful for checks that are too
+/// expensive to be present in a release build but may be helpful during
+/// development.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// let a = 3;
@@ -147,7 +151,7 @@ macro_rules! debug_assert {
 /// ```
 #[macro_export]
 macro_rules! debug_assert_eq {
-    ($($arg:tt)*) => (if cfg!(not(ndebug)) { assert_eq!($($arg)*); })
+    ($($arg:tt)*) => (if cfg!(debug_assertions) { assert_eq!($($arg)*); })
 }
 
 /// Short circuiting evaluation on Err
@@ -168,7 +172,7 @@ macro_rules! try {
 /// Use the `format!` syntax to write data into a buffer of type `&mut Writer`.
 /// See `std::fmt` for more information.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// # #![allow(unused_must_use)]

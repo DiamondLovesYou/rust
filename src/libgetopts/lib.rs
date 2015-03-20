@@ -46,7 +46,7 @@
 //!
 //! fn print_usage(program: &str, opts: &[OptGroup]) {
 //!     let brief = format!("Usage: {} [options]", program);
-//!     print!("{}", usage(brief.as_slice(), opts));
+//!     print!("{}", usage(brief, opts));
 //! }
 //!
 //! fn main() {
@@ -63,20 +63,23 @@
 //!         Err(f) => { panic!(f.to_string()) }
 //!     };
 //!     if matches.opt_present("h") {
-//!         print_usage(program.as_slice(), opts);
+//!         print_usage(program, opts);
 //!         return;
 //!     }
 //!     let output = matches.opt_str("o");
 //!     let input = if !matches.free.is_empty() {
 //!         matches.free[0].clone()
 //!     } else {
-//!         print_usage(program.as_slice(), opts);
+//!         print_usage(program, opts);
 //!         return;
 //!     };
-//!     do_work(input.as_slice(), output);
+//!     do_work(input, output);
 //! }
 //! ```
 
+
+// Do not remove on snapshot creation. Needed for bootstrap. (Issue #22364)
+#![cfg_attr(stage0, feature(custom_attribute))]
 #![crate_name = "getopts"]
 #![unstable(feature = "rustc_private",
             reason = "use the crates.io `getopts` library instead")]
@@ -92,8 +95,8 @@
 #![feature(collections)]
 #![feature(int_uint)]
 #![feature(staged_api)]
-#![feature(str_words)]
 #![feature(core)]
+#![feature(str_words)]
 #![cfg_attr(test, feature(rustc_private))]
 
 #[cfg(test)] #[macro_use] extern crate log;

@@ -318,6 +318,7 @@
 use prelude::v1::*;
 
 use sync::Arc;
+use error;
 use fmt;
 use mem;
 use cell::UnsafeCell;
@@ -463,7 +464,7 @@ impl<T> UnsafeFlavor<T> for Receiver<T> {
 /// All data sent on the sender will become available on the receiver, and no
 /// send will block the calling task (this channel has an "infinite buffer").
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// use std::sync::mpsc::channel;
@@ -505,7 +506,7 @@ pub fn channel<T: Send>() -> (Sender<T>, Receiver<T>) {
 /// As with asynchronous channels, all senders will panic in `send` if the
 /// `Receiver` has been destroyed.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// use std::sync::mpsc::sync_channel;
@@ -554,7 +555,7 @@ impl<T: Send> Sender<T> {
     ///
     /// This method will never block the current thread.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```
     /// use std::sync::mpsc::channel;
@@ -976,6 +977,18 @@ impl<T> fmt::Display for SendError<T> {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
+impl<T> error::Error for SendError<T> {
+
+    fn description(&self) -> &str {
+        "sending on a closed channel"
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        None
+    }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
 impl<T> fmt::Debug for TrySendError<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -1000,9 +1013,40 @@ impl<T> fmt::Display for TrySendError<T> {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
+impl<T> error::Error for TrySendError<T> {
+
+    fn description(&self) -> &str {
+        match *self {
+            TrySendError::Full(..) => {
+                "sending on a full channel"
+            }
+            TrySendError::Disconnected(..) => {
+                "sending on a closed channel"
+            }
+        }
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        None
+    }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
 impl fmt::Display for RecvError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         "receiving on a closed channel".fmt(f)
+    }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+impl error::Error for RecvError {
+
+    fn description(&self) -> &str {
+        "receiving on a closed channel"
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        None
     }
 }
 
@@ -1017,6 +1061,25 @@ impl fmt::Display for TryRecvError {
                 "receiving on a closed channel".fmt(f)
             }
         }
+    }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+impl error::Error for TryRecvError {
+
+    fn description(&self) -> &str {
+        match *self {
+            TryRecvError::Empty => {
+                "receiving on an empty channel"
+            }
+            TryRecvError::Disconnected => {
+                "receiving on a closed channel"
+            }
+        }
+    }
+
+    fn cause(&self) -> Option<&error::Error> {
+        None
     }
 }
 

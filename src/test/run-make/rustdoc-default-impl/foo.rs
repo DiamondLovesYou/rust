@@ -1,4 +1,4 @@
-// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,19 +8,26 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-extern crate libc;
+pub mod bar {
+    use std::marker;
 
-extern {
-    fn rust_get_test_int() -> libc::intptr_t;
-}
+    pub trait Bar: marker::MarkerTrait + 'static {}
 
-trait A {
-    fn foo(&self) {
-        unsafe {
-            rust_get_test_int();
+    impl Bar for .. {}
+
+    pub trait Foo {
+        fn foo(&self) {}
+    }
+
+    impl Foo {
+        pub fn test<T: Bar>(&self) {}
+    }
+
+    pub struct TypeId;
+
+    impl TypeId {
+        pub fn of<T: Bar + ?Sized>() -> TypeId {
+            panic!()
         }
     }
-}
-
-pub fn main() {
 }

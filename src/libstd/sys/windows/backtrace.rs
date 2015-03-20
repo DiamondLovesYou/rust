@@ -23,20 +23,19 @@
 //! this takes the route of using StackWalk64 in order to walk the stack.
 
 #![allow(dead_code)]
+#![allow(deprecated)] // for old path for dynamic lib
+
+use prelude::v1::*;
 
 use dynamic_lib::DynamicLibrary;
+use io;
+use io::prelude::*;
 use ffi::CStr;
 use intrinsics;
-use old_io::{IoResult, Writer};
 use libc;
 use mem;
-use ops::Drop;
-use option::Option::{Some};
-use old_path::Path;
 use ptr;
-use result::Result::{Ok, Err};
-use slice::SliceExt;
-use str::{self, StrExt};
+use str;
 use sync::{StaticMutex, MUTEX_INIT};
 
 use sys_common::backtrace::*;
@@ -294,7 +293,7 @@ impl Drop for Cleanup {
     fn drop(&mut self) { (self.SymCleanup)(self.handle); }
 }
 
-pub fn write(w: &mut Writer) -> IoResult<()> {
+pub fn write(w: &mut Write) -> io::Result<()> {
     // According to windows documentation, all dbghelp functions are
     // single-threaded.
     static LOCK: StaticMutex = MUTEX_INIT;

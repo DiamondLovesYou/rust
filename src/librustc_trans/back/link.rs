@@ -26,9 +26,10 @@ use middle::ty::{self, Ty};
 use util::common::time;
 use util::ppaux;
 use util::sha2::{Digest, Sha256};
+use rustc_back::tempdir::TempDir;
 
-use std::ffi::{self, AsOsStr, OsString};
-use std::fs::{self, TempDir, PathExt};
+use std::ffi::{self, OsString};
+use std::fs::{self, PathExt};
 use std::io::{self, Read, Write};
 use std::mem;
 use std::path::{Path, PathBuf};
@@ -1421,7 +1422,7 @@ fn link_args(cmd: &mut Command,
             let morestack = lib_path.join("libmorestack.a");
 
             let mut v = OsString::from_str("-Wl,-force_load,");
-            v.push_os_str(morestack.as_os_str());
+            v.push(&morestack);
             cmd.arg(&v);
         } else {
             cmd.args(&["-Wl,--whole-archive", "-lmorestack", "-Wl,--no-whole-archive"]);
@@ -1546,7 +1547,7 @@ fn link_args(cmd: &mut Command,
 
             if sess.opts.cg.rpath {
                 let mut v = OsString::from_str("-Wl,-install_name,@rpath/");
-                v.push_os_str(out_filename.file_name().unwrap());
+                v.push(out_filename.file_name().unwrap());
                 cmd.arg(&v);
             }
         } else {
@@ -1646,7 +1647,7 @@ fn add_local_native_libraries(cmd: &mut Command, sess: &Session) {
                                             &search_path[..],
                                             &sess.diagnostic().handler);
             let mut v = OsString::from_str("-Wl,-force_load,");
-            v.push_os_str(lib.as_os_str());
+            v.push(&lib);
             cmd.arg(&v);
         }
     }

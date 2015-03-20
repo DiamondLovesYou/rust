@@ -37,14 +37,6 @@ pub fn log_enabled() -> bool {
     val == 2
 }
 
-
-#[cfg(target_os = "nacl")]
-mod imp {
-    use old_io::{IoResult, Writer};
-    use result::Result::Ok;
-    pub fn write(_w: &mut Writer) -> IoResult<()> { Ok(()) }
-}
-
 #[cfg(test)]
 mod test {
     use prelude::v1::*;

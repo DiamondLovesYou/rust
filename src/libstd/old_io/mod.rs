@@ -242,6 +242,9 @@
 #![deny(unused_must_use)]
 #![allow(deprecated)] // seriously this is all deprecated
 #![allow(unused_imports)]
+#![deprecated(since = "1.0.0",
+              reasons = "APIs have been replaced with new I/O modules such as \
+                         std::{io, fs, net, process}")]
 
 pub use self::SeekStyle::*;
 pub use self::FileMode::*;
@@ -343,8 +346,7 @@ impl IoError {
     pub fn from_errno(errno: i32, detail: bool) -> IoError {
         let mut err = sys::decode_error(errno as i32);
         if detail && err.kind == OtherIoError {
-            err.detail = Some(os::error_string(errno).chars()
-                                 .map(|c| c.to_lowercase()).collect())
+            err.detail = Some(os::error_string(errno).to_lowercase());
         }
         err
     }
@@ -929,15 +931,15 @@ impl<'a> Reader for &'a mut (Reader+'a) {
 // Private function here because we aren't sure if we want to expose this as
 // API yet. If so, it should be a method on Vec.
 unsafe fn slice_vec_capacity<'a, T>(v: &'a mut Vec<T>, start: uint, end: uint) -> &'a mut [T] {
-    use raw::Slice;
+    use slice;
     use ptr::PtrExt;
 
     assert!(start <= end);
     assert!(end <= v.capacity());
-    transmute(Slice {
-        data: v.as_ptr().offset(start as int),
-        len: end - start
-    })
+    slice::from_raw_parts_mut(
+        v.as_mut_ptr().offset(start as int),
+        end - start
+    )
 }
 
 /// A `RefReader` is a struct implementing `Reader` which contains a reference
@@ -1277,7 +1279,7 @@ impl<'a> Writer for &'a mut (Writer+'a) {
 /// A `RefWriter` is a struct implementing `Writer` which contains a reference
 /// to another writer. This is often useful when composing streams.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// use std::old_io::util::TeeReader;
@@ -1402,7 +1404,7 @@ pub trait Buffer: Reader {
     /// encoded Unicode codepoints. If a newline is encountered, then the
     /// newline is contained in the returned string.
     ///
-    /// # Example
+    /// # Examples
     ///
     /// ```rust
     /// use std::old_io::BufReader;
@@ -1626,7 +1628,7 @@ impl<'a, T, A: ?Sized + Acceptor<T>> Iterator for IncomingConnections<'a, A> {
 /// Creates a standard error for a commonly used flavor of error. The `detail`
 /// field of the returned error will always be `None`.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// use std::old_io as io;

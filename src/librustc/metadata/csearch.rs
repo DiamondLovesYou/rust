@@ -407,7 +407,12 @@ pub fn is_associated_type(cstore: &cstore::CStore, def: ast::DefId) -> bool {
     decoder::is_associated_type(&*cdata, def.node)
 }
 
-pub fn is_default_trait(cstore: &cstore::CStore, def: ast::DefId) -> bool {
-    let cdata = cstore.get_crate_data(def.krate);
-    decoder::is_default_trait(&*cdata, def.node)
+pub fn is_defaulted_trait(cstore: &cstore::CStore, trait_def_id: ast::DefId) -> bool {
+    let cdata = cstore.get_crate_data(trait_def_id.krate);
+    decoder::is_defaulted_trait(&*cdata, trait_def_id.node)
+}
+
+pub fn is_default_impl(cstore: &cstore::CStore, impl_did: ast::DefId) -> bool {
+    let cdata = cstore.get_crate_data(impl_did.krate);
+    decoder::is_default_impl(&*cdata, impl_did.node)
 }

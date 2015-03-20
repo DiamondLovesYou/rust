@@ -16,7 +16,7 @@
 /// format!-based argument list. See documentation in `std::fmt` for details on
 /// how to use the syntax.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// #[macro_use] extern crate log;
@@ -64,7 +64,7 @@ macro_rules! log {
 
 /// A convenience macro for logging at the error log level.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// #[macro_use] extern crate log;
@@ -89,7 +89,7 @@ macro_rules! error {
 
 /// A convenience macro for logging at the warning log level.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// #[macro_use] extern crate log;
@@ -113,7 +113,7 @@ macro_rules! warn {
 
 /// A convenience macro for logging at the info log level.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// #[macro_use] extern crate log;
@@ -139,7 +139,7 @@ macro_rules! info {
 /// be omitted at compile time by passing `--cfg ndebug` to the compiler. If
 /// this option is not passed, then debug statements will be compiled.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// #[macro_use] extern crate log;
@@ -157,12 +157,12 @@ macro_rules! info {
 /// ```
 #[macro_export]
 macro_rules! debug {
-    ($($arg:tt)*) => (if cfg!(not(ndebug)) { log!(::log::DEBUG, $($arg)*) })
+    ($($arg:tt)*) => (if cfg!(debug_assertions) { log!(::log::DEBUG, $($arg)*) })
 }
 
 /// A macro to test whether a log level is enabled for the current module.
 ///
-/// # Example
+/// # Examples
 ///
 /// ```
 /// #[macro_use] extern crate log;
@@ -192,7 +192,7 @@ macro_rules! debug {
 macro_rules! log_enabled {
     ($lvl:expr) => ({
         let lvl = $lvl;
-        (lvl != ::log::DEBUG || cfg!(not(ndebug))) &&
+        (lvl != ::log::DEBUG || cfg!(debug_assertions)) &&
         lvl <= ::log::log_level() &&
         ::log::mod_enabled(lvl, module_path!())
     })
