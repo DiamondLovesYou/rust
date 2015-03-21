@@ -6,17 +6,17 @@ memory safe and multithreaded, but does not employ a garbage collector
 or otherwise impose significant runtime overhead.
 
 In contrast to [Rust proper](https://github.com/rust-lang/rust.git), this
-Rust can target PNaCl/NaCl, including ```le32-unknown-nacl```,
-```x86_64-unknown-nacl```, ```i686-unknown-nacl```(WIP), and
-```arm-unknown-nacl```(WIP).
+Rust can target PNaCl/NaCl, including `le32-unknown-nacl`,
+`x86_64-unknown-nacl`, `i686-unknown-nacl`(WIP), and
+`arm-unknown-nacl`(WIP).
 
-## Quick Start
-
-Read ["Installing Rust"] from [The Book].
 If you'd like to cross compile to a (P)NaCl target, you'll need to build from
 source. I (Richard Diamond) am working on creating some build infrastructure so
 I may offer nightly downloads, however that isn't finished yet.
 
+## Quick Start
+
+Read ["Installing Rust"] from [The Book].
 
 ["Installing Rust"]: http://doc.rust-lang.org/book/installing-rust.html
 [The Book]: http://doc.rust-lang.org/book/index.html
@@ -30,7 +30,8 @@ I may offer nightly downloads, however that isn't finished yet.
    * GNU `make` 3.81 or later
    * `curl`
    * `git`
-    * `pepper_39` or newer from the [NaCl SDK](https://developer.chrome.com/native-client).
+   * `pepper_39` or newer from the [NaCl SDK](https://developer.chrome.com/native-client).
+
 2. Clone the [source] with `git`:
 
    ```sh
