@@ -262,15 +262,15 @@ pub unsafe fn write<T>(dst: *mut T, src: T) {
     intrinsics::move_val_init(&mut *dst, src)
 }
 
-/// Methods on raw pointers
 #[stable(feature = "rust1", since = "1.0.0")]
-pub trait PtrExt {
-    /// The type which is being pointed at
-    type Target: ?Sized;
-
+#[lang = "const_ptr"]
+impl<T: ?Sized> *const T {
     /// Returns true if the pointer is null.
     #[stable(feature = "rust1", since = "1.0.0")]
-    fn is_null(self) -> bool;
+    #[inline]
+    pub fn is_null(self) -> bool where T: Sized {
+        self == 0 as *const T
+    }
 
     /// Returns `None` if the pointer is null, or else returns a reference to
     /// the value wrapped in `Some`.
@@ -284,7 +284,14 @@ pub trait PtrExt {
     #[unstable(feature = "core",
                reason = "Option is not clearly the right return type, and we may want \
                          to tie the return lifetime to a borrow of the raw pointer")]
-    unsafe fn as_ref<'a>(&self) -> Option<&'a Self::Target>;
+    #[inline]
+    pub unsafe fn as_ref<'a>(&self) -> Option<&'a T> where T: Sized {
+        if self.is_null() {
+            None
+        } else {
+            Some(&**self)
+        }
+    }
 
     /// Calculates the offset from a pointer. `count` is in units of T; e.g. a
     /// `count` of 3 represents a pointer offset of `3 * sizeof::<T>()` bytes.
@@ -295,14 +302,56 @@ pub trait PtrExt {
     /// Otherwise `offset` invokes Undefined Behaviour, regardless of whether
     /// the pointer is used.
     #[stable(feature = "rust1", since = "1.0.0")]
-    unsafe fn offset(self, count: isize) -> Self where Self::Target: Sized;
+    #[inline]
+    pub unsafe fn offset(self, count: isize) -> *const T where T: Sized {
+        intrinsics::offset(self, count)
+    }
 }
 
-/// Methods on mutable raw pointers
 #[stable(feature = "rust1", since = "1.0.0")]
-pub trait MutPtrExt {
-    /// The type which is being pointed at
-    type Target: ?Sized;
+#[lang = "mut_ptr"]
+impl<T: ?Sized> *mut T {
+    /// Returns true if the pointer is null.
+    #[stable(feature = "rust1", since = "1.0.0")]
+    #[inline]
+    pub fn is_null(self) -> bool where T: Sized {
+        self == 0 as *mut T
+    }
+
+    /// Returns `None` if the pointer is null, or else returns a reference to
+    /// the value wrapped in `Some`.
+    ///
+    /// # Safety
+    ///
+    /// While this method and its mutable counterpart are useful for
+    /// null-safety, it is important to note that this is still an unsafe
+    /// operation because the returned value could be pointing to invalid
+    /// memory.
+    #[unstable(feature = "core",
+               reason = "Option is not clearly the right return type, and we may want \
+                         to tie the return lifetime to a borrow of the raw pointer")]
+    #[inline]
+    pub unsafe fn as_ref<'a>(&self) -> Option<&'a T> where T: Sized {
+        if self.is_null() {
+            None
+        } else {
+            Some(&**self)
+        }
+    }
+
+    /// Calculates the offset from a pointer. `count` is in units of T; e.g. a
+    /// `count` of 3 represents a pointer offset of `3 * sizeof::<T>()` bytes.
+    ///
+    /// # Safety
+    ///
+    /// The offset must be in-bounds of the object, or one-byte-past-the-end.
+    /// Otherwise `offset` invokes Undefined Behaviour, regardless of whether
+    /// the pointer is used.
+    #[stable(feature = "rust1", since = "1.0.0")]
+    #[inline]
+    pub unsafe fn offset(self, count: isize) -> *mut T where T: Sized {
+        intrinsics::offset(self, count) as *mut T
+    }
 
     /// Returns `None` if the pointer is null, or else returns a mutable
     /// reference to the value wrapped in `Some`.
@@ -312,74 +361,10 @@ pub trait MutPtrExt {
     /// As with `as_ref`, this is unsafe because it cannot verify the validity
     /// of the returned pointer.
     #[unstable(feature = "core",
-               reason = "Option is not clearly the right return type, and we may want \
-                         to tie the return lifetime to a borrow of the raw pointer")]
-    unsafe fn as_mut<'a>(&self) -> Option<&'a mut Self::Target>;
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
-impl<T: ?Sized> PtrExt for *const T {
-    type Target = T;
-
-    #[inline]
-    #[stable(feature = "rust1", since = "1.0.0")]
-    fn is_null(self) -> bool { self == 0 as *const T }
-
-    #[inline]
-    #[stable(feature = "rust1", since = "1.0.0")]
-    unsafe fn offset(self, count: isize) -> *const T where T: Sized {
-        intrinsics::offset(self, count)
-    }
-
-    #[inline]
-    #[unstable(feature = "core",
                reason = "return value does not necessarily convey all possible \
                          information")]
-    unsafe fn as_ref<'a>(&self) -> Option<&'a T> {
-        if self.is_null() {
-            None
-        } else {
-            Some(&**self)
-        }
-    }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
-impl<T: ?Sized> PtrExt for *mut T {
-    type Target = T;
-
     #[inline]
-    #[stable(feature = "rust1", since = "1.0.0")]
-    fn is_null(self) -> bool { self == 0 as *mut T }
-
-    #[inline]
-    #[stable(feature = "rust1", since = "1.0.0")]
-    unsafe fn offset(self, count: isize) -> *mut T where T: Sized {
-        intrinsics::offset(self, count) as *mut T
-    }
-
-    #[inline]
-    #[unstable(feature = "core",
-               reason = "return value does not necessarily convey all possible \
-                         information")]
-    unsafe fn as_ref<'a>(&self) -> Option<&'a T> {
-        if self.is_null() {
-            None
-        } else {
-            Some(&**self)
-        }
-    }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
-impl<T: ?Sized> MutPtrExt for *mut T {
-    type Target = T;
-
-    #[inline]
-    #[unstable(feature = "core",
-               reason = "return value does not necessarily convey all possible \
-                         information")]
-    unsafe fn as_mut<'a>(&self) -> Option<&'a mut T> {
+    pub unsafe fn as_mut<'a>(&self) -> Option<&'a mut T> where T: Sized {
         if self.is_null() {
             None
         } else {

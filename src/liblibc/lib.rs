@@ -131,6 +131,7 @@ pub use funcs::bsd43::*;
 #[cfg(unix)] pub use funcs::posix88::net::*;
 #[cfg(unix)] pub use funcs::posix01::stat_::*;
 #[cfg(unix)] pub use funcs::posix01::unistd::*;
+#[cfg(unix)] pub use funcs::posix01::resource::*;
 
 
 #[cfg(windows)] pub use funcs::extra::kernel32::*;
@@ -223,6 +224,7 @@ pub mod types {
                 pub type pthread_t = c_ulong;
                 #[cfg(target_os = "nacl")]
                 pub type pthread_t = *mut c_void;
+                pub type rlim_t = u64;
 
                 #[repr(C)]
                 #[derive(Copy)] pub struct glob_t {
@@ -252,7 +254,42 @@ pub mod types {
                 #[derive(Copy)] pub enum timezone {}
 
                 pub type sighandler_t = size_t;
+
+                #[repr(C)]
+                #[derive(Copy)]
+                pub struct rlimit {
+                    pub rlim_cur: rlim_t,
+                    pub rlim_max: rlim_t,
+                }
             }
+
+            pub mod bsd43 {
+                use types::os::common::posix01::timeval;
+                use types::os::arch::c95::c_long;
+                // This is also specified in POSIX 2001, but only has two fields. All implementors
+                // implement BSD 4.3 version.
+                #[repr(C)]
+                #[derive(Copy)]
+                pub struct rusage {
+                    pub ru_utime: timeval,
+                    pub ru_stime: timeval,
+                    pub ru_maxrss: c_long,
+                    pub ru_ixrss: c_long,
+                    pub ru_idrss: c_long,
+                    pub ru_isrss: c_long,
+                    pub ru_minflt: c_long,
+                    pub ru_majflt: c_long,
+                    pub ru_nswap: c_long,
+                    pub ru_inblock: c_long,
+                    pub ru_oublock: c_long,
+                    pub ru_msgsnd: c_long,
+                    pub ru_msgrcv: c_long,
+                    pub ru_nsignals: c_long,
+                    pub ru_nvcsw: c_long,
+                    pub ru_nivcsw: c_long
+                }
+            }
+
             pub mod bsd44 {
                 use types::common::c95::{c_void};
                 use types::os::arch::c95::{c_char, c_int, c_uint};
@@ -269,8 +306,8 @@ pub mod types {
                 #[repr(C)]
                 #[derive(Copy)] pub struct sockaddr_storage {
                     pub ss_family: sa_family_t,
-                    pub __ss_align: i64,
-                    pub __ss_pad2: [u8; 112],
+                    pub __ss_align: isize,
+                    pub __ss_pad2: [u8; 128 - 2 * (::core::isize::BYTES as usize)],
                 }
                 #[repr(C)]
                 #[derive(Copy)] pub struct sockaddr_in {
@@ -734,6 +771,7 @@ pub mod types {
                 use types::os::arch::c99::{uintptr_t};
 
                 pub type pthread_t = uintptr_t;
+                pub type rlim_t = i64;
 
                 #[repr(C)]
                 #[derive(Copy)] pub struct glob_t {
@@ -767,7 +805,40 @@ pub mod types {
                 #[derive(Copy)] pub enum timezone {}
 
                 pub type sighandler_t = size_t;
+
+                #[repr(C)]
+                #[derive(Copy)]
+                pub struct rlimit {
+                    pub rlim_cur: rlim_t,
+                    pub rlim_max: rlim_t,
+                }
             }
+
+            pub mod bsd43 {
+                use types::os::common::posix01::timeval;
+                use types::os::arch::c95::c_long;
+                #[repr(C)]
+                #[derive(Copy)]
+                pub struct rusage {
+                    pub ru_utime: timeval,
+                    pub ru_stime: timeval,
+                    pub ru_maxrss: c_long,
+                    pub ru_ixrss: c_long,
+                    pub ru_idrss: c_long,
+                    pub ru_isrss: c_long,
+                    pub ru_minflt: c_long,
+                    pub ru_majflt: c_long,
+                    pub ru_nswap: c_long,
+                    pub ru_inblock: c_long,
+                    pub ru_oublock: c_long,
+                    pub ru_msgsnd: c_long,
+                    pub ru_msgrcv: c_long,
+                    pub ru_nsignals: c_long,
+                    pub ru_nvcsw: c_long,
+                    pub ru_nivcsw: c_long
+                }
+            }
+
             pub mod bsd44 {
                 use types::common::c95::{c_void};
                 use types::os::arch::c95::{c_char, c_int, c_uint};
@@ -962,6 +1033,7 @@ pub mod types {
                 use types::os::arch::c99::{uintptr_t};
 
                 pub type pthread_t = uintptr_t;
+                pub type rlim_t = i64;
 
                 #[repr(C)]
                 #[derive(Copy)] pub struct glob_t {
@@ -995,7 +1067,40 @@ pub mod types {
                 #[derive(Copy)] pub enum timezone {}
 
                 pub type sighandler_t = size_t;
+
+                #[repr(C)]
+                #[derive(Copy)]
+                pub struct rlimit {
+                    pub rlim_cur: rlim_t,
+                    pub rlim_max: rlim_t,
+                }
             }
+
+            pub mod bsd43 {
+                use types::os::common::posix01::timeval;
+                use types::os::arch::c95::c_long;
+                #[repr(C)]
+                #[derive(Copy)]
+                pub struct rusage {
+                    pub ru_utime: timeval,
+                    pub ru_stime: timeval,
+                    pub ru_maxrss: c_long,
+                    pub ru_ixrss: c_long,
+                    pub ru_idrss: c_long,
+                    pub ru_isrss: c_long,
+                    pub ru_minflt: c_long,
+                    pub ru_majflt: c_long,
+                    pub ru_nswap: c_long,
+                    pub ru_inblock: c_long,
+                    pub ru_oublock: c_long,
+                    pub ru_msgsnd: c_long,
+                    pub ru_msgrcv: c_long,
+                    pub ru_nsignals: c_long,
+                    pub ru_nvcsw: c_long,
+                    pub ru_nivcsw: c_long
+                }
+            }
+
             pub mod bsd44 {
                 use types::common::c95::{c_void};
                 use types::os::arch::c95::{c_char, c_int, c_uint};
@@ -1189,6 +1294,7 @@ pub mod types {
                 use types::os::arch::c99::{uintptr_t};
 
                 pub type pthread_t = uintptr_t;
+                pub type rlim_t = u64;
 
                 #[cfg(target_os = "bitrig")]
                 #[repr(C)]
@@ -1241,7 +1347,40 @@ pub mod types {
                 #[derive(Copy)] pub enum timezone {}
 
                 pub type sighandler_t = size_t;
+
+                #[repr(C)]
+                #[derive(Copy)]
+                pub struct rlimit {
+                    pub rlim_cur: rlim_t,
+                    pub rlim_max: rlim_t,
+                }
             }
+
+            pub mod bsd43 {
+                use types::os::common::posix01::timeval;
+                use types::os::arch::c95::c_long;
+                #[repr(C)]
+                #[derive(Copy)]
+                pub struct rusage {
+                    pub ru_utime: timeval,
+                    pub ru_stime: timeval,
+                    pub ru_maxrss: c_long,
+                    pub ru_ixrss: c_long,
+                    pub ru_idrss: c_long,
+                    pub ru_isrss: c_long,
+                    pub ru_minflt: c_long,
+                    pub ru_majflt: c_long,
+                    pub ru_nswap: c_long,
+                    pub ru_inblock: c_long,
+                    pub ru_oublock: c_long,
+                    pub ru_msgsnd: c_long,
+                    pub ru_msgrcv: c_long,
+                    pub ru_nsignals: c_long,
+                    pub ru_nvcsw: c_long,
+                    pub ru_nivcsw: c_long
+                }
+            }
+
             pub mod bsd44 {
                 use types::common::c95::{c_void};
                 use types::os::arch::c95::{c_char, c_int, c_uint};
@@ -1840,6 +1979,7 @@ pub mod types {
                 use types::os::arch::c99::{uintptr_t};
 
                 pub type pthread_t = uintptr_t;
+                pub type rlim_t = u64;
 
                 #[repr(C)]
                 #[derive(Copy)] pub struct glob_t {
@@ -1873,6 +2013,38 @@ pub mod types {
                 #[derive(Copy)] pub enum timezone {}
 
                 pub type sighandler_t = size_t;
+
+                #[repr(C)]
+                #[derive(Copy)]
+                pub struct rlimit {
+                    pub rlim_cur: rlim_t,
+                    pub rlim_max: rlim_t,
+                }
+            }
+
+            pub mod bsd43 {
+                use types::os::common::posix01::timeval;
+                use types::os::arch::c95::c_long;
+                #[repr(C)]
+                #[derive(Copy)]
+                pub struct rusage {
+                    pub ru_utime: timeval,
+                    pub ru_stime: timeval,
+                    pub ru_maxrss: c_long,
+                    pub ru_ixrss: c_long,
+                    pub ru_idrss: c_long,
+                    pub ru_isrss: c_long,
+                    pub ru_minflt: c_long,
+                    pub ru_majflt: c_long,
+                    pub ru_nswap: c_long,
+                    pub ru_inblock: c_long,
+                    pub ru_oublock: c_long,
+                    pub ru_msgsnd: c_long,
+                    pub ru_msgrcv: c_long,
+                    pub ru_nsignals: c_long,
+                    pub ru_nvcsw: c_long,
+                    pub ru_nivcsw: c_long
+                }
             }
 
             pub mod bsd44 {
@@ -3024,6 +3196,7 @@ pub mod consts {
         #[cfg(not(target_os = "nacl"))]
         pub mod posix01 {
             use types::os::arch::c95::{c_int, size_t};
+            use types::os::common::posix01::rlim_t;
 
             pub const F_DUPFD : c_int = 0;
             pub const F_GETFD : c_int = 1;
@@ -3112,10 +3285,36 @@ pub mod consts {
 
             pub const CLOCK_REALTIME: c_int = 0;
             pub const CLOCK_MONOTONIC: c_int = 1;
+
+            pub const RLIMIT_CPU: c_int = 0;
+            pub const RLIMIT_FSIZE: c_int = 1;
+            pub const RLIMIT_DATA: c_int = 2;
+            pub const RLIMIT_STACK: c_int = 3;
+            pub const RLIMIT_CORE: c_int = 4;
+            pub const RLIMIT_RSS: c_int = 5;
+            pub const RLIMIT_NOFILE: c_int = 7;
+            pub const RLIMIT_AS: c_int = 9;
+            pub const RLIMIT_NPROC: c_int = 6;
+            pub const RLIMIT_MEMLOCK: c_int = 8;
+            pub const RLIMIT_LOCKS: c_int = 10;
+            pub const RLIMIT_SIGPENDING: c_int = 11;
+            pub const RLIMIT_MSGQUEUE: c_int = 12;
+            pub const RLIMIT_NICE: c_int = 13;
+            pub const RLIMIT_RTPRIO: c_int = 14;
+            pub const RLIMIT_RTTIME: c_int = 15;
+            pub const RLIMIT_NLIMITS: c_int = 16;
+            pub const RLIM_INFINITY: rlim_t = 0xffff_ffff_ffff_ffff;
+            pub const RLIM_SAVED_MAX: rlim_t = RLIM_INFINITY;
+            pub const RLIM_SAVED_CUR: rlim_t = RLIM_INFINITY;
+
+            pub const RUSAGE_SELF: c_int = 0;
+            pub const RUSAGE_CHILDREN: c_int = -1;
+            pub const RUSAGE_THREAD: c_int = 1;
         }
         #[cfg(target_os = "nacl")]
         pub mod posix01 {
             use types::os::arch::c95::{c_int, size_t};
+            use types::os::common::posix01::rlim_t;
 
             pub const F_DUPFD : c_int = 0;
             pub const F_GETFD : c_int = 1;
@@ -3180,6 +3379,32 @@ pub mod consts {
 
             pub const CLOCK_REALTIME: c_int = 0;
             pub const CLOCK_MONOTONIC: c_int = 1;
+
+            pub const RLIMIT_CPU: c_int = 0;
+            pub const RLIMIT_FSIZE: c_int = 1;
+            pub const RLIMIT_DATA: c_int = 2;
+            pub const RLIMIT_STACK: c_int = 3;
+            pub const RLIMIT_CORE: c_int = 4;
+            pub const RLIMIT_RSS: c_int = 5;
+            pub const RLIMIT_NOFILE: c_int = 7;
+            pub const RLIMIT_AS: c_int = 9;
+            pub const RLIMIT_NPROC: c_int = 6;
+            pub const RLIMIT_MEMLOCK: c_int = 8;
+            pub const RLIMIT_LOCKS: c_int = 10;
+            pub const RLIMIT_SIGPENDING: c_int = 11;
+            pub const RLIMIT_MSGQUEUE: c_int = 12;
+            pub const RLIMIT_NICE: c_int = 13;
+            pub const RLIMIT_RTPRIO: c_int = 14;
+            pub const RLIMIT_RTTIME: c_int = 15;
+            pub const RLIMIT_NLIMITS: c_int = 16;
+
+            pub const RLIM_INFINITY: rlim_t = 0xffff_ffff_ffff_ffff;
+            pub const RLIM_SAVED_MAX: rlim_t = RLIM_INFINITY;
+            pub const RLIM_SAVED_CUR: rlim_t = RLIM_INFINITY;
+
+            pub const RUSAGE_SELF: c_int = 0;
+            pub const RUSAGE_CHILDREN: c_int = -1;
+            pub const RUSAGE_THREAD: c_int = 1;
         }
         pub mod posix08 {
         }
@@ -3308,7 +3533,7 @@ pub mod consts {
             pub const MAP_DENYWRITE : c_int = 0x0800;
             pub const MAP_EXECUTABLE : c_int = 0x01000;
             pub const MAP_LOCKED : c_int = 0x02000;
-            pub const MAP_NONRESERVE : c_int = 0x04000;
+            pub const MAP_NORESERVE : c_int = 0x04000;
             pub const MAP_POPULATE : c_int = 0x08000;
             pub const MAP_NONBLOCK : c_int = 0x010000;
             pub const MAP_STACK : c_int = 0x020000;
@@ -3335,7 +3560,7 @@ pub mod consts {
             pub const MAP_DENYWRITE : c_int = 0x02000;
             pub const MAP_EXECUTABLE : c_int = 0x04000;
             pub const MAP_LOCKED : c_int = 0x08000;
-            pub const MAP_NONRESERVE : c_int = 0x0400;
+            pub const MAP_NORESERVE : c_int = 0x0400;
             pub const MAP_POPULATE : c_int = 0x010000;
             pub const MAP_NONBLOCK : c_int = 0x020000;
             pub const MAP_STACK : c_int = 0x040000;
@@ -3642,6 +3867,7 @@ pub mod consts {
         }
         pub mod posix01 {
             use types::os::arch::c95::{c_int, size_t};
+            use types::os::common::posix01::rlim_t;
 
             pub const F_DUPFD : c_int = 0;
             pub const F_GETFD : c_int = 1;
@@ -3717,6 +3943,29 @@ pub mod consts {
 
             pub const CLOCK_REALTIME: c_int = 0;
             pub const CLOCK_MONOTONIC: c_int = 4;
+
+            pub const RLIMIT_CPU: c_int = 0;
+            pub const RLIMIT_FSIZE: c_int = 1;
+            pub const RLIMIT_DATA: c_int = 2;
+            pub const RLIMIT_STACK: c_int = 3;
+            pub const RLIMIT_CORE: c_int = 4;
+            pub const RLIMIT_RSS: c_int = 5;
+            pub const RLIMIT_MEMLOCK: c_int = 6;
+            pub const RLIMIT_NPROC: c_int = 7;
+            pub const RLIMIT_NOFILE: c_int = 8;
+            pub const RLIMIT_SBSIZE: c_int = 9;
+            pub const RLIMIT_VMEM: c_int = 10;
+            pub const RLIMIT_AS: c_int = RLIMIT_VMEM;
+            pub const RLIMIT_NPTS: c_int = 11;
+            pub const RLIMIT_SWAP: c_int = 12;
+            pub const RLIMIT_KQUEUES: c_int = 13;
+
+            pub const RLIM_NLIMITS: rlim_t = 14;
+            pub const RLIM_INFINITY: rlim_t = 0x7fff_ffff_ffff_ffff;
+
+            pub const RUSAGE_SELF: c_int = 0;
+            pub const RUSAGE_CHILDREN: c_int = -1;
+            pub const RUSAGE_THREAD: c_int = 1;
         }
         pub mod posix08 {
         }
@@ -4042,6 +4291,7 @@ pub mod consts {
         }
         pub mod posix01 {
             use types::os::arch::c95::{c_int, size_t};
+            use types::os::common::posix01::rlim_t;
 
             pub const F_DUPFD : c_int = 0;
             pub const F_GETFD : c_int = 1;
@@ -4111,6 +4361,25 @@ pub mod consts {
 
             pub const CLOCK_REALTIME : c_int = 0;
             pub const CLOCK_MONOTONIC : c_int = 3;
+
+            pub const RLIMIT_CPU: c_int = 0;
+            pub const RLIMIT_FSIZE: c_int = 1;
+            pub const RLIMIT_DATA: c_int = 2;
+            pub const RLIMIT_STACK: c_int = 3;
+            pub const RLIMIT_CORE: c_int = 4;
+            pub const RLIMIT_RSS: c_int = 5;
+            pub const RLIMIT_MEMLOCK: c_int = 6;
+            pub const RLIMIT_NPROC: c_int = 7;
+            pub const RLIMIT_NOFILE: c_int = 8;
+            pub const RLIM_NLIMITS: c_int = 9;
+
+            pub const RLIM_INFINITY: rlim_t = 0x7fff_ffff_ffff_ffff;
+            pub const RLIM_SAVED_MAX: rlim_t = RLIM_INFINITY;
+            pub const RLIM_SAVED_CUR: rlim_t = RLIM_INFINITY;
+
+            pub const RUSAGE_SELF: c_int = 0;
+            pub const RUSAGE_CHILDREN: c_int = -1;
+            pub const RUSAGE_THREAD: c_int = 1;
         }
         pub mod posix08 {
         }
@@ -4438,6 +4707,7 @@ pub mod consts {
         }
         pub mod posix01 {
             use types::os::arch::c95::{c_int, size_t};
+            use types::os::common::posix01::rlim_t;
 
             pub const F_DUPFD : c_int = 0;
             pub const F_GETFD : c_int = 1;
@@ -4498,6 +4768,24 @@ pub mod consts {
             pub const PTHREAD_CREATE_JOINABLE: c_int = 1;
             pub const PTHREAD_CREATE_DETACHED: c_int = 2;
             pub const PTHREAD_STACK_MIN: size_t = 8192;
+
+            pub const RLIMIT_CPU: c_int = 0;
+            pub const RLIMIT_FSIZE: c_int = 1;
+            pub const RLIMIT_DATA: c_int = 2;
+            pub const RLIMIT_STACK: c_int = 3;
+            pub const RLIMIT_CORE: c_int = 4;
+            pub const RLIMIT_AS: c_int = 5;
+            pub const RLIMIT_MEMLOCK: c_int = 6;
+            pub const RLIMIT_NPROC: c_int = 7;
+            pub const RLIMIT_NOFILE: c_int = 8;
+            pub const RLIM_NLIMITS: c_int = 9;
+            pub const _RLIMIT_POSIX_FLAG: c_int = 0x1000;
+
+            pub const RLIM_INFINITY: rlim_t = 0xffff_ffff_ffff_ffff;
+
+            pub const RUSAGE_SELF: c_int = 0;
+            pub const RUSAGE_CHILDREN: c_int = -1;
+            pub const RUSAGE_THREAD: c_int = 1;
         }
         pub mod posix08 {
         }
@@ -5367,6 +5655,18 @@ pub mod funcs {
                                      len: size_t,
                                      advice: c_int)
                                      -> c_int;
+            }
+        }
+
+        pub mod resource {
+            use types::os::arch::c95::c_int;
+            use types::os::common::posix01::rlimit;
+            use types::os::common::bsd43::rusage;
+            extern {
+                pub fn getrlimit(resource: c_int, rlim: *mut rlimit) -> c_int;
+                pub fn setrlimit(resource: c_int, rlim: *const rlimit) -> c_int;
+                pub fn getrusage(resource: c_int, usage: *mut rusage) -> c_int;
+
             }
         }
     }

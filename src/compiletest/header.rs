@@ -131,7 +131,7 @@ pub fn load_props(testfile: &Path) -> TestProps {
         true
     });
 
-    for key in vec!["RUST_TEST_NOCAPTURE", "RUST_TEST_TASKS"] {
+    for key in vec!["RUST_TEST_NOCAPTURE", "RUST_TEST_THREADS"] {
         match env::var(key) {
             Ok(val) =>
                 if exec_env.iter().find(|&&(ref x, _)| *x == key.to_string()).is_none() {
@@ -162,6 +162,9 @@ pub fn load_props(testfile: &Path) -> TestProps {
 pub fn is_test_ignored(config: &Config, testfile: &Path) -> bool {
     fn ignore_target(config: &Config) -> String {
         format!("ignore-{}", util::get_os(&config.target))
+    }
+    fn ignore_architecture(config: &Config) -> String {
+        format!("ignore-{}", util::get_arch(&config.target))
     }
     fn ignore_stage(config: &Config) -> String {
         format!("ignore-{}",
@@ -226,6 +229,7 @@ pub fn is_test_ignored(config: &Config, testfile: &Path) -> bool {
     let val = iter_header(testfile, &mut |ln| {
         !parse_name_directive(ln, "ignore-test") &&
         !parse_name_directive(ln, &ignore_target(config)) &&
+        !parse_name_directive(ln, &ignore_architecture(config)) &&
         !parse_name_directive(ln, &ignore_stage(config)) &&
         !(config.targeting_pnacl() && parse_name_directive(ln, "ignore-pnacl")) &&
         !(config.mode == common::Pretty && parse_name_directive(ln, "ignore-pretty")) &&

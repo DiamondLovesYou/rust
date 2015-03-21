@@ -4054,7 +4054,7 @@ fn namespace_for_item(cx: &CrateContext, def_id: ast::DefId) -> Rc<NamespaceTree
 pub fn insert_reference_to_gdb_debug_scripts_section_global(ccx: &CrateContext) {
     use trans::common::C_i32;
     if needs_gdb_debug_scripts_section(ccx) {
-        let empty = CString::new(b"").unwrap();
+        let empty = CString::new("").unwrap();
         let gdb_debug_scripts_section_global =
             get_or_insert_gdb_debug_scripts_section_global(ccx);
         unsafe {

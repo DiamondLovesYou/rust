@@ -21,7 +21,6 @@ use libc;
 use flate;
 
 use std::ffi::CString;
-use std::iter;
 use std::mem;
 use std::num::Int;
 
@@ -62,7 +61,7 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
         let file = path.file_name().unwrap().to_str().unwrap();
         let file = &file[3..file.len() - 5]; // chop off lib/.rlib
         debug!("reading {}", file);
-        for i in iter::count(0, 1) {
+        for i in 0.. {
             let bc_encoded = time(sess.time_passes(),
                                   &format!("check for {}.{}.bytecode.deflate", name, i),
                                   (),
@@ -96,8 +95,8 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
                             (link::RLIB_BYTECODE_OBJECT_V1_DATA_OFFSET + data_size as uint)];
 
                         match flate::inflate_bytes(compressed_data) {
-                            Some(inflated) => inflated,
-                            None => {
+                            Ok(inflated) => inflated,
+                            Err(_) => {
                                 sess.fatal(&format!("failed to decompress bc of `{}`",
                                                    name))
                             }
@@ -112,8 +111,8 @@ pub fn run(sess: &session::Session, llmod: ModuleRef,
                 // the object must be in the old, pre-versioning format, so simply
                 // inflate everything and let LLVM decide if it can make sense of it
                     match flate::inflate_bytes(bc_encoded) {
-                        Some(bc) => bc,
-                        None => {
+                        Ok(bc) => bc,
+                        Err(_) => {
                             sess.fatal(&format!("failed to decompress bc of `{}`",
                                                name))
                         }

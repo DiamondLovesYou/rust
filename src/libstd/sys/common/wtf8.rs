@@ -179,7 +179,7 @@ impl Wtf8Buf {
     /// Since WTF-8 is a superset of UTF-8, this always succeeds.
     #[inline]
     pub fn from_str(str: &str) -> Wtf8Buf {
-        Wtf8Buf { bytes: slice::SliceExt::to_vec(str.as_bytes()) }
+        Wtf8Buf { bytes: <[_]>::to_vec(str.as_bytes()) }
     }
 
     /// Create a WTF-8 string from a potentially ill-formed UTF-16 slice of 16-bit code units.

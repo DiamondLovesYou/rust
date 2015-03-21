@@ -19,12 +19,11 @@ use iter::{Iterator, IteratorExt, ExactSizeIterator, count};
 use marker::{Copy, Send, Sync, Sized, self};
 use mem::{min_align_of, size_of};
 use mem;
-use num::{Int, UnsignedInt};
 use num::wrapping::{OverflowingOps, WrappingOps};
 use ops::{Deref, DerefMut, Drop};
 use option::Option;
 use option::Option::{Some, None};
-use ptr::{self, PtrExt, Unique};
+use ptr::{self, Unique};
 use rt::heap::{allocate, deallocate, EMPTY};
 use collections::hash_state::HashState;
 

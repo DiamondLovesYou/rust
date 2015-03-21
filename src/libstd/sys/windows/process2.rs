@@ -19,7 +19,7 @@ use fmt;
 use fs;
 use io::{self, Error};
 use libc::{self, c_void};
-use os::windows::OsStrExt;
+use os::windows::ffi::OsStrExt;
 use ptr;
 use sync::{StaticMutex, MUTEX_INIT};
 use sys::handle::Handle;
@@ -128,7 +128,6 @@ impl Process {
         use env::split_paths;
         use mem;
         use iter::IteratorExt;
-        use str::StrExt;
 
         // To have the spawning semantics of unix/windows stay the same, we need to
         // read the *child's* PATH if one is provided. See #15149 for more details.

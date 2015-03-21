@@ -14,7 +14,7 @@ use sync::mpsc::{Sender, Receiver};
 use old_io;
 use option::Option::{None, Some};
 use result::Result::{Ok, Err};
-use slice::{bytes, SliceExt};
+use slice::bytes;
 use super::{Buffer, Reader, Writer, IoResult};
 use vec::Vec;
 

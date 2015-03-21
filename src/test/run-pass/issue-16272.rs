@@ -9,6 +9,7 @@
 // except according to those terms.
 
 // ignore-nacl
+// ignore-aarch64
 
 use std::process::Command;
 

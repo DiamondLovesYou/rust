@@ -47,8 +47,7 @@ use middle::check_const;
 use middle::const_eval;
 use middle::def::{self, DefMap, ExportMap};
 use middle::dependency_format;
-use middle::lang_items::{FnTraitLangItem, FnMutTraitLangItem};
-use middle::lang_items::{FnOnceTraitLangItem, TyDescStructLangItem};
+use middle::lang_items::{FnTraitLangItem, FnMutTraitLangItem, FnOnceTraitLangItem};
 use middle::mem_categorization as mc;
 use middle::region;
 use middle::resolve_lifetime;
@@ -282,6 +281,7 @@ pub enum Variance {
 #[derive(Clone, Debug)]
 pub enum AutoAdjustment<'tcx> {
     AdjustReifyFnPointer(ast::DefId), // go from a fn-item type to a fn-pointer type
+    AdjustUnsafeFnPointer, // go from a safe fn pointer to an unsafe fn pointer
     AdjustDerefRef(AutoDerefRef<'tcx>)
 }
 
@@ -292,7 +292,8 @@ pub enum UnsizeKind<'tcx> {
     // An unsize coercion applied to the tail field of a struct.
     // The uint is the index of the type parameter which is unsized.
     UnsizeStruct(Box<UnsizeKind<'tcx>>, uint),
-    UnsizeVtable(TyTrait<'tcx>, /* the self type of the trait */ Ty<'tcx>)
+    UnsizeVtable(TyTrait<'tcx>, /* the self type of the trait */ Ty<'tcx>),
+    UnsizeUpcast(Ty<'tcx>),
 }
 
 #[derive(Clone, Debug)]
@@ -722,7 +723,6 @@ pub struct ctxt<'tcx> {
     pub object_cast_map: ObjectCastMap<'tcx>,
 
     pub map: ast_map::Map<'tcx>,
-    pub intrinsic_defs: RefCell<DefIdMap<Ty<'tcx>>>,
     pub freevars: RefCell<FreevarMap>,
     pub tcache: RefCell<DefIdMap<TypeScheme<'tcx>>>,
     pub rcache: RefCell<FnvHashMap<creader_cache_key, Ty<'tcx>>>,
@@ -787,6 +787,9 @@ pub struct ctxt<'tcx> {
     /// The set of external traits whose implementations have been read. This
     /// is used for lazy resolution of traits.
     pub populated_external_traits: RefCell<DefIdSet>,
+
+    /// The set of external primitive inherent implementations that have been read.
+    pub populated_external_primitive_impls: RefCell<DefIdSet>,
 
     /// Borrows
     pub upvar_capture_map: RefCell<UpvarCaptureMap>,
@@ -2571,7 +2574,6 @@ pub fn mk_ctxt<'tcx>(s: Session,
         super_predicates: RefCell::new(DefIdMap()),
         object_cast_map: RefCell::new(NodeMap()),
         map: map,
-        intrinsic_defs: RefCell::new(DefIdMap()),
         freevars: freevars,
         tcache: RefCell::new(DefIdMap()),
         rcache: RefCell::new(FnvHashMap()),
@@ -2599,6 +2601,7 @@ pub fn mk_ctxt<'tcx>(s: Session,
         used_mut_nodes: RefCell::new(NodeSet()),
         populated_external_types: RefCell::new(DefIdSet()),
         populated_external_traits: RefCell::new(DefIdSet()),
+        populated_external_primitive_impls: RefCell::new(DefIdSet()),
         upvar_capture_map: RefCell::new(FnvHashMap()),
         extern_const_statics: RefCell::new(DefIdMap()),
         extern_const_variants: RefCell::new(DefIdMap()),
@@ -2630,6 +2633,17 @@ impl<'tcx> ctxt<'tcx> {
         let substs = self.arenas.substs.alloc(substs);
         self.substs_interner.borrow_mut().insert(substs, substs);
         substs
+    }
+
+    /// Create an unsafe fn ty based on a safe fn ty.
+    pub fn safe_to_unsafe_fn_ty(&self, bare_fn: &BareFnTy<'tcx>) -> Ty<'tcx> {
+        assert_eq!(bare_fn.unsafety, ast::Unsafety::Normal);
+        let unsafe_fn_ty_a = self.mk_bare_fn(ty::BareFnTy {
+            unsafety: ast::Unsafety::Unsafe,
+            abi: bare_fn.abi,
+            sig: bare_fn.sig.clone()
+        });
+        ty::mk_bare_fn(self, None, unsafe_fn_ty_a)
     }
 
     pub fn mk_bare_fn(&self, bare_fn: BareFnTy<'tcx>) -> &'tcx BareFnTy<'tcx> {
@@ -4521,6 +4535,18 @@ pub fn adjust_ty<'tcx, F>(cx: &ctxt<'tcx>,
                     }
                 }
 
+               AdjustUnsafeFnPointer => {
+                    match unadjusted_ty.sty {
+                        ty::ty_bare_fn(None, b) => cx.safe_to_unsafe_fn_ty(b),
+                        ref b => {
+                            cx.sess.bug(
+                                &format!("AdjustReifyFnPointer adjustment on non-fn-item: \
+                                         {:?}",
+                                        b));
+                        }
+                    }
+               }
+
                 AdjustDerefRef(ref adj) => {
                     let mut adjusted_ty = unadjusted_ty;
 
@@ -4626,6 +4652,9 @@ pub fn unsize_ty<'tcx>(cx: &ctxt<'tcx>,
         },
         &UnsizeVtable(TyTrait { ref principal, ref bounds }, _) => {
             mk_trait(cx, principal.clone(), bounds.clone())
+        }
+        &UnsizeUpcast(target_ty) => {
+            target_ty
         }
     }
 }
@@ -5943,13 +5972,6 @@ pub fn required_region_bounds<'tcx>(tcx: &ctxt<'tcx>,
         .collect()
 }
 
-pub fn get_tydesc_ty<'tcx>(tcx: &ctxt<'tcx>) -> Result<Ty<'tcx>, String> {
-    tcx.lang_items.require(TyDescStructLangItem).map(|tydesc_lang_item| {
-        tcx.intrinsic_defs.borrow().get(&tydesc_lang_item).cloned()
-            .expect("Failed to resolve TyDesc")
-    })
-}
-
 pub fn item_variances(tcx: &ctxt, item_id: ast::DefId) -> Rc<ItemVariances> {
     lookup_locally_or_in_crate_store(
         "item_variance_map", item_id, &mut *tcx.item_variance_map.borrow_mut(),
@@ -5986,6 +6008,25 @@ pub fn record_trait_implementation(tcx: &ctxt,
     }
 
     tcx.trait_impls.borrow_mut().insert(trait_def_id, Rc::new(RefCell::new(vec!(impl_def_id))));
+}
+
+/// Load primitive inherent implementations if necessary
+pub fn populate_implementations_for_primitive_if_necessary(tcx: &ctxt, lang_def_id: ast::DefId) {
+    if lang_def_id.krate == LOCAL_CRATE {
+        return
+    }
+    if tcx.populated_external_primitive_impls.borrow().contains(&lang_def_id) {
+        return
+    }
+
+    debug!("populate_implementations_for_primitive_if_necessary: searching for {:?}", lang_def_id);
+
+    let impl_items = csearch::get_impl_items(&tcx.sess.cstore, lang_def_id);
+
+    // Store the implementation info.
+    tcx.impl_items.borrow_mut().insert(lang_def_id, impl_items);
+
+    tcx.populated_external_primitive_impls.borrow_mut().insert(lang_def_id);
 }
 
 /// Populates the type context with all the implementations for the given type
@@ -6668,6 +6709,7 @@ impl<'tcx> AutoAdjustment<'tcx> {
     pub fn is_identity(&self) -> bool {
         match *self {
             AdjustReifyFnPointer(..) => false,
+            AdjustUnsafeFnPointer(..) => false,
             AdjustDerefRef(ref r) => r.is_identity(),
         }
     }
@@ -6817,6 +6859,9 @@ impl<'tcx> Repr<'tcx> for AutoAdjustment<'tcx> {
             AdjustReifyFnPointer(def_id) => {
                 format!("AdjustReifyFnPointer({})", def_id.repr(tcx))
             }
+            AdjustUnsafeFnPointer => {
+                format!("AdjustUnsafeFnPointer")
+            }
             AdjustDerefRef(ref data) => {
                 data.repr(tcx)
             }
@@ -6830,6 +6875,7 @@ impl<'tcx> Repr<'tcx> for UnsizeKind<'tcx> {
             UnsizeLength(n) => format!("UnsizeLength({})", n),
             UnsizeStruct(ref k, n) => format!("UnsizeStruct({},{})", k.repr(tcx), n),
             UnsizeVtable(ref a, ref b) => format!("UnsizeVtable({},{})", a.repr(tcx), b.repr(tcx)),
+            UnsizeUpcast(ref a) => format!("UnsizeUpcast({})", a.repr(tcx)),
         }
     }
 }

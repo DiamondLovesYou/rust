@@ -26,6 +26,24 @@ const OS_TABLE: &'static [(&'static str, &'static str)] = &[
     ("nacl", "nacl"),
 ];
 
+const ARCH_TABLE: &'static [(&'static str, &'static str)] = &[
+    ("i386", "x86"),
+    ("i686", "x86"),
+    ("amd64", "x86_64"),
+    ("x86_64", "x86_64"),
+    ("sparc", "sparc"),
+    ("powerpc", "powerpc"),
+    ("arm64", "aarch64"),
+    ("arm", "arm"),
+    ("aarch64", "aarch64"),
+    ("mips", "mips"),
+    ("xcore", "xcore"),
+    ("msp430", "msp430"),
+    ("hexagon", "hexagon"),
+    ("s390x", "systemz"),
+    ("le32", "le32"),
+];
+
 pub fn get_os(triple: &str) -> &'static str {
     for &(triple_os, os) in OS_TABLE {
         if triple.contains(triple_os) {
@@ -33,6 +51,14 @@ pub fn get_os(triple: &str) -> &'static str {
         }
     }
     panic!("Cannot determine OS from triple");
+}
+pub fn get_arch(triple: &str) -> &'static str {
+    for &(triple_arch, arch) in ARCH_TABLE {
+        if triple.contains(triple_arch) {
+            return arch
+        }
+    }
+    panic!("Cannot determine Architecture from triple");
 }
 
 pub fn make_new_path(path: &str) -> String {

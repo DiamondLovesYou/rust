@@ -533,7 +533,7 @@ mod tests {
     use io::prelude::*;
     use prelude::v1::{Ok, Err, drop, Some, Vec};
     use prelude::v1::{String, Clone};
-    use prelude::v1::{SliceExt, Str, StrExt, AsSlice, ToString, GenericPath};
+    use prelude::v1::{Str, AsSlice, ToString, GenericPath};
     use old_path;
     use old_io::fs::PathExtensions;
     use rt::running_on_valgrind;
@@ -573,7 +573,7 @@ mod tests {
     #[cfg(all(unix, not(target_os="android")))]
     #[test]
     fn signal_reported_right() {
-        use os::unix::ExitStatusExt;
+        use os::unix::process::ExitStatusExt;
 
         let p = Command::new("/bin/sh").arg("-c").arg("kill -9 $$").spawn();
         assert!(p.is_ok());
@@ -633,7 +633,7 @@ mod tests {
     #[cfg(all(unix, not(target_os="android")))]
     #[test]
     fn uid_works() {
-        use os::unix::*;
+        use os::unix::prelude::*;
         use libc;
         let mut p = Command::new("/bin/sh")
                             .arg("-c").arg("true")
@@ -646,7 +646,7 @@ mod tests {
     #[cfg(all(unix, not(target_os="android")))]
     #[test]
     fn uid_to_root_fails() {
-        use os::unix::*;
+        use os::unix::prelude::*;
         use libc;
 
         // if we're already root, this isn't a valid test. Most of the bots run
@@ -668,7 +668,7 @@ mod tests {
     #[test]
     fn test_process_output_fail_to_start() {
         match Command::new("/no-binary-by-this-name-should-exist").output() {
-            Err(e) => assert_eq!(e.kind(), ErrorKind::FileNotFound),
+            Err(e) => assert_eq!(e.kind(), ErrorKind::NotFound),
             Ok(..) => panic!()
         }
     }

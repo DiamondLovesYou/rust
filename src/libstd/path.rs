@@ -159,7 +159,6 @@ mod platform {
     use core::prelude::*;
     use ascii::*;
 
-    use char::CharExt as UnicodeCharExt;
     use super::{os_str_as_u8_slice, u8_slice_as_os_str, Prefix};
     use ffi::OsStr;
 
@@ -855,7 +854,7 @@ impl<'a> cmp::Ord for Components<'a> {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::path::PathBuf;
 ///
 /// let mut path = PathBuf::new("c:\\");
@@ -947,7 +946,7 @@ impl PathBuf {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```
     /// use std::path::PathBuf;
     ///
     /// let mut buf = PathBuf::new("/");
@@ -1104,7 +1103,7 @@ impl AsOsStr for PathBuf {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::path::Path;
 ///
 /// let path = Path::new("/tmp/foo/bar.txt");
@@ -1209,7 +1208,7 @@ impl Path {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```
     /// use std::path::Path;
     ///
     /// let path = Path::new("/foo/bar");

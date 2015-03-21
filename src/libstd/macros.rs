@@ -60,19 +60,21 @@ macro_rules! panic {
     });
 }
 
+/// Macro for printing to the standard output.
+///
 /// Equivalent to the `println!` macro except that a newline is not printed at
 /// the end of the message.
 #[macro_export]
 #[stable(feature = "rust1", since = "1.0.0")]
+#[allow_internal_unstable]
 macro_rules! print {
-    ($($arg:tt)*) => ($crate::old_io::stdio::print_args(format_args!($($arg)*)))
+    ($($arg:tt)*) => ($crate::io::_print(format_args!($($arg)*)));
 }
 
-/// Macro for printing to a task's stdout handle.
+/// Macro for printing to the standard output.
 ///
-/// Each task can override its stdout handle via `std::old_io::stdio::set_stdout`.
-/// The syntax of this macro is the same as that used for `format!`. For more
-/// information, see `std::fmt` and `std::old_io::stdio`.
+/// Use the `format!` syntax to write data to the standard output.
+/// See `std::fmt` for more information.
 ///
 /// # Examples
 ///
@@ -83,7 +85,8 @@ macro_rules! print {
 #[macro_export]
 #[stable(feature = "rust1", since = "1.0.0")]
 macro_rules! println {
-    ($($arg:tt)*) => ($crate::old_io::stdio::println_args(format_args!($($arg)*)))
+    ($fmt:expr) => (print!(concat!($fmt, "\n")));
+    ($fmt:expr, $($arg:tt)*) => (print!(concat!($fmt, "\n"), $($arg)*));
 }
 
 /// Helper macro for unwrapping `Result` values while returning early with an
@@ -179,7 +182,7 @@ pub mod builtin {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```
     /// use std::fmt;
     ///
     /// let s = fmt::format(format_args!("hello {}", "world"));
@@ -202,7 +205,7 @@ pub mod builtin {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```
     /// let path: &'static str = env!("PATH");
     /// println!("the $PATH variable at the time of compiling was: {}", path);
     /// ```
@@ -221,7 +224,7 @@ pub mod builtin {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```
     /// let key: Option<&'static str> = option_env!("SECRET_KEY");
     /// println!("the secret key might be: {:?}", key);
     /// ```
@@ -369,7 +372,7 @@ pub mod builtin {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```
     /// mod test {
     ///     pub fn foo() {
     ///         assert!(module_path!().ends_with("test"));
@@ -392,7 +395,7 @@ pub mod builtin {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```
     /// let my_directory = if cfg!(windows) {
     ///     "windows-specific-directory"
     /// } else {
@@ -401,4 +404,18 @@ pub mod builtin {
     /// ```
     #[macro_export]
     macro_rules! cfg { ($cfg:tt) => ({ /* compiler built-in */ }) }
+
+    /// Parse the current given file as an expression.
+    ///
+    /// This is generally a bad idea, because it's going to behave unhygenically.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// fn foo() {
+    ///     include!("/path/to/a/file")
+    /// }
+    /// ```
+    #[macro_export]
+    macro_rules! include { ($cfg:tt) => ({ /* compiler built-in */ }) }
 }

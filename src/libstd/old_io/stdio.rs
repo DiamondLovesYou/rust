@@ -43,8 +43,6 @@ use ops::{Deref, DerefMut, FnOnce};
 use ptr;
 use result::Result::{Ok, Err};
 use rt;
-use slice::SliceExt;
-use str::StrExt;
 use string::String;
 use sys::{fs, tty};
 use sync::{Arc, Mutex, MutexGuard, Once, ONCE_INIT};
@@ -140,7 +138,7 @@ impl StdinReader {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```
     /// use std::old_io;
     ///
     /// let mut stdin = old_io::stdin();
@@ -534,19 +532,5 @@ mod tests {
         stdin();
         stdout();
         stderr();
-    }
-
-    #[test]
-    fn capture_stdout() {
-        use old_io::{ChanReader, ChanWriter};
-
-        let (tx, rx) = channel();
-        let (mut r, w) = (ChanReader::new(rx), ChanWriter::new(tx));
-        // FIXME (#22405): Replace `Box::new` with `box` here when/if possible.
-        let _t = thread::spawn(move|| {
-            set_stdout(Box::new(w));
-            println!("hello!");
-        });
-        assert_eq!(r.read_to_string().unwrap(), "hello!\n");
     }
 }

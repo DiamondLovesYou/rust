@@ -330,7 +330,7 @@ impl<T, E> Result<T, E> {
     /// Convert from `Result<T, E>` to `Option<E>`
     ///
     /// Converts `self` into an `Option<E>`, consuming `self`,
-    /// and discarding the value, if any.
+    /// and discarding the success value, if any.
     ///
     /// # Examples
     ///
@@ -448,7 +448,8 @@ impl<T, E> Result<T, E> {
     /// ```
     /// use std::old_io::IoResult;
     ///
-    /// let mut buffer = &mut b"1\n2\n3\n4\n";
+    /// let mut buffer: &[u8] = b"1\n2\n3\n4\n";
+    /// let mut buffer = &mut buffer;
     ///
     /// let mut sum = 0;
     ///
@@ -896,7 +897,7 @@ impl<A, E, V: FromIterator<A>> FromIterator<Result<A, E>> for Result<V, E> {
     /// Here is an example which increments every integer in a vector,
     /// checking for overflow:
     ///
-    /// ```rust
+    /// ```
     /// use std::u32;
     ///
     /// let v = vec!(1, 2);

@@ -1053,10 +1053,11 @@ impl<'tcx> Repr<'tcx> for ty::Variance {
 
 impl<'tcx> Repr<'tcx> for ty::Method<'tcx> {
     fn repr(&self, tcx: &ctxt<'tcx>) -> String {
-        format!("method(name: {}, generics: {}, fty: {}, \
+        format!("method(name: {}, generics: {}, predicates: {}, fty: {}, \
                  explicit_self: {}, vis: {}, def_id: {})",
                 self.name.repr(tcx),
                 self.generics.repr(tcx),
+                self.predicates.repr(tcx),
                 self.fty.repr(tcx),
                 self.explicit_self.repr(tcx),
                 self.vis.repr(tcx),
@@ -1214,17 +1215,17 @@ impl<'tcx> Repr<'tcx> for ty::ExistentialBounds<'tcx> {
     fn repr(&self, tcx: &ctxt<'tcx>) -> String {
         let mut res = Vec::new();
 
-        let region_str = self.region_bound.user_string(tcx);
+        let region_str = self.region_bound.repr(tcx);
         if !region_str.is_empty() {
             res.push(region_str);
         }
 
         for bound in &self.builtin_bounds {
-            res.push(bound.user_string(tcx));
+            res.push(bound.repr(tcx));
         }
 
         for projection_bound in &self.projection_bounds {
-            res.push(projection_bound.user_string(tcx));
+            res.push(projection_bound.repr(tcx));
         }
 
         res.connect("+")

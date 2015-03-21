@@ -32,6 +32,7 @@
 /// Note that unlike array expressions this syntax supports all elements
 /// which implement `Clone` and the number of elements doesn't have to be
 /// a constant.
+#[cfg(not(test))]
 #[macro_export]
 #[stable(feature = "rust1", since = "1.0.0")]
 macro_rules! vec {
@@ -39,8 +40,22 @@ macro_rules! vec {
         $crate::vec::from_elem($elem, $n)
     );
     ($($x:expr),*) => (
-        <[_] as $crate::slice::SliceExt>::into_vec(
-            $crate::boxed::Box::new([$($x),*]))
+        <[_]>::into_vec($crate::boxed::Box::new([$($x),*]))
+    );
+    ($($x:expr,)*) => (vec![$($x),*])
+}
+
+// HACK(japaric): with cfg(test) the inherent `[T]::into_vec` method, which is
+// required for this macro definition, is not available. Instead use the
+// `slice::into_vec`  function which is only available with cfg(test)
+// NB see the slice::hack module in slice.rs for more information
+#[cfg(test)]
+macro_rules! vec {
+    ($elem:expr; $n:expr) => (
+        $crate::vec::from_elem($elem, $n)
+    );
+    ($($x:expr),*) => (
+        $crate::slice::into_vec($crate::boxed::Box::new([$($x),*]))
     );
     ($($x:expr,)*) => (vec![$($x),*])
 }

@@ -8,7 +8,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use middle::ty::{BuiltinBounds};
 use middle::ty::{self, Ty};
 use middle::ty::TyVar;
 use middle::infer::combine::*;
@@ -16,8 +15,6 @@ use middle::infer::{cres};
 use middle::infer::{Subtype};
 use middle::infer::type_variable::{EqTo};
 use util::ppaux::{Repr};
-
-use syntax::ast::Unsafety;
 
 pub struct Equate<'f, 'tcx: 'f> {
     fields: CombineFields<'f, 'tcx>
@@ -53,41 +50,6 @@ impl<'f, 'tcx> Combine<'tcx> for Equate<'f, 'tcx> {
                b.repr(self.fields.infcx.tcx));
         self.infcx().region_vars.make_eqregion(Subtype(self.trace()), a, b);
         Ok(a)
-    }
-
-    fn mts(&self, a: &ty::mt<'tcx>, b: &ty::mt<'tcx>) -> cres<'tcx, ty::mt<'tcx>> {
-        debug!("mts({} <: {})",
-               a.repr(self.fields.infcx.tcx),
-               b.repr(self.fields.infcx.tcx));
-
-        if a.mutbl != b.mutbl { return Err(ty::terr_mutability); }
-        let t = try!(self.tys(a.ty, b.ty));
-        Ok(ty::mt { mutbl: a.mutbl, ty: t })
-    }
-
-    fn unsafeties(&self, a: Unsafety, b: Unsafety) -> cres<'tcx, Unsafety> {
-        if a != b {
-            Err(ty::terr_unsafety_mismatch(expected_found(self, a, b)))
-        } else {
-            Ok(a)
-        }
-    }
-
-    fn builtin_bounds(&self,
-                      a: BuiltinBounds,
-                      b: BuiltinBounds)
-                      -> cres<'tcx, BuiltinBounds>
-    {
-        // More bounds is a subtype of fewer bounds.
-        //
-        // e.g., fn:Copy() <: fn(), because the former is a function
-        // that only closes over copyable things, but the latter is
-        // any function at all.
-        if a != b {
-            Err(ty::terr_builtin_bounds(expected_found(self, a, b)))
-        } else {
-            Ok(a)
-        }
     }
 
     fn tys(&self, a: Ty<'tcx>, b: Ty<'tcx>) -> cres<'tcx, Ty<'tcx>> {

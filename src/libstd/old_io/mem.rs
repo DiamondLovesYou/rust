@@ -17,7 +17,7 @@ use option::Option::None;
 use result::Result::{Err, Ok};
 use old_io;
 use old_io::{Reader, Writer, Seek, Buffer, IoError, SeekStyle, IoResult};
-use slice::{self, SliceExt};
+use slice;
 use vec::Vec;
 
 const BUF_CAPACITY: uint = 128;
@@ -53,7 +53,7 @@ impl Writer for Vec<u8> {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// # #![allow(unused_must_use)]
 /// use std::old_io::MemWriter;
 ///
@@ -113,7 +113,7 @@ impl Writer for MemWriter {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// # #![allow(unused_must_use)]
 /// use std::old_io::MemReader;
 ///
@@ -243,7 +243,7 @@ impl<'a> Buffer for &'a [u8] {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// # #![allow(unused_must_use)]
 /// use std::old_io::BufWriter;
 ///
@@ -315,7 +315,7 @@ impl<'a> Seek for BufWriter<'a> {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// # #![allow(unused_must_use)]
 /// use std::old_io::BufReader;
 ///
@@ -395,7 +395,7 @@ impl<'a> Buffer for BufReader<'a> {
 mod test {
     extern crate "test" as test_crate;
     use old_io::{SeekSet, SeekCur, SeekEnd, Reader, Writer, Seek};
-    use prelude::v1::{Ok, Err, range,  Vec, Buffer,  AsSlice, SliceExt};
+    use prelude::v1::{Ok, Err, range,  Vec, Buffer,  AsSlice};
     use prelude::v1::IteratorExt;
     use old_io;
     use iter::repeat;

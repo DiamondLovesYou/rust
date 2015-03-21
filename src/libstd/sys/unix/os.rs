@@ -13,7 +13,7 @@
 #![allow(unused_imports)] // lots of cfg code here
 
 use prelude::v1::*;
-use os::unix::*;
+use os::unix::prelude::*;
 
 use error::Error as StdError;
 use ffi::{CString, CStr, OsString, OsStr, AsOsStr};
@@ -216,7 +216,7 @@ pub fn current_exe() -> io::Result<PathBuf> {
         if err != 0 { return Err(io::Error::last_os_error()); }
         if sz == 0 { return Err(io::Error::last_os_error()); }
         v.set_len(sz as uint - 1); // chop off trailing NUL
-        Ok(PathBuf::new::<OsString>(&OsStringExt::from_vec(v)))
+        Ok(PathBuf::new::<OsString>(OsStringExt::from_vec(v)))
     }
 }
 
@@ -242,7 +242,7 @@ pub fn current_exe() -> io::Result<PathBuf> {
             Err(io::Error::last_os_error())
         } else {
             let vec = CStr::from_ptr(v).to_bytes().to_vec();
-            Ok(PathBuf::new::<OsString>(&OsStringExt::from_vec(vec)))
+            Ok(PathBuf::new::<OsString>(OsStringExt::from_vec(vec)))
         }
     }
 }
@@ -296,7 +296,7 @@ pub fn args() -> Args {
     let vec = unsafe {
         let (argc, argv) = (*_NSGetArgc() as isize,
                             *_NSGetArgv() as *const *const c_char);
-        range(0, argc as isize).map(|i| {
+        (0.. argc as isize).map(|i| {
             let bytes = CStr::from_ptr(*argv.offset(i)).to_bytes().to_vec();
             OsStringExt::from_vec(bytes)
         }).collect::<Vec<_>>()
@@ -316,12 +316,11 @@ pub fn args() -> Args {
 // In general it looks like:
 // res = Vec::new()
 // let args = [[NSProcessInfo processInfo] arguments]
-// for i in range(0, [args count])
+// for i in (0..[args count])
 //      res.push([args objectAtIndex:i])
 // res
 #[cfg(target_os = "ios")]
 pub fn args() -> Args {
-    use iter::range;
     use mem;
 
     #[link(name = "objc")]
@@ -351,7 +350,7 @@ pub fn args() -> Args {
         let args = objc_msgSend(info, arguments_sel);
 
         let cnt: int = mem::transmute(objc_msgSend(args, count_sel));
-        for i in range(0, cnt) {
+        for i in (0..cnt) {
             let tmp = objc_msgSend(args, object_at_sel, i);
             let utf_c_str: *const libc::c_char =
                 mem::transmute(objc_msgSend(tmp, utf8_sel));

@@ -57,8 +57,7 @@ use trans::common::{C_null, C_struct_in_context, C_u64, C_u8, C_undef};
 use trans::common::{CrateContext, ExternMap, FunctionContext};
 use trans::common::{Result, NodeIdAndSpan};
 use trans::common::{node_id_type, return_type_is_void};
-use trans::common::{tydesc_info, type_is_immediate};
-use trans::common::{type_is_zero_size, val_ty};
+use trans::common::{type_is_immediate, type_is_zero_size, val_ty};
 use trans::common;
 use trans::consts;
 use trans::context::SharedCrateContext;
@@ -90,7 +89,6 @@ use std::ffi::{CStr, CString};
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::mem;
-use std::rc::Rc;
 use std::str;
 use std::{i8, i16, i32, i64};
 use syntax::abi::{Rust, RustCall, RustIntrinsic, Abi};
@@ -392,22 +390,6 @@ pub fn malloc_raw_dyn<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     Result::new(r.bcx, PointerCast(r.bcx, r.val, llty_ptr))
 }
 
-// Type descriptor and type glue stuff
-
-pub fn get_tydesc<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
-                            t: Ty<'tcx>) -> Rc<tydesc_info<'tcx>> {
-    match ccx.tydescs().borrow().get(&t) {
-        Some(inf) => return inf.clone(),
-        _ => { }
-    }
-
-    ccx.stats().n_static_tydescs.set(ccx.stats().n_static_tydescs.get() + 1);
-    let inf = Rc::new(glue::declare_tydesc(ccx, t));
-
-    ccx.tydescs().borrow_mut().insert(t, inf.clone());
-    inf
-}
-
 #[allow(dead_code)] // useful
 pub fn set_optimize_for_size(f: ValueRef) {
     llvm::SetFunctionAttribute(f, llvm::OptimizeForSizeAttribute)
@@ -701,6 +683,10 @@ pub fn iter_structural_ty<'blk, 'tcx, F>(cx: Block<'blk, 'tcx>,
         let (base, len) = tvec::get_fixed_base_and_len(cx, data_ptr, n);
         let unit_ty = ty::sequence_element_type(cx.tcx(), t);
         cx = tvec::iter_vec_raw(cx, base, unit_ty, len, f);
+      }
+      ty::ty_vec(_, None) | ty::ty_str => {
+        let unit_ty = ty::sequence_element_type(cx.tcx(), t);
+        cx = tvec::iter_vec_raw(cx, data_ptr, unit_ty, info.unwrap(), f);
       }
       ty::ty_tup(ref args) => {
           let repr = adt::represent_type(cx.ccx(), t);
@@ -1478,7 +1464,7 @@ pub fn arg_kind<'a, 'tcx>(cx: &FunctionContext<'a, 'tcx>, t: Ty<'tcx>)
 }
 
 // work around bizarre resolve errors
-type RvalueDatum<'tcx> = datum::Datum<'tcx, datum::Rvalue>;
+pub type RvalueDatum<'tcx> = datum::Datum<'tcx, datum::Rvalue>;
 
 // create_datums_for_fn_args: creates rvalue datums for each of the
 // incoming function arguments. These will later be stored into
@@ -2974,10 +2960,7 @@ pub fn write_metadata(cx: &SharedCrateContext, krate: &ast::Crate) -> Vec<u8> {
     let encode_parms = crate_ctxt_to_encode_parms(cx, encode_inlined_item);
     let metadata = encoder::encode_metadata(encode_parms, krate);
     let mut compressed = encoder::metadata_encoding_version.to_vec();
-    compressed.push_all(&match flate::deflate_bytes(&metadata) {
-        Some(compressed) => compressed,
-        None => cx.sess().fatal("failed to compress metadata"),
-    });
+    compressed.push_all(&flate::deflate_bytes(&metadata));
     let llmeta = C_bytes_in_context(cx.metadata_llcx(), &compressed[..]);
     let llconst = C_struct_in_context(cx.metadata_llcx(), &[llmeta], false);
     let name = format!("rust_metadata_{}_{}",
@@ -3136,7 +3119,6 @@ pub fn trans_crate<'tcx>(analysis: ty::CrateAnalysis<'tcx>)
     }
 
     for ccx in shared_ccx.iter() {
-        glue::emit_tydescs(&ccx);
         if ccx.sess().opts.debuginfo != NoDebugInfo {
             debuginfo::finalize(&ccx);
         }
@@ -3148,7 +3130,6 @@ pub fn trans_crate<'tcx>(analysis: ty::CrateAnalysis<'tcx>)
     if shared_ccx.sess().trans_stats() {
         let stats = shared_ccx.stats();
         println!("--- trans stats ---");
-        println!("n_static_tydescs: {}", stats.n_static_tydescs.get());
         println!("n_glues_created: {}", stats.n_glues_created.get());
         println!("n_null_glues: {}", stats.n_null_glues.get());
         println!("n_real_glues: {}", stats.n_real_glues.get());

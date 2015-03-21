@@ -16,7 +16,6 @@ use core::prelude::*;
 use borrow::Cow;
 use fmt::{self, Debug};
 use vec::Vec;
-use slice::SliceExt as StdSliceExt;
 use str;
 use string::String;
 use mem;

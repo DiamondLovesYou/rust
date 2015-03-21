@@ -39,13 +39,12 @@
 #![feature(collections)]
 #![feature(core)]
 #![feature(int_uint)]
-#![feature(old_io)]
 #![feature(rustc_private)]
 #![feature(staged_api)]
 #![feature(std_misc)]
-#![feature(io)]
 #![feature(libc)]
-#![feature(set_panic)]
+#![feature(set_stdio)]
+#![feature(os)]
 
 extern crate getopts;
 extern crate serialize;
@@ -368,7 +367,7 @@ The FILTER regex is tested against the name of all tests to run, and
 only those tests that match are run.
 
 By default, all tests are run in parallel. This can be altered with the
-RUST_TEST_TASKS environment variable when running tests (set it to 1).
+RUST_TEST_THRADS environment variable when running tests (set it to 1).
 
 All tests have their standard output and standard error captured by default.
 This can be overridden with the --nocapture flag or the RUST_TEST_NOCAPTURE=1
@@ -924,18 +923,22 @@ fn run_tests<F>(opts: &TestOpts,
     Ok(())
 }
 
+#[allow(deprecated)]
 fn get_concurrency() -> uint {
-    use std::rt;
-    match env::var("RUST_TEST_TASKS") {
+    match env::var("RUST_TEST_THREADS") {
         Ok(s) => {
             let opt_n: Option<uint> = s.parse().ok();
             match opt_n {
                 Some(n) if n > 0 => n,
-                _ => panic!("RUST_TEST_TASKS is `{}`, should be a positive integer.", s)
+                _ => panic!("RUST_TEST_THREADS is `{}`, should be a positive integer.", s)
             }
         }
         Err(..) => {
-            rt::default_sched_threads()
+            if std::rt::util::limit_thread_creation_due_to_osx_and_valgrind() {
+                1
+            } else {
+                std::os::num_cpus()
+            }
         }
     }
 }
@@ -1000,7 +1003,6 @@ pub fn run_test(opts: &TestOpts,
         return;
     }
 
-    #[allow(deprecated)] // set_stdout
     fn run_test_inner(desc: TestDesc,
                       monitor_ch: Sender<MonitorMsg>,
                       nocapture: bool,
@@ -1011,11 +1013,6 @@ pub fn run_test(opts: &TestOpts,
                 Write::write(&mut *self.0.lock().unwrap(), data)
             }
             fn flush(&mut self) -> io::Result<()> { Ok(()) }
-        }
-        impl Writer for Sink {
-            fn write_all(&mut self, data: &[u8]) -> std::old_io::IoResult<()> {
-                Writer::write_all(&mut *self.0.lock().unwrap(), data)
-            }
         }
 
         thread::spawn(move || {
@@ -1028,7 +1025,7 @@ pub fn run_test(opts: &TestOpts,
 
             let result_guard = cfg.spawn(move || {
                 if !nocapture {
-                    std::old_io::stdio::set_stdout(box Sink(data2.clone()));
+                    io::set_print(box Sink(data2.clone()));
                     io::set_panic(box Sink(data2));
                 }
                 testfn.invoke(())

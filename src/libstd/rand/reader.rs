@@ -13,7 +13,6 @@
 use old_io::Reader;
 use rand::Rng;
 use result::Result::{Ok, Err};
-use slice::SliceExt;
 
 /// An RNG that reads random bytes straight from a `Reader`. This will
 /// work best with an infinite reader, but this is not required.
@@ -24,7 +23,7 @@ use slice::SliceExt;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::rand::{reader, Rng};
 /// use std::old_io::MemReader;
 ///

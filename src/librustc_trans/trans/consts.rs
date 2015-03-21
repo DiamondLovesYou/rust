@@ -75,14 +75,7 @@ pub fn const_lit(cx: &CrateContext, e: &ast::Expr, lit: &ast::Lit)
         ast::LitBool(b) => C_bool(cx, b),
         ast::LitStr(ref s, _) => C_str_slice(cx, (*s).clone()),
         ast::LitBinary(ref data) => {
-            let g = addr_of(cx, C_bytes(cx, &data[..]), "binary", e.id);
-            let base = ptrcast(g, Type::i8p(cx));
-            let prev_const = cx.const_unsized().borrow_mut()
-                               .insert(base, g);
-            assert!(prev_const.is_none() || prev_const == Some(g));
-            assert_eq!(abi::FAT_PTR_ADDR, 0);
-            assert_eq!(abi::FAT_PTR_EXTRA, 1);
-            C_struct(cx, &[base, C_uint(cx, data.len())], false)
+            addr_of(cx, C_bytes(cx, &data[..]), "binary", e.id)
         }
     }
 }
@@ -253,6 +246,9 @@ pub fn const_expr<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
             // FIXME(#19925) once fn item types are
             // zero-sized, we'll need to do something here
         }
+        Some(ty::AdjustUnsafeFnPointer) => {
+            // purely a type-level thing
+        }
         Some(ty::AdjustDerefRef(adj)) => {
             let mut ty = ety;
             // Save the last autoderef in case we can avoid it.
@@ -311,12 +307,15 @@ pub fn const_expr<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                     llconst = addr_of(cx, llconst, "autoref", e.id);
                 }
                 Some(box ty::AutoUnsize(ref k)) => {
-                    let info = expr::unsized_info(cx, k, e.id, ty, param_substs,
-                        |t| ty::mk_imm_rptr(cx.tcx(), cx.tcx().mk_region(ty::ReStatic), t));
+                    let info =
+                        expr::unsized_info(
+                            cx, k, e.id, ty, param_substs,
+                            || const_get_elt(cx, llconst, &[abi::FAT_PTR_EXTRA as u32]));
 
                     let unsized_ty = ty::unsize_ty(cx.tcx(), ty, k, e.span);
                     let ptr_ty = type_of::in_memory_type_of(cx, unsized_ty).ptr_to();
                     let base = ptrcast(llconst, ptr_ty);
+
                     let prev_const = cx.const_unsized().borrow_mut()
                                        .insert(base, llconst);
                     assert!(prev_const.is_none() || prev_const == Some(llconst));

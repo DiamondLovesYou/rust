@@ -159,7 +159,7 @@ use core::nonzero::NonZero;
 use core::ops::{Deref, Drop};
 use core::option::Option;
 use core::option::Option::{Some, None};
-use core::ptr::{self, PtrExt};
+use core::ptr;
 use core::result::Result;
 use core::result::Result::{Ok, Err};
 use core::intrinsics::assume;

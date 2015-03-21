@@ -73,6 +73,11 @@ pub struct Metadata(fs_imp::FileAttr);
 /// will yield instances of `io::Result<DirEntry>`. Through a `DirEntry`
 /// information like the entry's path and possibly other metadata can be
 /// learned.
+///
+/// # Failure
+///
+/// This `io::Result` will be an `Err` if there's some sort of intermittent
+/// IO error during iteration.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct ReadDir(fs_imp::ReadDir);
 
@@ -473,7 +478,7 @@ pub fn rename<P: AsPath, Q: AsPath>(from: P, to: Q) -> io::Result<()> {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::fs;
 ///
 /// fs::copy("foo.txt", "bar.txt");
@@ -493,7 +498,7 @@ pub fn copy<P: AsPath, Q: AsPath>(from: P, to: Q) -> io::Result<u64> {
     let from = from.as_path();
     let to = to.as_path();
     if !from.is_file() {
-        return Err(Error::new(ErrorKind::MismatchedFileTypeForOperation,
+        return Err(Error::new(ErrorKind::InvalidInput,
                               "the source path is not an existing file",
                               None))
     }
@@ -540,7 +545,7 @@ pub fn read_link<P: AsPath>(path: P) -> io::Result<PathBuf> {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::fs;
 ///
 /// fs::create_dir("/some/dir");
@@ -576,7 +581,7 @@ pub fn create_dir_all<P: AsPath>(path: P) -> io::Result<()> {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::fs;
 ///
 /// fs::remove_dir("/some/dir");
@@ -627,7 +632,7 @@ pub fn remove_dir_all<P: AsPath>(path: P) -> io::Result<()> {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::io;
 /// use std::fs::{self, PathExt, DirEntry};
 /// use std::path::Path;
@@ -1134,7 +1139,7 @@ mod tests {
         let dir = &tmpdir.join("mkdir_error_twice");
         check!(fs::create_dir(dir));
         let e = fs::create_dir(dir).err().unwrap();
-        assert_eq!(e.kind(), ErrorKind::PathAlreadyExists);
+        assert_eq!(e.kind(), ErrorKind::AlreadyExists);
     }
 
     #[test]

@@ -29,6 +29,7 @@ pub use marker::{Copy, Send, Sized, Sync};
 pub use ops::{Drop, Fn, FnMut, FnOnce};
 
 // Reexported functions
+#[allow(deprecated)]
 pub use iter::range;
 pub use mem::drop;
 
@@ -41,7 +42,6 @@ pub use iter::{Extend, IteratorExt};
 pub use iter::{Iterator, DoubleEndedIterator};
 pub use iter::{ExactSizeIterator};
 pub use option::Option::{self, Some, None};
-pub use ptr::{PtrExt, MutPtrExt};
 pub use result::Result::{self, Ok, Err};
 pub use slice::{AsSlice, SliceExt};
 pub use str::{Str, StrExt};

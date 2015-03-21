@@ -26,8 +26,6 @@
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use boxed::Box;
 #[stable(feature = "rust1", since = "1.0.0")]
-#[doc(no_inline)] pub use char::CharExt;
-#[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use clone::Clone;
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use cmp::{PartialEq, PartialOrd, Eq, Ord};
@@ -40,13 +38,11 @@
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use option::Option::{self, Some, None};
 #[stable(feature = "rust1", since = "1.0.0")]
-#[doc(no_inline)] pub use ptr::{PtrExt, MutPtrExt};
-#[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use result::Result::{self, Ok, Err};
 #[stable(feature = "rust1", since = "1.0.0")]
-#[doc(no_inline)] pub use slice::{SliceExt, SliceConcatExt, AsSlice};
+#[doc(no_inline)] pub use slice::{SliceConcatExt, AsSlice};
 #[stable(feature = "rust1", since = "1.0.0")]
-#[doc(no_inline)] pub use str::{Str, StrExt};
+#[doc(no_inline)] pub use str::Str;
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use string::{String, ToString};
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -57,6 +53,7 @@
 // NB: remove when I/O reform lands
 #[doc(no_inline)] pub use old_io::{Buffer, Writer, Reader, Seek, BufferPrelude};
 // NB: remove when range syntax lands
+#[allow(deprecated)]
 #[doc(no_inline)] pub use iter::range;
 
 #[doc(no_inline)] pub use num::wrapping::{Wrapping, WrappingOps};

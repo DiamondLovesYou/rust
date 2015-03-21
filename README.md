@@ -85,7 +85,7 @@ I may offer nightly downloads, however that isn't finished yet.
    # Choose one based on platform:
    $ pacman -S mingw-w64-i686-toolchain
    $ pacman -S mingw-w64-x86_64-toolchain
-   
+
    $ pacman -S base-devel
    ```
 

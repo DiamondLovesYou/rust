@@ -355,6 +355,14 @@ pub fn item_to_string(i: &ast::Item) -> String {
     $to_string(|s| s.print_item(i))
 }
 
+pub fn impl_item_to_string(i: &ast::ImplItem) -> String {
+    $to_string(|s| s.print_impl_item(i))
+}
+
+pub fn trait_item_to_string(i: &ast::TraitItem) -> String {
+    $to_string(|s| s.print_trait_item(i))
+}
+
 pub fn generics_to_string(generics: &ast::Generics) -> String {
     $to_string(|s| s.print_generics(generics))
 }
@@ -1777,7 +1785,12 @@ impl<'a> State<'a> {
                 try!(self.print_fn_block_args(&**decl));
                 try!(space(&mut self.s));
 
-                if !body.stmts.is_empty() || !body.expr.is_some() {
+                let default_return = match decl.output {
+                    ast::DefaultReturn(..) => true,
+                    _ => false
+                };
+
+                if !default_return || !body.stmts.is_empty() || body.expr.is_none() {
                     try!(self.print_block_unclosed(&**body));
                 } else {
                     // we extract the block, so as not to create another set of boxes

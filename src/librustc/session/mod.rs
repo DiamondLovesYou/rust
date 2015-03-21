@@ -331,7 +331,7 @@ impl Session {
 
         let is_writeable = match metadata(path) {
             Ok(m) => !m.permissions().readonly(),
-            Err(e) => e.kind() == ErrorKind::FileNotFound,
+            Err(e) => (e.kind() == ErrorKind::NotFound),
         };
 
         if !is_writeable {

@@ -143,6 +143,11 @@ impl<'f, 'tcx> Coerce<'f, 'tcx> {
                     // require double indirection).
                     self.coerce_from_fn_item(a, a_def_id, a_f, b)
                 }
+                ty::ty_bare_fn(None, a_f) => {
+                    // We permit coercion of fn pointers to drop the
+                    // unsafe qualifier.
+                    self.coerce_from_fn_pointer(a, a_f, b)
+                }
                 _ => {
                     // Otherwise, just use subtyping rules.
                     self.subtype(a, b)
@@ -334,15 +339,33 @@ impl<'f, 'tcx> Coerce<'f, 'tcx> {
                     let ty = ty::mk_vec(tcx, t_a, None);
                     Some((ty, ty::UnsizeLength(len)))
                 }
-                (&ty::ty_trait(..), &ty::ty_trait(..)) => {
-                    None
+                (&ty::ty_trait(ref data_a), &ty::ty_trait(ref data_b)) => {
+                    // For now, we only support upcasts from
+                    // `Foo+Send` to `Foo` (really, any time there are
+                    // fewer builtin bounds then before). These are
+                    // convenient because they don't require any sort
+                    // of change to the vtable at runtime.
+                    if data_a.bounds.builtin_bounds != data_b.bounds.builtin_bounds &&
+                        data_a.bounds.builtin_bounds.is_superset(&data_b.bounds.builtin_bounds)
+                    {
+                        let bounds_a1 = ty::ExistentialBounds {
+                            region_bound: data_a.bounds.region_bound,
+                            builtin_bounds: data_b.bounds.builtin_bounds,
+                            projection_bounds: data_a.bounds.projection_bounds.clone(),
+                        };
+                        let ty_a1 = ty::mk_trait(tcx, data_a.principal.clone(), bounds_a1);
+                        match self.fcx.infcx().try(|_| self.subtype(ty_a1, ty_b)) {
+                            Ok(_) => Some((ty_b, ty::UnsizeUpcast(ty_b))),
+                            Err(_) => None,
+                        }
+                    } else {
+                        None
+                    }
                 }
-                (_, &ty::ty_trait(box ty::TyTrait { ref principal, ref bounds })) => {
-                    // FIXME what is the purpose of `ty`?
-                    let ty = ty::mk_trait(tcx, principal.clone(), bounds.clone());
-                    Some((ty, ty::UnsizeVtable(ty::TyTrait { principal: principal.clone(),
-                                                             bounds: bounds.clone() },
-                                               ty_a)))
+                (_, &ty::ty_trait(ref data)) => {
+                    Some((ty_b, ty::UnsizeVtable(ty::TyTrait { principal: data.principal.clone(),
+                                                               bounds: data.bounds.clone() },
+                                                 ty_a)))
                 }
                 (&ty::ty_struct(did_a, substs_a), &ty::ty_struct(did_b, substs_b))
                   if did_a == did_b => {
@@ -391,6 +414,41 @@ impl<'f, 'tcx> Coerce<'f, 'tcx> {
                 _ => None
             }
         )
+    }
+
+    fn coerce_from_fn_pointer(&self,
+                           a: Ty<'tcx>,
+                           fn_ty_a: &'tcx ty::BareFnTy<'tcx>,
+                           b: Ty<'tcx>)
+                           -> CoerceResult<'tcx>
+    {
+        /*!
+         * Attempts to coerce from the type of a Rust function item
+         * into a closure or a `proc`.
+         */
+
+        self.unpack_actual_value(b, |b| {
+            debug!("coerce_from_fn_pointer(a={}, b={})",
+                   a.repr(self.tcx()), b.repr(self.tcx()));
+
+            match b.sty {
+                ty::ty_bare_fn(None, fn_ty_b) => {
+                    match (fn_ty_a.unsafety, fn_ty_b.unsafety) {
+                        (ast::Unsafety::Normal, ast::Unsafety::Unsafe) => {
+                            let unsafe_a = self.tcx().safe_to_unsafe_fn_ty(fn_ty_a);
+                            try!(self.subtype(unsafe_a, b));
+                            Ok(Some(ty::AdjustUnsafeFnPointer))
+                        }
+                        _ => {
+                            self.subtype(a, b)
+                        }
+                    }
+                }
+                _ => {
+                    return self.subtype(a, b)
+                }
+            }
+        })
     }
 
     fn coerce_from_fn_item(&self,

@@ -428,7 +428,8 @@ impl<'t,'tcx,TYPER:Typer<'tcx>> MemCategorizationContext<'t,TYPER> {
 
             Some(adjustment) => {
                 match *adjustment {
-                    ty::AdjustReifyFnPointer(..) => {
+                    ty::AdjustReifyFnPointer(..) |
+                    ty::AdjustUnsafeFnPointer(..) => {
                         debug!("cat_expr(AdjustReifyFnPointer): {}",
                                expr.repr(self.tcx()));
                         // Convert a bare fn to a closure by adding NULL env.
@@ -1635,4 +1636,3 @@ impl<'tcx> UserString<'tcx> for Upvar {
         format!("captured outer variable in an `{}` closure", kind)
     }
 }
-

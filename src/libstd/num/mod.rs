@@ -23,7 +23,7 @@ use marker::Copy;
 use clone::Clone;
 use cmp::{PartialOrd, PartialEq};
 
-pub use core::num::{Int, SignedInt, UnsignedInt};
+pub use core::num::{Int, SignedInt};
 pub use core::num::{cast, FromPrimitive, NumCast, ToPrimitive};
 pub use core::num::{from_int, from_i8, from_i16, from_i32, from_i64};
 pub use core::num::{from_uint, from_u8, from_u16, from_u32, from_u64};
@@ -699,7 +699,7 @@ pub trait Float
     /// ```
     #[unstable(feature = "std_misc",
                reason = "pending integer conventions")]
-    fn ldexp(x: Self, exp: isize) -> Self;
+    fn ldexp(self, exp: isize) -> Self;
     /// Breaks the number into a normalized fraction and a base-2 exponent,
     /// satisfying:
     ///

@@ -176,6 +176,8 @@ pub mod rt {
     impl_to_source! { ast::Arg, arg_to_string }
     impl_to_source! { Generics, generics_to_string }
     impl_to_source! { P<ast::Item>, item_to_string }
+    impl_to_source! { P<ast::ImplItem>, impl_item_to_string }
+    impl_to_source! { P<ast::TraitItem>, trait_item_to_string }
     impl_to_source! { P<ast::Stmt>, stmt_to_string }
     impl_to_source! { P<ast::Expr>, expr_to_string }
     impl_to_source! { P<ast::Pat>, pat_to_string }
@@ -308,6 +310,8 @@ pub mod rt {
 
     impl_to_tokens! { ast::Ident }
     impl_to_tokens! { P<ast::Item> }
+    impl_to_tokens! { P<ast::ImplItem> }
+    impl_to_tokens! { P<ast::TraitItem> }
     impl_to_tokens! { P<ast::Pat> }
     impl_to_tokens! { ast::Arm }
     impl_to_tokens_lifetime! { &'a [P<ast::Item>] }
@@ -361,8 +365,7 @@ pub mod rt {
             parse::parse_stmt_from_source_str("<quote expansion>".to_string(),
                                               s,
                                               self.cfg(),
-                                              Vec::new(),
-                                              self.parse_sess())
+                                              self.parse_sess()).expect("parse error")
         }
 
         fn parse_expr(&self, s: String) -> P<ast::Expr> {
@@ -407,7 +410,7 @@ pub fn expand_quote_expr<'cx>(cx: &'cx mut ExtCtxt,
                               sp: Span,
                               tts: &[ast::TokenTree])
                               -> Box<base::MacResult+'cx> {
-    let expanded = expand_parse_call(cx, sp, "parse_expr", Vec::new(), tts);
+    let expanded = expand_parse_call(cx, sp, "parse_expr", vec!(), tts);
     base::MacEager::expr(expanded)
 }
 
@@ -415,8 +418,7 @@ pub fn expand_quote_item<'cx>(cx: &mut ExtCtxt,
                               sp: Span,
                               tts: &[ast::TokenTree])
                               -> Box<base::MacResult+'cx> {
-    let expanded = expand_parse_call(cx, sp, "parse_item_with_outer_attributes",
-                                    vec!(), tts);
+    let expanded = expand_parse_call(cx, sp, "parse_item", vec!(), tts);
     base::MacEager::expr(expanded)
 }
 
@@ -448,9 +450,7 @@ pub fn expand_quote_stmt(cx: &mut ExtCtxt,
                          sp: Span,
                          tts: &[ast::TokenTree])
                          -> Box<base::MacResult+'static> {
-    let e_attrs = cx.expr_vec_ng(sp);
-    let expanded = expand_parse_call(cx, sp, "parse_stmt",
-                                    vec!(e_attrs), tts);
+    let expanded = expand_parse_call(cx, sp, "parse_stmt", vec!(), tts);
     base::MacEager::expr(expanded)
 }
 

@@ -235,12 +235,27 @@ impl<'a, 'b, 'tcx> DecodeContext<'a, 'b, 'tcx> {
     pub fn tr_span(&self, span: Span) -> Span {
         let imported_filemaps = &self.cdata.codemap_import_info[..];
 
+        let span = if span.lo > span.hi {
+            // Currently macro expansion sometimes produces invalid Span values
+            // where lo > hi. In order not to crash the compiler when trying to
+            // translate these values, let's transform them into something we
+            // can handle (and which will produce useful debug locations at
+            // least some of the time).
+            // This workaround is only necessary as long as macro expansion is
+            // not fixed. FIXME(#23480)
+            codemap::mk_sp(span.lo, span.lo)
+        } else {
+            span
+        };
+
         let filemap_index = {
             // Optimize for the case that most spans within a translated item
             // originate from the same filemap.
             let last_filemap_index = self.last_filemap_index.get();
 
             if span.lo >= imported_filemaps[last_filemap_index].original_start_pos &&
+               span.lo <= imported_filemaps[last_filemap_index].original_end_pos &&
+               span.hi >= imported_filemaps[last_filemap_index].original_start_pos &&
                span.hi <= imported_filemaps[last_filemap_index].original_end_pos {
                 last_filemap_index
             } else {
@@ -993,8 +1008,14 @@ impl<'a, 'tcx> rbml_writer_helpers<'tcx> for Encoder<'a> {
                     })
                 }
 
+                ty::AdjustUnsafeFnPointer => {
+                    this.emit_enum_variant("AdjustUnsafeFnPointer", 2, 0, |_| {
+                        Ok(())
+                    })
+                }
+
                 ty::AdjustDerefRef(ref auto_deref_ref) => {
-                    this.emit_enum_variant("AdjustDerefRef", 2, 2, |this| {
+                    this.emit_enum_variant("AdjustDerefRef", 3, 2, |this| {
                         this.emit_enum_variant_arg(0,
                             |this| Ok(this.emit_auto_deref_ref(ecx, auto_deref_ref)))
                     })
@@ -1100,6 +1121,11 @@ impl<'a, 'tcx> rbml_writer_helpers<'tcx> for Encoder<'a> {
                             })
                         });
                         this.emit_enum_variant_arg(1, |this| Ok(this.emit_ty(ecx, self_ty)))
+                    })
+                }
+                ty::UnsizeUpcast(target_ty) => {
+                    this.emit_enum_variant("UnsizeUpcast", 3, 1, |this| {
+                        this.emit_enum_variant_arg(0, |this| Ok(this.emit_ty(ecx, target_ty)))
                     })
                 }
             }
@@ -1614,6 +1640,9 @@ impl<'a, 'tcx> rbml_decoder_decoder_helpers<'tcx> for reader::Decoder<'a> {
                         ty::AdjustReifyFnPointer(def_id)
                     }
                     2 => {
+                        ty::AdjustUnsafeFnPointer
+                    }
+                    3 => {
                         let auto_deref_ref: ty::AutoDerefRef =
                             this.read_enum_variant_arg(0,
                                 |this| Ok(this.read_auto_deref_ref(dcx))).unwrap();
@@ -1707,7 +1736,7 @@ impl<'a, 'tcx> rbml_decoder_decoder_helpers<'tcx> for reader::Decoder<'a> {
     fn read_unsize_kind<'b, 'c>(&mut self, dcx: &DecodeContext<'b, 'c, 'tcx>)
                                 -> ty::UnsizeKind<'tcx> {
         self.read_enum("UnsizeKind", |this| {
-            let variants = &["UnsizeLength", "UnsizeStruct", "UnsizeVtable"];
+            let variants = &["UnsizeLength", "UnsizeStruct", "UnsizeVtable", "UnsizeUpcast"];
             this.read_enum_variant(variants, |this, i| {
                 Ok(match i {
                     0 => {
@@ -1740,6 +1769,11 @@ impl<'a, 'tcx> rbml_decoder_decoder_helpers<'tcx> for reader::Decoder<'a> {
                         let self_ty =
                             this.read_enum_variant_arg(1, |this| Ok(this.read_ty(dcx))).unwrap();
                         ty::UnsizeVtable(ty_trait, self_ty)
+                    }
+                    3 => {
+                        let target_ty =
+                            this.read_enum_variant_arg(0, |this| Ok(this.read_ty(dcx))).unwrap();
+                        ty::UnsizeUpcast(target_ty)
                     }
                     _ => panic!("bad enum variant for ty::UnsizeKind")
                 })

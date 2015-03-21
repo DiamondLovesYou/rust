@@ -74,7 +74,24 @@ pub trait Combine<'tcx> : Sized {
     fn lub<'a>(&'a self) -> Lub<'a, 'tcx> { Lub(self.fields().clone()) }
     fn glb<'a>(&'a self) -> Glb<'a, 'tcx> { Glb(self.fields().clone()) }
 
-    fn mts(&self, a: &ty::mt<'tcx>, b: &ty::mt<'tcx>) -> cres<'tcx, ty::mt<'tcx>>;
+    fn mts(&self, a: &ty::mt<'tcx>, b: &ty::mt<'tcx>) -> cres<'tcx, ty::mt<'tcx>> {
+        debug!("{}.mts({}, {})",
+               self.tag(),
+               a.repr(self.tcx()),
+               b.repr(self.tcx()));
+
+        if a.mutbl != b.mutbl {
+            Err(ty::terr_mutability)
+        } else {
+            let mutbl = a.mutbl;
+            let variance = match mutbl {
+                ast::MutImmutable => ty::Covariant,
+                ast::MutMutable => ty::Invariant,
+            };
+            let ty = try!(self.tys_with_variance(variance, a.ty, b.ty));
+            Ok(ty::mt {ty: ty, mutbl: mutbl})
+        }
+    }
 
     fn tys_with_variance(&self, variance: ty::Variance, a: Ty<'tcx>, b: Ty<'tcx>)
                          -> cres<'tcx, Ty<'tcx>>;
@@ -154,7 +171,7 @@ pub trait Combine<'tcx> : Sized {
                                                                  b_tys.len())));
             }
 
-            range(0, a_tys.len()).map(|i| {
+            (0.. a_tys.len()).map(|i| {
                 let a_ty = a_tys[i];
                 let b_ty = b_tys[i];
                 let v = variances.map_or(ty::Invariant, |v| v[i]);
@@ -246,7 +263,13 @@ pub trait Combine<'tcx> : Sized {
         self.tys_with_variance(ty::Contravariant, a, b).and_then(|t| Ok(t))
     }
 
-    fn unsafeties(&self, a: Unsafety, b: Unsafety) -> cres<'tcx, Unsafety>;
+    fn unsafeties(&self, a: Unsafety, b: Unsafety) -> cres<'tcx, Unsafety> {
+        if a != b {
+            Err(ty::terr_unsafety_mismatch(expected_found(self, a, b)))
+        } else {
+            Ok(a)
+        }
+    }
 
     fn abi(&self, a: abi::Abi, b: abi::Abi) -> cres<'tcx, abi::Abi> {
         if a == b {
@@ -314,9 +337,18 @@ pub trait Combine<'tcx> : Sized {
     }
 
     fn builtin_bounds(&self,
-                      a: ty::BuiltinBounds,
-                      b: ty::BuiltinBounds)
-                      -> cres<'tcx, ty::BuiltinBounds>;
+                      a: BuiltinBounds,
+                      b: BuiltinBounds)
+                      -> cres<'tcx, BuiltinBounds>
+    {
+        // Two sets of builtin bounds are only relatable if they are
+        // precisely the same (but see the coercion code).
+        if a != b {
+            Err(ty::terr_builtin_bounds(expected_found(self, a, b)))
+        } else {
+            Ok(a)
+        }
+    }
 
     fn trait_refs(&self,
                   a: &ty::TraitRef<'tcx>,

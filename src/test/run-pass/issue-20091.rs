@@ -9,6 +9,7 @@
 // except according to those terms.
 
 // ignore-nacl can't spawn processes
+// ignore-aarch64
 
 #[cfg(unix)]
 fn main() {

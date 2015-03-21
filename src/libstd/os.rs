@@ -52,12 +52,11 @@ use option::Option::{Some, None};
 use option::Option;
 use old_path::{Path, GenericPath, BytesContainer};
 use path::{self, PathBuf};
-use ptr::PtrExt;
 use ptr;
 use result::Result::{Err, Ok};
 use result::Result;
-use slice::{AsSlice, SliceExt};
-use str::{Str, StrExt};
+use slice::AsSlice;
+use str::Str;
 use str;
 use string::{String, ToString};
 use sync::atomic::{AtomicIsize, ATOMIC_ISIZE_INIT, Ordering};
@@ -125,7 +124,7 @@ pub const TMPBUF_SZ : uint = 1000;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::os;
 ///
 /// // We assume that we are in a valid directory.
@@ -145,7 +144,7 @@ pub fn getcwd() -> IoResult<Path> {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::os;
 ///
 /// // We will iterate through the references to the element returned by os::env();
@@ -181,7 +180,7 @@ pub fn env_as_bytes() -> Vec<(Vec<u8>, Vec<u8>)> {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::os;
 ///
 /// let key = "HOME";
@@ -222,7 +221,7 @@ pub fn getenv_as_bytes(_: &str) -> Option<Vec<u8>> { None }
 
 #[cfg(unix)]
 fn byteify(s: OsString) -> Vec<u8> {
-    use os::unix::*;
+    use os::unix::prelude::*;
     s.into_vec()
 }
 
@@ -236,7 +235,7 @@ fn byteify(s: OsString) -> Vec<u8> {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::os;
 ///
 /// let key = "KEY";
@@ -251,7 +250,7 @@ fn byteify(s: OsString) -> Vec<u8> {
 pub fn setenv<T: BytesContainer>(n: &str, v: T) {
     #[cfg(unix)]
     fn _setenv(n: &str, v: &[u8]) {
-        use os::unix::*;
+        use os::unix::prelude::*;
         let v: OsString = OsStringExt::from_vec(v.to_vec());
         env::set_var(n, &v)
     }
@@ -276,7 +275,8 @@ pub fn unsetenv(n: &str) {
 /// environment variable.
 ///
 /// # Examples
-/// ```rust
+///
+/// ```
 /// use std::os;
 ///
 /// let key = "PATH";
@@ -308,7 +308,7 @@ pub fn split_paths<T: BytesContainer>(unparsed: T) -> Vec<Path> {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::os;
 /// use std::old_path::Path;
 ///
@@ -369,7 +369,7 @@ pub fn dll_filename(base: &str) -> String {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::os;
 ///
 /// match os::self_exe_name() {
@@ -389,7 +389,7 @@ pub fn self_exe_name() -> Option<Path> {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::os;
 ///
 /// match os::self_exe_path() {
@@ -418,7 +418,7 @@ pub fn self_exe_path() -> Option<Path> {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::os;
 ///
 /// match os::homedir() {
@@ -507,7 +507,8 @@ pub fn tmpdir() -> Path {
 /// as is.
 ///
 /// # Examples
-/// ```rust
+///
+/// ```
 /// use std::os;
 /// use std::old_path::Path;
 ///
@@ -538,7 +539,8 @@ pub fn make_absolute(p: &Path) -> IoResult<Path> {
 /// whether the change was completed successfully or not.
 ///
 /// # Examples
-/// ```rust
+///
+/// ```
 /// use std::os;
 /// use std::old_path::Path;
 ///
@@ -559,7 +561,8 @@ pub fn errno() -> i32 {
 /// Return the string corresponding to an `errno()` value of `errnum`.
 ///
 /// # Examples
-/// ```rust
+///
+/// ```
 /// use std::os;
 ///
 /// // Same as println!("{}", last_os_error());
@@ -600,7 +603,6 @@ pub fn get_exit_status() -> int {
 unsafe fn load_argc_and_argv(argc: int,
                              argv: *const *const c_char) -> Vec<Vec<u8>> {
     use ffi::CStr;
-    use iter::range;
 
     (0..argc).map(|i| {
         CStr::from_ptr(*argv.offset(i)).to_bytes().to_vec()
@@ -757,7 +759,7 @@ extern "system" {
 /// See `String::from_utf8_lossy` for details.
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// use std::os;
 ///
 /// // Prints each argument on a separate line
@@ -1783,13 +1785,13 @@ mod tests {
 
         #[cfg(not(windows))]
         fn get_fd(file: &File) -> libc::c_int {
-            use os::unix::AsRawFd;
+            use os::unix::prelude::*;
             file.as_raw_fd()
         }
 
         #[cfg(windows)]
         fn get_fd(file: &File) -> libc::HANDLE {
-            use os::windows::AsRawHandle;
+            use os::windows::prelude::*;
             file.as_raw_handle()
         }
 

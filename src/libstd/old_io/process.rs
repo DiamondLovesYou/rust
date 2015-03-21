@@ -761,7 +761,7 @@ mod tests {
     use old_io::{Truncate, Write, TimedOut, timer, process, FileNotFound};
     use prelude::v1::{Ok, Err, range, drop, Some, None, Vec};
     use prelude::v1::{Path, String, Reader, Writer, Clone};
-    use prelude::v1::{SliceExt, Str, StrExt, AsSlice, ToString, GenericPath};
+    use prelude::v1::{Str, AsSlice, ToString, GenericPath};
     use old_io::fs::PathExtensions;
     use old_io::timer::*;
     use rt::running_on_valgrind;
@@ -1231,7 +1231,7 @@ mod tests {
         cmd.env("path", "foo");
         cmd.env("Path", "bar");
         let env = &cmd.env.unwrap();
-        let val = env.get(&EnvKey(CString::new(b"PATH").unwrap()));
-        assert!(val.unwrap() == &CString::new(b"bar").unwrap());
+        let val = env.get(&EnvKey(CString::new("PATH").unwrap()));
+        assert!(val.unwrap() == &CString::new("bar").unwrap());
     }
 }

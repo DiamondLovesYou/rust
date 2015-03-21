@@ -8,9 +8,6 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[cfg(not(test))]
-use core::ptr::PtrExt;
-
 // FIXME: #13996: mark the `allocate` and `reallocate` return value as `noalias`
 
 /// Return a pointer to `size` bytes of memory aligned to `align`.
@@ -388,7 +385,6 @@ mod imp {
 mod test {
     extern crate test;
     use self::test::Bencher;
-    use core::ptr::PtrExt;
     use boxed::Box;
     use heap;
 

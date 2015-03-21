@@ -23,7 +23,6 @@ use hash::{Hash, SipHasher};
 use iter::{self, Iterator, ExactSizeIterator, IntoIterator, IteratorExt, FromIterator, Extend, Map};
 use marker::Sized;
 use mem::{self, replace};
-use num::{Int, UnsignedInt};
 use ops::{Deref, FnMut, Index, IndexMut};
 use option::Option::{self, Some, None};
 use rand::{self, Rng};
@@ -216,6 +215,11 @@ fn test_resize_policy() {
 ///
 /// It is required that the keys implement the `Eq` and `Hash` traits, although
 /// this can frequently be achieved by using `#[derive(Eq, Hash)]`.
+///
+/// It is a logic error for a key to be modified in such a way that the key's
+/// hash, as determined by the `Hash` trait, or its equality, as determined by
+/// the `Eq` trait, changes while it is in the map. This is normally only
+/// possible through `Cell`, `RefCell`, global state, I/O, or unsafe code.
 ///
 /// Relevant papers/articles:
 ///

@@ -19,8 +19,6 @@
 #![feature(unboxed_closures)]
 #![feature(std_misc)]
 #![feature(test)]
-#![feature(core)]
-#![feature(net)]
 #![feature(path_ext)]
 
 #![deny(warnings)]
@@ -237,7 +235,7 @@ pub fn run_tests(config: &Config) {
         // android debug-info test uses remote debugger
         // so, we test 1 task at once.
         // also trying to isolate problems with adb_run_wrapper.sh ilooping
-        env::set_var("RUST_TEST_TASKS","1");
+        env::set_var("RUST_TEST_THREADS","1");
     }
 
     if config.targeting_nacl() && config.mode == DebugInfoGdb {
@@ -249,7 +247,7 @@ pub fn run_tests(config: &Config) {
             // Some older versions of LLDB seem to have problems with multiple
             // instances running in parallel, so only run one test task at a
             // time.
-            env::set_var("RUST_TEST_TASKS", "1");
+            env::set_var("RUST_TEST_THREADS", "1");
         }
         _ => { /* proceed */ }
     }

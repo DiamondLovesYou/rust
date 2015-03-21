@@ -34,9 +34,9 @@ pub use sys_common::ProcessConfig;
 helper_init! { static HELPER: Helper<Req> }
 
 #[cfg(target_os = "nacl")]
-fn permission_denied() -> IoError {
+fn permission_denied() -> ::old_io::IoError {
     use old_io;
-    IoError {
+    old_io::IoError {
         kind: old_io::PermissionDenied,
         desc: "(P)NaCl is sandboxed and thus can't create processes",
         detail: Some("NaCl doesn't allow separate processes".to_string()),
