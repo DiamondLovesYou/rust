@@ -60,7 +60,7 @@ fn test2() {
     }
 }
 
-#[cfg(any(target_arch = "x86", target_arch = "arm"))]
+#[cfg(any(target_arch = "x86", target_arch = "arm", target_arch = "le32"))]
 fn test2() {
 }
 

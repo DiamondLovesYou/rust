@@ -43,13 +43,14 @@ struct Outer {
           target_os = "openbsd",
           target_os = "nacl"))]
 mod m {
-    #[cfg(any(target_arch = "x86", target_arch = "le32"))]
+    #[cfg(any(target_arch = "x86"))]
     pub mod m {
         pub fn align() -> uint { 4 }
         pub fn size() -> uint { 12 }
     }
 
-    #[cfg(any(target_arch = "x86_64", target_arch = "arm", target_arch = "aarch64"))]
+    #[cfg(any(target_arch = "x86_64", target_arch = "arm",
+              target_arch = "aarch64", target_arch = "le32"))]
     pub mod m {
         pub fn align() -> uint { 8 }
         pub fn size() -> uint { 16 }
