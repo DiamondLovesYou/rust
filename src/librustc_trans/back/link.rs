@@ -902,12 +902,14 @@ pub fn link_pnacl_module(sess: &Session,
             };
 
             ap("pnacl-sjlj-eh\0");
+            ap("internalize-used-globals\0");
             ap("expand-indirectbr\0");
             ap("lower-expect\0");
             ap("rewrite-llvm-intrinsic-calls\0");
             ap("expand-varargs\0");
             ap("expand-arith-with-overflow\0");
             ap("expand-constant-expr\0");
+            ap("simplify-struct-reg-signatures\0");
             ap("expand-struct-regs\0");
             ap("nacl-expand-ctors\0");
             ap("resolve-aliases\0");

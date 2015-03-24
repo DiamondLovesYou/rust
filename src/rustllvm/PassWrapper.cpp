@@ -69,6 +69,7 @@ LLVMInitializePasses() {
   initializeGlobalCleanupPass(Registry);
   initializeGlobalizeConstantVectorsPass(Registry);
   initializeInsertDivideCheckPass(Registry);
+  initializeInternalizeUsedGlobalsPass(Registry);
   initializePNaClABIVerifyFunctionsPass(Registry);
   initializePNaClABIVerifyModulePass(Registry);
   initializePNaClSjLjEHPass(Registry);
@@ -82,6 +83,7 @@ LLVMInitializePasses() {
   initializeRewriteLLVMIntrinsicsPass(Registry);
   initializeRewritePNaClLibraryCallsPass(Registry);
   initializeSimplifyAllocasPass(Registry);
+  initializeSimplifyStructRegSignaturesPass(Registry);
   initializeStripAttributesPass(Registry);
   initializeStripMetadataPass(Registry);
   initializeStripModuleFlagsPass(Registry);
