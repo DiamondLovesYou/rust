@@ -801,57 +801,51 @@ pub fn run_passes(sess: &Session,
                     .expect("maybe invalid archive?");
                 let mut bitcodes = Vec::new();
                 archive.foreach_child(|name, bc| {
-                    use std::ffi::OsStr;
                     debug!("processing object `{}`", name);
-                    let name_path = Path::new(name);
-                    let name_ext_str = name_path.extension();
-                    if name_ext_str == Some(OsStr::from_str("o")) ||
-                        name_ext_str == Some(OsStr::from_str("obj"))
-                    {
-                        let llctx = unsafe { llvm::LLVMContextCreate() };
-                        // Ignore all messages about invalid debug versions (toolchain libraries
-                        // cause an abundance of these):
-                        unsafe {
-                            llvm::LLVMRustSetContextIgnoreDebugMetadataVersionDiagnostics(llctx);
-                        }
-                        let llmod = unsafe {
-                            let name = format!("{}\0", name.as_slice());
-                            llvm::LLVMRustParseBitcode(llctx,
-                                                       name.as_ptr() as *const i8,
-                                                       bc.as_ptr() as *const libc::c_void,
-                                                       bc.len() as libc::size_t)
-                        };
-                        unsafe {
-                            llvm::LLVMRustResetContextIgnoreDebugMetadataVersionDiagnostics(llctx);
-                        }
-                        if llmod == ptr::null_mut() {
-                            let msg = format!("failed to parse external bitcode
+                    let llctx = unsafe { llvm::LLVMContextCreate() };
+                    // Ignore all messages about invalid debug versions (toolchain libraries
+                    // cause an abundance of these):
+                    unsafe {
+                        llvm::LLVMRustSetContextIgnoreDebugMetadataVersionDiagnostics(llctx);
+                    }
+                    let llmod = unsafe {
+                        let name = format!("{}\0", name.as_slice());
+                        llvm::LLVMRustParseBitcode(llctx,
+                                                   name.as_ptr() as *const i8,
+                                                   bc.as_ptr() as *const libc::c_void,
+                                                   bc.len() as libc::size_t)
+                    };
+                    unsafe {
+                        llvm::LLVMRustResetContextIgnoreDebugMetadataVersionDiagnostics(llctx);
+                    }
+                    if llmod == ptr::null_mut() {
+                        let msg = format!("failed to parse external bitcode
                                               `{}` in archive `{:?}`",
-                                              name, p);
-                            llvm_actual_err(sess, msg);
-                        } else {
-                            // Some globals in the bitcode from PNaCl have what is
-                            // considered invalid linkage in our LLVM (their LLVM is
-                            // old). Fortunately, all linkage types get stripped later, so
-                            // it's safe to just ignore them all.
+                                          name, p);
+                        unsafe { llvm::LLVMContextDispose(llctx) };
+                        llvm_actual_err(sess, msg);
+                    } else {
+                        // Some globals in the bitcode from PNaCl have what is
+                        // considered invalid linkage in our LLVM (their LLVM is
+                        // old). Fortunately, all linkage types get stripped later, so
+                        // it's safe to just ignore them all.
 
-                            let name = format!("r-{}-{}-{}",
-                                               l, name, index);
-                            index = index + 1;
+                        let name = format!("r-{}-{}-{}",
+                                           l, name, index);
+                        index = index + 1;
 
-                            let mtrans = ModuleTranslation {
-                                llmod: llmod,
-                                llcx: llctx,
-                                name: Some(name.clone()),
-                            };
-                            bitcodes.push(mtrans.clone());
-                            let work_item = build_work_item(sess,
-                                                            mtrans,
-                                                            modules_config.clone(),
-                                                            crate_output.clone(),
-                                                            name);
-                            work_items.push(work_item);
-                        }
+                        let mtrans = ModuleTranslation {
+                            llmod: llmod,
+                            llcx: llctx,
+                            name: Some(name.clone()),
+                        };
+                        bitcodes.push(mtrans.clone());
+                        let work_item = build_work_item(sess,
+                                                        mtrans,
+                                                        modules_config.clone(),
+                                                        crate_output.clone(),
+                                                        name);
+                        work_items.push(work_item);
                     }
                 });
                 bitcodes.into_iter()
