@@ -10,6 +10,8 @@
 
 //! Generating numbers between two others.
 
+#![allow(trivial_numeric_casts)]
+
 // this is surprisingly complicated to be both generic & correct
 
 use core::prelude::{PartialOrd};
@@ -36,6 +38,7 @@ use distributions::{Sample, IndependentSample};
 /// # Examples
 ///
 /// ```
+/// # #![feature(rand)]
 /// use std::rand::distributions::{IndependentSample, Range};
 ///
 /// fn main() {

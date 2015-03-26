@@ -23,7 +23,7 @@ use hash::{Hash, SipHasher};
 use iter::{self, Iterator, ExactSizeIterator, IntoIterator, IteratorExt, FromIterator, Extend, Map};
 use marker::Sized;
 use mem::{self, replace};
-use ops::{Deref, FnMut, Index, IndexMut};
+use ops::{Deref, FnMut, Index};
 use option::Option::{self, Some, None};
 use rand::{self, Rng};
 use result::Result::{self, Ok, Err};
@@ -538,6 +538,7 @@ impl<K, V, S> HashMap<K, V, S>
     /// # Examples
     ///
     /// ```
+    /// # #![feature(std_misc)]
     /// use std::collections::HashMap;
     /// use std::collections::hash_map::RandomState;
     ///
@@ -566,6 +567,7 @@ impl<K, V, S> HashMap<K, V, S>
     /// # Examples
     ///
     /// ```
+    /// # #![feature(std_misc)]
     /// use std::collections::HashMap;
     /// use std::collections::hash_map::RandomState;
     ///
@@ -981,6 +983,7 @@ impl<K, V, S> HashMap<K, V, S>
     /// # Examples
     ///
     /// ```
+    /// # #![feature(std_misc)]
     /// use std::collections::HashMap;
     ///
     /// let mut a = HashMap::new();
@@ -1088,7 +1091,7 @@ impl<K, V, S> HashMap<K, V, S>
     ///     Some(x) => *x = "b",
     ///     None => (),
     /// }
-    /// assert_eq!(map[1], "b");
+    /// assert_eq!(map[&1], "b");
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn get_mut<Q: ?Sized>(&mut self, k: &Q) -> Option<&mut V>
@@ -1111,7 +1114,7 @@ impl<K, V, S> HashMap<K, V, S>
     ///
     /// map.insert(37, "b");
     /// assert_eq!(map.insert(37, "c"), Some("b"));
-    /// assert_eq!(map[37], "c");
+    /// assert_eq!(map[&37], "c");
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn insert(&mut self, k: K, v: V) -> Option<V> {
@@ -1244,6 +1247,7 @@ impl<K, V, S> Default for HashMap<K, V, S>
     }
 }
 
+#[cfg(stage0)]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<K, Q: ?Sized, V, S> Index<Q> for HashMap<K, V, S>
     where K: Eq + Hash + Borrow<Q>,
@@ -1258,15 +1262,18 @@ impl<K, Q: ?Sized, V, S> Index<Q> for HashMap<K, V, S>
     }
 }
 
+#[cfg(not(stage0))]
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<K, V, S, Q: ?Sized> IndexMut<Q> for HashMap<K, V, S>
+impl<'a, K, Q: ?Sized, V, S> Index<&'a Q> for HashMap<K, V, S>
     where K: Eq + Hash + Borrow<Q>,
           Q: Eq + Hash,
           S: HashState,
 {
+    type Output = V;
+
     #[inline]
-    fn index_mut<'a>(&'a mut self, index: &Q) -> &'a mut V {
-        self.get_mut(index).expect("no entry found for key")
+    fn index(&self, index: &Q) -> &V {
+        self.get(index).expect("no entry found for key")
     }
 }
 
@@ -1335,15 +1342,13 @@ pub struct Drain<'a, K: 'a, V: 'a> {
 }
 
 /// A view into a single occupied location in a HashMap.
-#[unstable(feature = "std_misc",
-           reason = "precise API still being fleshed out")]
+#[stable(feature = "rust1", since = "1.0.0")]
 pub struct OccupiedEntry<'a, K: 'a, V: 'a> {
     elem: FullBucket<K, V, &'a mut RawTable<K, V>>,
 }
 
 /// A view into a single empty location in a HashMap.
-#[unstable(feature = "std_misc",
-           reason = "precise API still being fleshed out")]
+#[stable(feature = "rust1", since = "1.0.0")]
 pub struct VacantEntry<'a, K: 'a, V: 'a> {
     hash: SafeHash,
     key: K,
@@ -1351,12 +1356,14 @@ pub struct VacantEntry<'a, K: 'a, V: 'a> {
 }
 
 /// A view into a single location in a map, which may be vacant or occupied.
-#[unstable(feature = "std_misc",
-           reason = "precise API still being fleshed out")]
+#[stable(feature = "rust1", since = "1.0.0")]
 pub enum Entry<'a, K: 'a, V: 'a> {
     /// An occupied Entry.
+    #[stable(feature = "rust1", since = "1.0.0")]
     Occupied(OccupiedEntry<'a, K, V>),
+
     /// A vacant Entry.
+    #[stable(feature = "rust1", since = "1.0.0")]
     Vacant(VacantEntry<'a, K, V>),
 }
 
@@ -1477,10 +1484,10 @@ impl<'a, K, V> ExactSizeIterator for Drain<'a, K, V> {
     #[inline] fn len(&self) -> usize { self.inner.len() }
 }
 
-#[unstable(feature = "std_misc",
-           reason = "matches collection reform v2 specification, waiting for dust to settle")]
 impl<'a, K, V> Entry<'a, K, V> {
     /// Returns a mutable reference to the entry if occupied, or the VacantEntry if vacant.
+    #[unstable(feature = "std_misc",
+               reason = "will soon be replaced by or_insert")]
     pub fn get(self) -> Result<&'a mut V, VacantEntry<'a, K, V>> {
         match self {
             Occupied(entry) => Ok(entry.into_mut()),
@@ -2197,7 +2204,7 @@ mod test_map {
         map.insert(2, 1);
         map.insert(3, 4);
 
-        assert_eq!(map[2], 1);
+        assert_eq!(map[&2], 1);
     }
 
     #[test]
@@ -2209,7 +2216,7 @@ mod test_map {
         map.insert(2, 1);
         map.insert(3, 4);
 
-        map[4];
+        map[&4];
     }
 
     #[test]

@@ -78,7 +78,7 @@
 //! let bad_result: Result<int, int> = bad_result.or_else(|i| Ok(11));
 //!
 //! // Consume the result and return the contents with `unwrap`.
-//! let final_awesome_result = good_result.ok().unwrap();
+//! let final_awesome_result = good_result.unwrap();
 //! ```
 //!
 //! # Results must be used
@@ -95,6 +95,7 @@
 //! by the [`Writer`](../io/trait.Writer.html) trait:
 //!
 //! ```
+//! # #![feature(old_io)]
 //! use std::old_io::IoError;
 //!
 //! trait Writer {
@@ -110,7 +111,9 @@
 //! something like this:
 //!
 //! ```{.ignore}
-//! use std::old_io::{File, Open, Write};
+//! # #![feature(old_io)]
+//! use std::old_io::*;
+//! use std::old_path::Path;
 //!
 //! let mut file = File::open_mode(&Path::new("valuable_data.txt"), Open, Write);
 //! // If `write_line` errors, then we'll never know, because the return
@@ -128,7 +131,9 @@
 //! a marginally useful message indicating why:
 //!
 //! ```{.no_run}
-//! use std::old_io::{File, Open, Write};
+//! # #![feature(old_io, old_path)]
+//! use std::old_io::*;
+//! use std::old_path::Path;
 //!
 //! let mut file = File::open_mode(&Path::new("valuable_data.txt"), Open, Write);
 //! file.write_line("important message").ok().expect("failed to write message");
@@ -138,7 +143,9 @@
 //! You might also simply assert success:
 //!
 //! ```{.no_run}
-//! # use std::old_io::{File, Open, Write};
+//! # #![feature(old_io, old_path)]
+//! # use std::old_io::*;
+//! # use std::old_path::Path;
 //!
 //! # let mut file = File::open_mode(&Path::new("valuable_data.txt"), Open, Write);
 //! assert!(file.write_line("important message").is_ok());
@@ -148,7 +155,9 @@
 //! Or propagate the error up the call stack with `try!`:
 //!
 //! ```
-//! # use std::old_io::{File, Open, Write, IoError};
+//! # #![feature(old_io, old_path)]
+//! # use std::old_io::*;
+//! # use std::old_path::Path;
 //! fn write_message() -> Result<(), IoError> {
 //!     let mut file = File::open_mode(&Path::new("valuable_data.txt"), Open, Write);
 //!     try!(file.write_line("important message"));
@@ -167,7 +176,9 @@
 //! It replaces this:
 //!
 //! ```
-//! use std::old_io::{File, Open, Write, IoError};
+//! # #![feature(old_io, old_path)]
+//! use std::old_io::*;
+//! use std::old_path::Path;
 //!
 //! struct Info {
 //!     name: String,
@@ -191,7 +202,9 @@
 //! With this:
 //!
 //! ```
-//! use std::old_io::{File, Open, Write, IoError};
+//! # #![feature(old_io, old_path)]
+//! use std::old_io::*;
+//! use std::old_path::Path;
 //!
 //! struct Info {
 //!     name: String,
@@ -234,6 +247,7 @@ use iter::{Iterator, IteratorExt, DoubleEndedIterator,
            FromIterator, ExactSizeIterator, IntoIterator};
 use ops::{FnMut, FnOnce};
 use option::Option::{self, None, Some};
+#[allow(deprecated)]
 use slice::AsSlice;
 use slice;
 
@@ -402,9 +416,24 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// Convert from `Result<T, E>` to `&[T]` (without copying)
+    #[inline]
+    #[unstable(feature = "as_slice", since = "unsure of the utility here")]
+    pub fn as_slice(&self) -> &[T] {
+        match *self {
+            Ok(ref x) => slice::ref_slice(x),
+            Err(_) => {
+                // work around lack of implicit coercion from fixed-size array to slice
+                let emp: &[_] = &[];
+                emp
+            }
+        }
+    }
+
     /// Convert from `Result<T, E>` to `&mut [T]` (without copying)
     ///
     /// ```
+    /// # #![feature(core)]
     /// let mut x: Result<&str, u32> = Ok("Gold");
     /// {
     ///     let v = x.as_mut_slice();
@@ -446,7 +475,8 @@ impl<T, E> Result<T, E> {
     /// ignoring I/O and parse errors:
     ///
     /// ```
-    /// use std::old_io::IoResult;
+    /// # #![feature(old_io)]
+    /// use std::old_io::*;
     ///
     /// let mut buffer: &[u8] = b"1\n2\n3\n4\n";
     /// let mut buffer = &mut buffer;
@@ -460,7 +490,7 @@ impl<T, E> Result<T, E> {
     ///         line.trim_right().parse::<int>().unwrap_or(0)
     ///     });
     ///     // Add the value if there were no errors, otherwise add 0
-    ///     sum += val.ok().unwrap_or(0);
+    ///     sum += val.unwrap_or(0);
     /// }
     ///
     /// assert!(sum == 10);
@@ -782,10 +812,14 @@ impl<T: fmt::Debug, E> Result<T, E> {
 // Trait implementations
 /////////////////////////////////////////////////////////////////////////////
 
+#[unstable(feature = "core",
+           reason = "waiting on the stability of the trait itself")]
+#[deprecated(since = "1.0.0",
+             reason = "use inherent method instead")]
+#[allow(deprecated)]
 impl<T, E> AsSlice<T> for Result<T, E> {
     /// Convert from `Result<T, E>` to `&[T]` (without copying)
     #[inline]
-    #[stable(feature = "rust1", since = "1.0.0")]
     fn as_slice<'a>(&'a self) -> &'a [T] {
         match *self {
             Ok(ref x) => slice::ref_slice(x),

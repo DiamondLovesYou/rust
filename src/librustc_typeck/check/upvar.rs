@@ -380,7 +380,7 @@ impl<'a,'tcx> AdjustBorrowKind<'a,'tcx> {
                 // borrow_kind of the upvar to make sure it
                 // is inferred to mutable if necessary
                 let mut upvar_capture_map = self.fcx.inh.upvar_capture_map.borrow_mut();
-                let ub = &mut upvar_capture_map[upvar_id];
+                let ub = upvar_capture_map.get_mut(&upvar_id).unwrap();
                 self.adjust_upvar_borrow_kind(upvar_id, ub, borrow_kind);
 
                 // also need to be in an FnMut closure since this is not an ImmBorrow
@@ -448,7 +448,7 @@ impl<'a,'tcx> AdjustBorrowKind<'a,'tcx> {
 
         let closure_def_id = ast_util::local_def(closure_id);
         let mut closure_kinds = self.fcx.inh.closure_kinds.borrow_mut();
-        let existing_kind = closure_kinds[closure_def_id];
+        let existing_kind = *closure_kinds.get(&closure_def_id).unwrap();
 
         debug!("adjust_closure_kind: closure_id={}, existing_kind={:?}, new_kind={:?}",
                closure_id, existing_kind, new_kind);

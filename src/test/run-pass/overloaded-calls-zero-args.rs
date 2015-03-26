@@ -8,7 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(unboxed_closures)]
+// pretty-expanded FIXME #23616
+
+#![feature(unboxed_closures, core)]
 
 use std::ops::{FnMut};
 
@@ -18,10 +20,14 @@ struct S {
 }
 
 impl FnMut<()> for S {
-    type Output = i32;
     extern "rust-call" fn call_mut(&mut self, (): ()) -> i32 {
         self.x * self.y
     }
+}
+
+impl FnOnce<()> for S {
+    type Output = i32;
+    extern "rust-call" fn call_once(mut self, args: ()) -> i32 { self.call_mut(args) }
 }
 
 fn main() {

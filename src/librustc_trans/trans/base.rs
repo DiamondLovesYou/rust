@@ -269,7 +269,7 @@ pub fn self_type_for_closure<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
 }
 
 pub fn kind_for_closure(ccx: &CrateContext, closure_id: ast::DefId) -> ty::ClosureKind {
-    ccx.tcx().closure_kinds.borrow()[closure_id]
+    *ccx.tcx().closure_kinds.borrow().get(&closure_id).unwrap()
 }
 
 pub fn decl_rust_fn<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
@@ -428,11 +428,6 @@ pub fn set_llvm_fn_attrs(ccx: &CrateContext, attrs: &[ast::Attribute], llfn: Val
         let mut used = true;
         match &attr.name()[..] {
             "no_stack_check" => unset_split_stack(llfn),
-            "no_split_stack" => {
-                unset_split_stack(llfn);
-                ccx.sess().span_warn(attr.span,
-                                     "no_split_stack is a deprecated synonym for no_stack_check");
-            }
             "cold" => unsafe {
                 llvm::LLVMAddFunctionAttribute(llfn,
                                                llvm::FunctionIndex as c_uint,
@@ -756,7 +751,7 @@ pub fn iter_structural_ty<'blk, 'tcx, F>(cx: Block<'blk, 'tcx>,
 }
 
 pub fn cast_shift_expr_rhs(cx: Block,
-                           op: ast::BinOp,
+                           op: ast::BinOp_,
                            lhs: ValueRef,
                            rhs: ValueRef)
                            -> ValueRef {
@@ -765,24 +760,24 @@ pub fn cast_shift_expr_rhs(cx: Block,
                    |a,b| ZExt(cx, a, b))
 }
 
-pub fn cast_shift_const_rhs(op: ast::BinOp,
+pub fn cast_shift_const_rhs(op: ast::BinOp_,
                             lhs: ValueRef, rhs: ValueRef) -> ValueRef {
     cast_shift_rhs(op, lhs, rhs,
                    |a, b| unsafe { llvm::LLVMConstTrunc(a, b.to_ref()) },
                    |a, b| unsafe { llvm::LLVMConstZExt(a, b.to_ref()) })
 }
 
-pub fn cast_shift_rhs<F, G>(op: ast::BinOp,
-                            lhs: ValueRef,
-                            rhs: ValueRef,
-                            trunc: F,
-                            zext: G)
-                            -> ValueRef where
+fn cast_shift_rhs<F, G>(op: ast::BinOp_,
+                        lhs: ValueRef,
+                        rhs: ValueRef,
+                        trunc: F,
+                        zext: G)
+                        -> ValueRef where
     F: FnOnce(ValueRef, Type) -> ValueRef,
     G: FnOnce(ValueRef, Type) -> ValueRef,
 {
     // Shifts may have any size int on the rhs
-    if ast_util::is_shift_binop(op.node) {
+    if ast_util::is_shift_binop(op) {
         let mut rhs_llty = val_ty(rhs);
         let mut lhs_llty = val_ty(lhs);
         if rhs_llty.kind() == Vector { rhs_llty = rhs_llty.element_type() }
@@ -983,56 +978,72 @@ pub fn load_if_immediate<'blk, 'tcx>(cx: Block<'blk, 'tcx>,
 /// gives us better information about what we are loading.
 pub fn load_ty<'blk, 'tcx>(cx: Block<'blk, 'tcx>,
                            ptr: ValueRef, t: Ty<'tcx>) -> ValueRef {
-    if type_is_zero_size(cx.ccx(), t) {
-        C_undef(type_of::type_of(cx.ccx(), t))
-    } else if type_is_immediate(cx.ccx(), t) && type_of::type_of(cx.ccx(), t).is_aggregate() {
-        // We want to pass small aggregates as immediate values, but using an aggregate LLVM type
-        // for this leads to bad optimizations, so its arg type is an appropriately sized integer
-        // and we have to convert it
-        Load(cx, BitCast(cx, ptr, type_of::arg_type_of(cx.ccx(), t).ptr_to()))
-    } else {
-        unsafe {
-            let global = llvm::LLVMIsAGlobalVariable(ptr);
-            if !global.is_null() && llvm::LLVMIsGlobalConstant(global) == llvm::True {
-                let val = llvm::LLVMGetInitializer(global);
-                if !val.is_null() {
-                    // This could go into its own function, for DRY.
-                    // (something like "pre-store packing/post-load unpacking")
-                    if ty::type_is_bool(t) {
-                        return Trunc(cx, val, Type::i1(cx.ccx()));
-                    } else {
-                        return val;
-                    }
-                }
+    if cx.unreachable.get() || type_is_zero_size(cx.ccx(), t) {
+        return C_undef(type_of::type_of(cx.ccx(), t));
+    }
+
+    let ptr = to_arg_ty_ptr(cx, ptr, t);
+
+    if type_is_immediate(cx.ccx(), t) && type_of::type_of(cx.ccx(), t).is_aggregate() {
+        return Load(cx, ptr);
+    }
+
+    unsafe {
+        let global = llvm::LLVMIsAGlobalVariable(ptr);
+        if !global.is_null() && llvm::LLVMIsGlobalConstant(global) == llvm::True {
+            let val = llvm::LLVMGetInitializer(global);
+            if !val.is_null() {
+                return from_arg_ty(cx, val, t);
             }
         }
-        if ty::type_is_bool(t) {
-            Trunc(cx, LoadRangeAssert(cx, ptr, 0, 2, llvm::False), Type::i1(cx.ccx()))
-        } else if ty::type_is_char(t) {
-            // a char is a Unicode codepoint, and so takes values from 0
-            // to 0x10FFFF inclusive only.
-            LoadRangeAssert(cx, ptr, 0, 0x10FFFF + 1, llvm::False)
-        } else if (ty::type_is_region_ptr(t) || ty::type_is_unique(t))
-                  && !common::type_is_fat_ptr(cx.tcx(), t) {
-            LoadNonNull(cx, ptr)
-        } else {
-            Load(cx, ptr)
-        }
     }
+
+    let val =  if ty::type_is_bool(t) {
+        LoadRangeAssert(cx, ptr, 0, 2, llvm::False)
+    } else if ty::type_is_char(t) {
+        // a char is a Unicode codepoint, and so takes values from 0
+        // to 0x10FFFF inclusive only.
+        LoadRangeAssert(cx, ptr, 0, 0x10FFFF + 1, llvm::False)
+    } else if (ty::type_is_region_ptr(t) || ty::type_is_unique(t))
+        && !common::type_is_fat_ptr(cx.tcx(), t) {
+            LoadNonNull(cx, ptr)
+    } else {
+        Load(cx, ptr)
+    };
+
+    from_arg_ty(cx, val, t)
 }
 
 /// Helper for storing values in memory. Does the necessary conversion if the in-memory type
 /// differs from the type used for SSA values.
 pub fn store_ty<'blk, 'tcx>(cx: Block<'blk, 'tcx>, v: ValueRef, dst: ValueRef, t: Ty<'tcx>) {
-    if ty::type_is_bool(t) {
-        Store(cx, ZExt(cx, v, Type::i8(cx.ccx())), dst);
-    } else if type_is_immediate(cx.ccx(), t) && type_of::type_of(cx.ccx(), t).is_aggregate() {
+    Store(cx, to_arg_ty(cx, v, t), to_arg_ty_ptr(cx, dst, t));
+}
+
+pub fn to_arg_ty(bcx: Block, val: ValueRef, ty: Ty) -> ValueRef {
+    if ty::type_is_bool(ty) {
+        ZExt(bcx, val, Type::i8(bcx.ccx()))
+    } else {
+        val
+    }
+}
+
+pub fn from_arg_ty(bcx: Block, val: ValueRef, ty: Ty) -> ValueRef {
+    if ty::type_is_bool(ty) {
+        Trunc(bcx, val, Type::i1(bcx.ccx()))
+    } else {
+        val
+    }
+}
+
+pub fn to_arg_ty_ptr<'blk, 'tcx>(bcx: Block<'blk, 'tcx>, ptr: ValueRef, ty: Ty<'tcx>) -> ValueRef {
+    if type_is_immediate(bcx.ccx(), ty) && type_of::type_of(bcx.ccx(), ty).is_aggregate() {
         // We want to pass small aggregates as immediate values, but using an aggregate LLVM type
         // for this leads to bad optimizations, so its arg type is an appropriately sized integer
         // and we have to convert it
-        Store(cx, v, BitCast(cx, dst, type_of::arg_type_of(cx.ccx(), t).ptr_to()));
+        BitCast(bcx, ptr, type_of::arg_type_of(bcx.ccx(), ty).ptr_to())
     } else {
-        Store(cx, v, dst);
+        ptr
     }
 }
 
@@ -1575,55 +1586,6 @@ fn copy_args_to_allocas<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     bcx
 }
 
-fn copy_closure_args_to_allocas<'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
-                                            arg_scope: cleanup::CustomScopeIndex,
-                                            args: &[ast::Arg],
-                                            arg_datums: Vec<RvalueDatum<'tcx>>,
-                                            monomorphized_arg_types: &[Ty<'tcx>])
-                                            -> Block<'blk, 'tcx> {
-    let _icx = push_ctxt("copy_closure_args_to_allocas");
-    let arg_scope_id = cleanup::CustomScope(arg_scope);
-
-    assert_eq!(arg_datums.len(), 1);
-
-    let arg_datum = arg_datums.into_iter().next().unwrap();
-
-    // Untuple the rest of the arguments.
-    let tuple_datum =
-        unpack_datum!(bcx,
-                      arg_datum.to_lvalue_datum_in_scope(bcx,
-                                                         "argtuple",
-                                                         arg_scope_id));
-    let untupled_arg_types = match monomorphized_arg_types[0].sty {
-        ty::ty_tup(ref types) => &types[..],
-        _ => {
-            bcx.tcx().sess.span_bug(args[0].pat.span,
-                                    "first arg to `rust-call` ABI function \
-                                     wasn't a tuple?!")
-        }
-    };
-    for j in 0..args.len() {
-        let tuple_element_type = untupled_arg_types[j];
-        let tuple_element_datum =
-            tuple_datum.get_element(bcx,
-                                    tuple_element_type,
-                                    |llval| GEPi(bcx, llval, &[0, j]));
-        let tuple_element_datum = tuple_element_datum.to_expr_datum();
-        let tuple_element_datum =
-            unpack_datum!(bcx,
-                          tuple_element_datum.to_rvalue_datum(bcx,
-                                                              "arg"));
-        bcx = _match::store_arg(bcx,
-                                &*args[j].pat,
-                                tuple_element_datum,
-                                arg_scope_id);
-
-        debuginfo::create_argument_metadata(bcx, &args[j]);
-    }
-
-    bcx
-}
-
 // Ties up the llstaticallocas -> llloadenv -> lltop edges,
 // and builds the return block.
 pub fn finish_fn<'blk, 'tcx>(fcx: &'blk FunctionContext<'blk, 'tcx>,
@@ -1781,32 +1743,17 @@ pub fn trans_closure<'a, 'b, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
     debug!("trans_closure: function lltype: {}",
            bcx.fcx.ccx.tn().val_to_string(bcx.fcx.llfn));
 
-    let arg_datums = if abi != RustCall {
-        create_datums_for_fn_args(&fcx,
-                                  &monomorphized_arg_types[..])
-    } else {
-        create_datums_for_fn_args_under_call_abi(
-            bcx,
-            arg_scope,
-            &monomorphized_arg_types[..])
+    let arg_datums = match closure_env {
+        closure::ClosureEnv::NotClosure if abi == RustCall => {
+            create_datums_for_fn_args_under_call_abi(bcx, arg_scope, &monomorphized_arg_types[..])
+        }
+        _ => {
+            let arg_tys = untuple_arguments_if_necessary(ccx, &monomorphized_arg_types, abi);
+            create_datums_for_fn_args(&fcx, &arg_tys)
+        }
     };
 
-    bcx = match closure_env {
-        closure::ClosureEnv::NotClosure => {
-            copy_args_to_allocas(bcx,
-                                 arg_scope,
-                                 &decl.inputs,
-                                 arg_datums)
-        }
-        closure::ClosureEnv::Closure(_) => {
-            copy_closure_args_to_allocas(
-                bcx,
-                arg_scope,
-                &decl.inputs,
-                arg_datums,
-                &monomorphized_arg_types[..])
-        }
-    };
+    bcx = copy_args_to_allocas(bcx, arg_scope, &decl.inputs, arg_datums);
 
     bcx = closure_env.load(bcx, cleanup::CustomScope(arg_scope));
 
@@ -2306,7 +2253,7 @@ pub fn trans_item(ccx: &CrateContext, item: &ast::Item) {
                                          static");
               }
 
-              let v = ccx.static_values().borrow()[item.id].clone();
+              let v = ccx.static_values().borrow().get(&item.id).unwrap().clone();
               unsafe {
                   if !(llvm::LLVMConstIntGetZExtValue(v) != 0) {
                       ccx.sess().span_fatal(expr.span, "static assertion failed");

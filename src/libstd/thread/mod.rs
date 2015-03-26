@@ -138,8 +138,42 @@
 //!   synchronization primitives; the threads already provide basic blocking/signaling.
 //!
 //! * It can be implemented very efficiently on many platforms.
+//!
+//! ## Thread-local storage
+//!
+//! This module also provides an implementation of thread local storage for Rust
+//! programs. Thread local storage is a method of storing data into a global
+//! variable which each thread in the program will have its own copy of.
+//! Threads do not share this data, so accesses do not need to be synchronized.
+//!
+//! At a high level, this module provides two variants of storage:
+//!
+//! * Owned thread-local storage. This is a type of thread local key which
+//!   owns the value that it contains, and will destroy the value when the
+//!   thread exits. This variant is created with the `thread_local!` macro and
+//!   can contain any value which is `'static` (no borrowed pointers).
+//!
+//! * Scoped thread-local storage. This type of key is used to store a reference
+//!   to a value into local storage temporarily for the scope of a function
+//!   call. There are no restrictions on what types of values can be placed
+//!   into this key.
+//!
+//! Both forms of thread local storage provide an accessor function, `with`,
+//! which will yield a shared reference to the value to the specified
+//! closure. Thread-local keys only allow shared access to values as there is no
+//! way to guarantee uniqueness if a mutable borrow was allowed. Most values
+//! will want to make use of some form of **interior mutability** through the
+//! `Cell` or `RefCell` types.
 
 #![stable(feature = "rust1", since = "1.0.0")]
+
+#[stable(feature = "rust1", since = "1.0.0")]
+pub use self::__local::{LocalKey, LocalKeyState};
+
+#[unstable(feature = "scoped_tls",
+            reason = "scoped TLS has yet to have wide enough use to fully consider \
+                      stabilizing its interface")]
+pub use self::__scoped::ScopedKey;
 
 use prelude::v1::*;
 
@@ -150,11 +184,28 @@ use io;
 use marker::PhantomData;
 use rt::{self, unwind};
 use sync::{Mutex, Condvar, Arc};
+use sys::thread as imp;
+use sys_common::{stack, thread_info};
 use thunk::Thunk;
 use time::Duration;
 
-use sys::thread as imp;
-use sys_common::{stack, thread_info};
+#[allow(deprecated)] use old_io::Writer;
+
+////////////////////////////////////////////////////////////////////////////////
+// Thread-local storage
+////////////////////////////////////////////////////////////////////////////////
+
+#[macro_use]
+#[doc(hidden)]
+#[path = "local.rs"] pub mod __local;
+
+#[macro_use]
+#[doc(hidden)]
+#[path = "scoped.rs"] pub mod __scoped;
+
+////////////////////////////////////////////////////////////////////////////////
+// Builder
+////////////////////////////////////////////////////////////////////////////////
 
 /// Thread configuration. Provides detailed control over the properties
 /// and behavior of new threads.
@@ -321,6 +372,10 @@ impl Builder {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Free functions
+////////////////////////////////////////////////////////////////////////////////
+
 /// Spawn a new thread, returning a `JoinHandle` for it.
 ///
 /// The join handle will implicitly *detach* the child thread upon being
@@ -431,6 +486,10 @@ pub fn park_timeout(duration: Duration) {
     }
     *guard = false;
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Thread
+////////////////////////////////////////////////////////////////////////////////
 
 /// The internal representation of a `Thread` handle
 struct Inner {
@@ -556,6 +615,10 @@ impl thread_info::NewThread for Thread {
     fn new(name: Option<String>) -> Thread { Thread::new(name) }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// JoinHandle and JoinGuard
+////////////////////////////////////////////////////////////////////////////////
+
 /// Indicates the manner in which a thread exited.
 ///
 /// A thread that completes without panicking is considered to exit successfully.
@@ -635,7 +698,7 @@ impl Drop for JoinHandle {
 /// permission.
 #[must_use = "thread will be immediately joined if `JoinGuard` is not used"]
 #[stable(feature = "rust1", since = "1.0.0")]
-pub struct JoinGuard<'a, T: 'a> {
+pub struct JoinGuard<'a, T: Send + 'a> {
     inner: JoinInner<T>,
     _marker: PhantomData<&'a T>,
 }
@@ -687,6 +750,10 @@ impl<'a, T: Send + 'a> Drop for JoinGuard<'a, T> {
         }
     }
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Tests
+////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]
 mod test {
@@ -869,7 +936,7 @@ mod test {
             Err(e) => {
                 type T = &'static str;
                 assert!(e.is::<T>());
-                assert_eq!(*e.downcast::<T>().ok().unwrap(), "static string");
+                assert_eq!(*e.downcast::<T>().unwrap(), "static string");
             }
             Ok(()) => panic!()
         }
@@ -883,7 +950,7 @@ mod test {
             Err(e) => {
                 type T = String;
                 assert!(e.is::<T>());
-                assert_eq!(*e.downcast::<T>().ok().unwrap(), "owned string".to_string());
+                assert_eq!(*e.downcast::<T>().unwrap(), "owned string".to_string());
             }
             Ok(()) => panic!()
         }
@@ -897,9 +964,9 @@ mod test {
             Err(e) => {
                 type T = Box<Any + Send>;
                 assert!(e.is::<T>());
-                let any = e.downcast::<T>().ok().unwrap();
+                let any = e.downcast::<T>().unwrap();
                 assert!(any.is::<u16>());
-                assert_eq!(*any.downcast::<u16>().ok().unwrap(), 413);
+                assert_eq!(*any.downcast::<u16>().unwrap(), 413);
             }
             Ok(()) => panic!()
         }

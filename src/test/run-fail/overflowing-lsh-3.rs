@@ -1,4 +1,4 @@
-// Copyright 2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,12 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-trait Foo { fn foo(&self) {} }
-impl Foo for u8 {}
+// error-pattern:thread '<main>' panicked at 'shift operation overflowed'
+// compile-flags: -C debug-assertions
+
+// (Work around constant-evaluation)
+fn id<T>(x: T) -> T { x }
 
 fn main() {
-    // FIXME (#22405): Replace `Box::new` with `box` here when/if possible.
-    let r: Box<Foo> = Box::new(5);
-    let _m: Box<Foo> = r as Box<Foo>;
-    //~^ ERROR `core::marker::Sized` is not implemented for the type `Foo`
+    let _x = 1_u64 << id(64);
 }

@@ -8,14 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![crate_name = "rust-pnacl-trans"]
+#![crate_name = "rust_pnacl_trans"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/master/")]
 
-#![feature(rustc_private, libc, collections, core, exit_status)]
+#![feature(rustc_private, libc, collections, exit_status)]
 
 extern crate getopts;
 extern crate libc;
@@ -31,6 +31,7 @@ use std::process::{Command, Stdio};
 use std::env;
 use std::ptr;
 use std::ffi;
+use std::fmt::Display;
 use std::path::Path;
 
 // From librustc:
@@ -66,27 +67,26 @@ fn optgroups() -> Vec<OptGroup> {
                               legalization passes run on them", ""),
          optflag("", "all-raw", "All input bitcodes are of raw form"))
 }
-fn fatal<T: Str>(msg: T) -> ! {
-    println!("error: {}", msg.as_slice());
+fn fatal<T: Display>(msg: T) -> ! {
+    println!("error: {}", msg);
     env::set_exit_status(1);
     panic!("fatal error");
 }
 
-fn warn<T: Str>(msg: T) {
-    println!("warning: {:?}", msg.as_slice());
+fn warn<T: Display>(msg: T) {
+    println!("warning: {}", msg);
 }
 
-pub fn llvm_warn<T: Str>(msg: T) {
+pub fn llvm_warn<T: Display>(msg: T) {
     unsafe {
         let cstr = llvm::LLVMRustGetLastError();
         if cstr == ptr::null() {
             warn(msg);
         } else {
             let err = ffi::CStr::from_ptr(cstr).to_bytes();
-            let err = String::from_utf8_lossy(err.as_slice()).to_string();
+            let err = String::from_utf8_lossy(&err[..]).to_string();
             warn(format!("{}: {}",
-                         msg.as_slice(),
-                         err.as_slice()));
+                         msg, err));
         }
     }
 }
@@ -95,12 +95,12 @@ pub fn main() {
     let args: Vec<String> = env::args().collect();
     let opts = optgroups();
 
-    let matches = match getopts(args.tail(), opts.as_slice()) {
+    let matches = match getopts(args.tail(), &opts[..]) {
         Ok(m) => m,
         Err(f) => panic!(f.to_string()),
     };
     if matches.opt_present("h") {
-        println!("{}", getopts::usage("pexe/bc -> nexe translator and linker", opts.as_slice()));
+        println!("{}", getopts::usage("pexe/bc -> nexe translator and linker", &opts[..]));
         return;
     }
 
@@ -109,7 +109,7 @@ pub fn main() {
             Some(level) => level,
             None => "0".to_string(),
         };
-        match opt_level_str.as_slice() {
+        match &opt_level_str[..] {
             "0" => llvm::CodeGenLevelNone,
             "1" => llvm::CodeGenLevelLess,
             "2" => llvm::CodeGenLevelDefault,
@@ -121,7 +121,7 @@ pub fn main() {
     };
     let triple = match matches.opt_str("target") {
         Some(target) => {
-            if !target.as_slice().contains("nacl") {
+            if !&target[..].contains("nacl") {
                 fatal("invalid non-NaCl triple");
             }
             target
@@ -216,11 +216,11 @@ pub fn main() {
                 debug!("adding llvm arg: `{}`", arg);
             };
             add("rust-pnacl-trans\0");
-            if !(triple.as_slice().contains("i386") ||
-                 triple.as_slice().contains("i486") ||
-                 triple.as_slice().contains("i586") ||
-                 triple.as_slice().contains("i686") ||
-                 triple.as_slice().contains("i786")) {
+            if !(triple.contains("i386") ||
+                 triple.contains("i486") ||
+                 triple.contains("i586") ||
+                 triple.contains("i686") ||
+                 triple.contains("i786")) {
                 add("-mtls-use-call\0");
             }
         }
@@ -316,17 +316,17 @@ pub fn main() {
         llvm::LLVMRustDisposeTargetMachine(tm);
     }
 
-    let arch = if triple.as_slice().contains("x86_64") {
+    let arch = if triple.contains("x86_64") {
         "x86-64"
-    } else if triple.as_slice().contains("i386") ||
-              triple.as_slice().contains("i486") ||
-              triple.as_slice().contains("i586") ||
-              triple.as_slice().contains("i686") ||
-              triple.as_slice().contains("i786") {
+    } else if triple.contains("i386") ||
+              triple.contains("i486") ||
+              triple.contains("i586") ||
+              triple.contains("i686") ||
+              triple.contains("i786") {
         "x86-32"
-    } else if triple.as_slice().contains("arm") {
+    } else if triple.contains("arm") {
         "arm"
-    } else if triple.as_slice().contains("mips") {
+    } else if triple.contains("mips") {
         "mips"
     } else {
         unreachable!()
@@ -416,7 +416,7 @@ pub fn main() {
     }
 
     let mut cmd = Command::new(&gold);
-    cmd.args(nexe_link_args.as_slice());
+    cmd.args(&nexe_link_args[..]);
     cmd.stdout(Stdio::inherit());
     cmd.stderr(Stdio::inherit());
     debug!("running linker: `{:?}`", cmd);

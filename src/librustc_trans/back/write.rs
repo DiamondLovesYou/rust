@@ -704,7 +704,8 @@ pub fn run_passes(sess: &Session,
                         .into_os_string()
                         .into_string()
                         .unwrap();
-                    PathBuf::new(&v)
+                    Path::new(&v)
+                        .to_path_buf()
                 })
         }
         use rustc::session::search_paths::PathKind;
@@ -762,7 +763,8 @@ pub fn run_passes(sess: &Session,
     fn search_for_native(paths: &Vec<PathBuf>,
                          name: &String) -> Option<PathBuf> {
         use std::fs::metadata;
-        let name_path = PathBuf::new(&format!("lib{}.a", name));
+        let name_path = Path::new(&format!("lib{}.a", name))
+            .to_path_buf();
         debug!(">> searching for native lib `{}` starting", name);
         let found = paths.iter().find(|dir| {
             debug!("   searching in `{:?}`", dir);
@@ -778,7 +780,7 @@ pub fn run_passes(sess: &Session,
     }
     fn maybe_lib<T>(sess: &Session, name: &String, p_opt: Option<T>) -> Option<T> {
         p_opt.or_else(|| {
-            sess.err(format!("couldn't find library `{}`", name).as_slice());
+            sess.err(&format!("couldn't find library `{}`", name)[..]);
             sess.note("maybe missing `-L`?");
             None
         })
@@ -809,7 +811,7 @@ pub fn run_passes(sess: &Session,
                         llvm::LLVMRustSetContextIgnoreDebugMetadataVersionDiagnostics(llctx);
                     }
                     let llmod = unsafe {
-                        let name = format!("{}\0", name.as_slice());
+                        let name = format!("{}\0", name);
                         llvm::LLVMRustParseBitcode(llctx,
                                                    name.as_ptr() as *const i8,
                                                    bc.as_ptr() as *const libc::c_void,
@@ -851,12 +853,12 @@ pub fn run_passes(sess: &Session,
                 bitcodes.into_iter()
             })
             .collect();
-        trans.modules.push_all(bitcodes.as_slice());
+        trans.modules.push_all(&bitcodes[..]);
     }
 
     // Process the work items, optionally using worker threads.
     if sess.opts.cg.codegen_units == 1 && !sess.targeting_pnacl() {
-        run_work_singlethreaded(sess, trans.reachable.as_slice(), work_items);
+        run_work_singlethreaded(sess, &trans.reachable[..], work_items);
     } else {
         run_work_multithreaded(sess, work_items, sess.opts.cg.codegen_units);
     }

@@ -13,7 +13,7 @@
 
 // multi tasking k-nucleotide
 
-#![feature(box_syntax)]
+#![feature(box_syntax, std_misc, old_io, collections, os)]
 
 use std::ascii::{AsciiExt, OwnedAsciiExt};
 use std::cmp::Ordering::{self, Less, Greater, Equal};
@@ -147,7 +147,7 @@ fn make_sequence_processor(sz: uint,
 
 // given a FASTA file on stdin, process sequence THREE
 fn main() {
-    use std::old_io::{stdio, MemReader, BufferedReader};
+    use std::old_io::*;
 
     let rdr = if env::var_os("RUST_BENCH").is_some() {
         let foo = include_bytes!("shootout-k-nucleotide.data");

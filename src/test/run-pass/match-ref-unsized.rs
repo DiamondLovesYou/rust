@@ -8,12 +8,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(optin_builtin_traits)]
-#![crate_type = "rlib"]
+// Binding unsized expressions to ref patterns
 
-use std::marker::MarkerTrait;
+pub fn main() {
+    let ref a = *"abcdef";
+    assert_eq!(a, "abcdef");
 
-pub trait DefaultedTrait : MarkerTrait { }
-impl DefaultedTrait for .. { }
-
-pub struct Something<T> { t: T }
+    match *"12345" {
+        ref b => { assert_eq!(b, "12345") }
+    }
+}

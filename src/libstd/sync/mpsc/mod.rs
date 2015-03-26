@@ -119,6 +119,7 @@
 //! after 10 seconds no matter what:
 //!
 //! ```no_run
+//! # #![feature(std_misc, old_io)]
 //! use std::sync::mpsc::channel;
 //! use std::old_io::timer::Timer;
 //! use std::time::Duration;
@@ -143,6 +144,7 @@
 //! has been inactive for 5 seconds:
 //!
 //! ```no_run
+//! # #![feature(std_misc, old_io)]
 //! use std::sync::mpsc::channel;
 //! use std::old_io::timer::Timer;
 //! use std::time::Duration;
@@ -340,7 +342,7 @@ mod spsc_queue;
 /// The receiving-half of Rust's channel type. This half can only be owned by
 /// one task
 #[stable(feature = "rust1", since = "1.0.0")]
-pub struct Receiver<T> {
+pub struct Receiver<T:Send> {
     inner: UnsafeCell<Flavor<T>>,
 }
 
@@ -352,14 +354,14 @@ unsafe impl<T: Send> Send for Receiver<T> { }
 /// whenever `next` is called, waiting for a new message, and `None` will be
 /// returned when the corresponding channel has hung up.
 #[stable(feature = "rust1", since = "1.0.0")]
-pub struct Iter<'a, T:'a> {
+pub struct Iter<'a, T:Send+'a> {
     rx: &'a Receiver<T>
 }
 
 /// The sending-half of Rust's asynchronous channel type. This half can only be
 /// owned by one task, but it can be cloned to send to other tasks.
 #[stable(feature = "rust1", since = "1.0.0")]
-pub struct Sender<T> {
+pub struct Sender<T:Send> {
     inner: UnsafeCell<Flavor<T>>,
 }
 
@@ -370,7 +372,7 @@ unsafe impl<T: Send> Send for Sender<T> { }
 /// The sending-half of Rust's synchronous channel type. This half can only be
 /// owned by one task, but it can be cloned to send to other tasks.
 #[stable(feature = "rust1", since = "1.0.0")]
-pub struct SyncSender<T> {
+pub struct SyncSender<T: Send> {
     inner: Arc<UnsafeCell<sync::Packet<T>>>,
 }
 
@@ -431,7 +433,7 @@ pub enum TrySendError<T> {
     Disconnected(T),
 }
 
-enum Flavor<T> {
+enum Flavor<T:Send> {
     Oneshot(Arc<UnsafeCell<oneshot::Packet<T>>>),
     Stream(Arc<UnsafeCell<stream::Packet<T>>>),
     Shared(Arc<UnsafeCell<shared::Packet<T>>>),
@@ -439,7 +441,7 @@ enum Flavor<T> {
 }
 
 #[doc(hidden)]
-trait UnsafeFlavor<T> {
+trait UnsafeFlavor<T:Send> {
     fn inner_unsafe<'a>(&'a self) -> &'a UnsafeCell<Flavor<T>>;
     unsafe fn inner_mut<'a>(&'a self) -> &'a mut Flavor<T> {
         &mut *self.inner_unsafe().get()
@@ -448,12 +450,12 @@ trait UnsafeFlavor<T> {
         &*self.inner_unsafe().get()
     }
 }
-impl<T> UnsafeFlavor<T> for Sender<T> {
+impl<T:Send> UnsafeFlavor<T> for Sender<T> {
     fn inner_unsafe<'a>(&'a self) -> &'a UnsafeCell<Flavor<T>> {
         &self.inner
     }
 }
-impl<T> UnsafeFlavor<T> for Receiver<T> {
+impl<T:Send> UnsafeFlavor<T> for Receiver<T> {
     fn inner_unsafe<'a>(&'a self) -> &'a UnsafeCell<Flavor<T>> {
         &self.inner
     }
@@ -592,7 +594,7 @@ impl<T: Send> Sender<T> {
                                 // asleep (we're looking at it), so the receiver
                                 // can't go away.
                                 (*a.get()).send(t).ok().unwrap();
-                        token.signal();
+                                token.signal();
                                 (a, Ok(()))
                             }
                         }
@@ -977,7 +979,7 @@ impl<T> fmt::Display for SendError<T> {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T> error::Error for SendError<T> {
+impl<T: Send> error::Error for SendError<T> {
 
     fn description(&self) -> &str {
         "sending on a closed channel"
@@ -1013,7 +1015,7 @@ impl<T> fmt::Display for TrySendError<T> {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T> error::Error for TrySendError<T> {
+impl<T: Send> error::Error for TrySendError<T> {
 
     fn description(&self) -> &str {
         match *self {

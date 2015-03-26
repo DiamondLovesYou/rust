@@ -38,6 +38,7 @@ use self::MapError::*;
 
 use boxed::Box;
 use clone::Clone;
+use convert::From;
 use env;
 use error::{FromError, Error};
 use ffi::{OsString, OsStr};
@@ -79,12 +80,12 @@ fn err2old(new: ::io::Error) -> IoError {
 
 #[cfg(windows)]
 fn path2new(path: &Path) -> PathBuf {
-    PathBuf::new(path.as_str().unwrap())
+    PathBuf::from(path.as_str().unwrap())
 }
 #[cfg(unix)]
 fn path2new(path: &Path) -> PathBuf {
     use os::unix::prelude::*;
-    PathBuf::new(<OsStr as OsStrExt>::from_bytes(path.as_vec()))
+    PathBuf::from(<OsStr as OsStrExt>::from_bytes(path.as_vec()))
 }
 
 #[cfg(unix)]
@@ -125,7 +126,9 @@ pub const TMPBUF_SZ : uint = 1000;
 /// # Examples
 ///
 /// ```
+/// # #![feature(os, old_path)]
 /// use std::os;
+/// use std::old_path::{Path, GenericPath};
 ///
 /// // We assume that we are in a valid directory.
 /// let current_working_directory = os::getcwd().unwrap();
@@ -145,6 +148,7 @@ pub fn getcwd() -> IoResult<Path> {
 /// # Examples
 ///
 /// ```
+/// # #![feature(os)]
 /// use std::os;
 ///
 /// // We will iterate through the references to the element returned by os::env();
@@ -181,6 +185,7 @@ pub fn env_as_bytes() -> Vec<(Vec<u8>, Vec<u8>)> {
 /// # Examples
 ///
 /// ```
+/// # #![feature(os)]
 /// use std::os;
 ///
 /// let key = "HOME";
@@ -236,6 +241,7 @@ fn byteify(s: OsString) -> Vec<u8> {
 /// # Examples
 ///
 /// ```
+/// # #![feature(os)]
 /// use std::os;
 ///
 /// let key = "KEY";
@@ -277,7 +283,9 @@ pub fn unsetenv(n: &str) {
 /// # Examples
 ///
 /// ```
+/// # #![feature(old_path, os)]
 /// use std::os;
+/// use std::old_path::{Path, GenericPath};
 ///
 /// let key = "PATH";
 /// match os::getenv_as_bytes(key) {
@@ -309,6 +317,7 @@ pub fn split_paths<T: BytesContainer>(unparsed: T) -> Vec<Path> {
 /// # Examples
 ///
 /// ```
+/// # #![feature(os, old_path, core)]
 /// use std::os;
 /// use std::old_path::Path;
 ///
@@ -370,7 +379,9 @@ pub fn dll_filename(base: &str) -> String {
 /// # Examples
 ///
 /// ```
+/// # #![feature(os, old_path)]
 /// use std::os;
+/// use std::old_path::{Path, GenericPath};
 ///
 /// match os::self_exe_name() {
 ///     Some(exe_path) => println!("Path of this executable is: {}", exe_path.display()),
@@ -390,7 +401,9 @@ pub fn self_exe_name() -> Option<Path> {
 /// # Examples
 ///
 /// ```
+/// # #![feature(os, old_path)]
 /// use std::os;
+/// use std::old_path::{Path, GenericPath};
 ///
 /// match os::self_exe_path() {
 ///     Some(exe_path) => println!("Executable's Path is: {}", exe_path.display()),
@@ -419,7 +432,9 @@ pub fn self_exe_path() -> Option<Path> {
 /// # Examples
 ///
 /// ```
+/// # #![feature(os, old_path)]
 /// use std::os;
+/// use std::old_path::{Path, GenericPath};
 ///
 /// match os::homedir() {
 ///     Some(ref p) => println!("{}", p.display()),
@@ -509,8 +524,9 @@ pub fn tmpdir() -> Path {
 /// # Examples
 ///
 /// ```
+/// # #![feature(os, old_path)]
 /// use std::os;
-/// use std::old_path::Path;
+/// use std::old_path::{Path, GenericPath};
 ///
 /// // Assume we're in a path like /home/someuser
 /// let rel_path = Path::new("..");
@@ -541,8 +557,9 @@ pub fn make_absolute(p: &Path) -> IoResult<Path> {
 /// # Examples
 ///
 /// ```
+/// # #![feature(os, old_path)]
 /// use std::os;
-/// use std::old_path::Path;
+/// use std::old_path::{Path, GenericPath};
 ///
 /// let root = Path::new("/");
 /// assert!(os::change_dir(&root).is_ok());
@@ -563,6 +580,7 @@ pub fn errno() -> i32 {
 /// # Examples
 ///
 /// ```
+/// # #![feature(os)]
 /// use std::os;
 ///
 /// // Same as println!("{}", last_os_error());
@@ -760,6 +778,7 @@ extern "system" {
 /// # Examples
 ///
 /// ```
+/// # #![feature(os)]
 /// use std::os;
 ///
 /// // Prints each argument on a separate line
@@ -1574,6 +1593,8 @@ mod tests {
     use os;
     use rand::Rng;
     use rand;
+    use old_path::{Path, GenericPath};
+    use old_io::{Reader, Writer, Seek};
 
     #[test]
     pub fn last_os_error() {

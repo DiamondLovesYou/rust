@@ -196,7 +196,7 @@ impl<'a, 'tcx> RustdocVisitor<'a, 'tcx> {
             Some(tcx) => tcx,
             None => return false
         };
-        let def = tcx.def_map.borrow()[id].def_id();
+        let def = tcx.def_map.borrow()[&id].def_id();
         if !ast_util::is_local(def) { return false }
         let analysis = match self.analysis {
             Some(analysis) => analysis, None => return false
@@ -237,7 +237,7 @@ impl<'a, 'tcx> RustdocVisitor<'a, 'tcx> {
             ast::ItemExternCrate(ref p) => {
                 let path = match *p {
                     None => None,
-                    Some((ref x, _)) => Some(x.to_string()),
+                    Some(x) => Some(x.to_string()),
                 };
                 om.extern_crates.push(ExternCrate {
                     name: name,

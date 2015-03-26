@@ -21,8 +21,9 @@ use super::DerivedObligationCause;
 use super::project;
 use super::project::{normalize_with_depth, Normalized};
 use super::{PredicateObligation, TraitObligation, ObligationCause};
+use super::{report_overflow_error};
 use super::{ObligationCauseCode, BuiltinDerivedObligation, ImplDerivedObligation};
-use super::{SelectionError, Unimplemented, Overflow, OutputTypeParameterMismatch};
+use super::{SelectionError, Unimplemented, OutputTypeParameterMismatch};
 use super::{Selection};
 use super::{SelectionResult};
 use super::{VtableBuiltin, VtableImpl, VtableParam, VtableClosure,
@@ -561,10 +562,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         // not update) the cache.
         let recursion_limit = self.infcx.tcx.sess.recursion_limit.get();
         if stack.obligation.recursion_depth >= recursion_limit {
-            debug!("{} --> overflow (limit={})",
-                   stack.obligation.repr(self.tcx()),
-                   recursion_limit);
-            return Err(Overflow)
+            report_overflow_error(self.infcx(), &stack.obligation);
         }
 
         // Check the cache. Note that we skolemize the trait-ref
@@ -1071,7 +1069,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
         match self.closure_typer.closure_kind(closure_def_id) {
             Some(closure_kind) => {
                 debug!("assemble_unboxed_candidates: closure_kind = {:?}", closure_kind);
-                if closure_kind == kind {
+                if closure_kind.extends(kind) {
                     candidates.vec.push(ClosureCandidate(closure_def_id, substs.clone()));
                 }
             }
@@ -1090,10 +1088,8 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
                                       candidates: &mut SelectionCandidateSet<'tcx>)
                                       -> Result<(),SelectionError<'tcx>>
     {
-        // We provide a `Fn` impl for fn pointers. There is no need to provide
-        // the other traits (e.g. `FnMut`) since those are provided by blanket
-        // impls.
-        if Some(obligation.predicate.def_id()) != self.tcx().lang_items.fn_trait() {
+        // We provide impl of all fn traits for fn pointers.
+        if self.tcx().lang_items.fn_trait_kind(obligation.predicate.def_id()).is_none() {
             return Ok(());
         }
 
@@ -1762,7 +1758,7 @@ impl<'cx, 'tcx> SelectionContext<'cx, 'tcx> {
 
         match obligations {
             Ok(mut obls) => {
-                obls.push_all(normalized.obligations.as_slice());
+                obls.push_all(&normalized.obligations);
                 obls
             },
             Err(ErrorReported) => Vec::new()
@@ -2582,11 +2578,13 @@ impl<'o, 'tcx> Repr<'tcx> for TraitObligationStack<'o, 'tcx> {
 impl<'tcx> EvaluationResult<'tcx> {
     fn may_apply(&self) -> bool {
         match *self {
-            EvaluatedToOk
-            | EvaluatedToAmbig
-            | EvaluatedToErr(Overflow)
-            | EvaluatedToErr(OutputTypeParameterMismatch(..)) => true,
-            EvaluatedToErr(Unimplemented) => false,
+            EvaluatedToOk |
+            EvaluatedToAmbig |
+            EvaluatedToErr(OutputTypeParameterMismatch(..)) =>
+                true,
+
+            EvaluatedToErr(Unimplemented) =>
+                false,
         }
     }
 }

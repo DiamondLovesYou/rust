@@ -245,7 +245,7 @@ fn run_pretty_test(config: &Config, props: &TestProps, testfile: &Path) {
     if !proc_res.status.success() {
         fatal_proc_rec("pretty-printed source does not typecheck", &proc_res);
     }
-    if props.no_pretty_expanded { return }
+    if !props.pretty_expanded { return }
 
     // additionally, run `--pretty expanded` and try to build it.
     let proc_res = print_source(config, props, testfile, srcs[round].clone(), "expanded");
@@ -1610,7 +1610,7 @@ fn aux_output_dir_name(config: &Config, testfile: &Path) -> PathBuf {
 }
 
 fn output_testname(testfile: &Path) -> PathBuf {
-    PathBuf::new(testfile.file_stem().unwrap())
+    PathBuf::from(testfile.file_stem().unwrap())
 }
 
 fn output_base_name(config: &Config, testfile: &Path) -> PathBuf {
@@ -1841,7 +1841,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
     let nexe_path =
         // add an extension, don't replace it:
         format!("{}.nexe", pexe_path.display());
-    let nexe_path = PathBuf::new(&nexe_path);
+    let nexe_path = Path::new(&nexe_path);
 
     let pnacl_trans_args = vec!(format!("-o{}", nexe_path.display()),
                                 format!("{}", pexe_path.display()),
@@ -1852,7 +1852,7 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
         let pnacl_trans = rustc_path
             .parent()
             .unwrap()
-            .join("rust-pnacl-trans");
+            .join("rust_pnacl_trans");
         if let Some(str) = rustc_path.extension() {
             pnacl_trans.with_extension(str)
         } else {

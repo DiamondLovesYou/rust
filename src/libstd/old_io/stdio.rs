@@ -18,8 +18,10 @@
 //! # Examples
 //!
 //! ```rust
+//! # #![feature(old_io)]
 //! # #![allow(unused_must_use)]
 //! use std::old_io;
+//! use std::old_io::*;
 //!
 //! let mut out = old_io::stdout();
 //! out.write_all(b"Hello, world!");
@@ -139,7 +141,9 @@ impl StdinReader {
     /// # Examples
     ///
     /// ```
+    /// # #![feature(old_io)]
     /// use std::old_io;
+    /// use std::old_io::*;
     ///
     /// let mut stdin = old_io::stdin();
     /// for line in stdin.lock().lines() {
@@ -236,7 +240,7 @@ pub fn stdin() -> StdinReader {
             STDIN = boxed::into_raw(box stdin);
 
             // Make sure to free it at exit
-            rt::at_exit(|| {
+            let _ = rt::at_exit(|| {
                 Box::from_raw(STDIN);
                 STDIN = ptr::null_mut();
             });
@@ -333,10 +337,10 @@ pub fn set_stderr(_stderr: Box<Writer + Send>) -> Option<Box<Writer + Send>> {
 //      })
 //  })
 fn with_task_stdout<F>(f: F) where F: FnOnce(&mut Writer) -> IoResult<()> {
-    let mut my_stdout = LOCAL_STDOUT.with(|slot| {
+    let mut my_stdout: Box<Writer + Send> = LOCAL_STDOUT.with(|slot| {
         slot.borrow_mut().take()
     }).unwrap_or_else(|| {
-        box stdout() as Box<Writer + Send>
+        box stdout()
     });
     let result = f(&mut *my_stdout);
     let mut var = Some(my_stdout);

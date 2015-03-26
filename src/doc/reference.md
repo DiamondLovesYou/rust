@@ -816,8 +816,7 @@ may optionally begin with any number of `attributes` that apply to the
 containing module. Attributes on the anonymous crate module define important
 metadata that influences the behavior of the compiler.
 
-```{.rust}
-# #![allow(unused_attribute)]
+```no_run
 // Crate name
 #![crate_name = "projx"]
 
@@ -1020,6 +1019,7 @@ Use declarations support a number of convenient shortcuts:
 An example of `use` declarations:
 
 ```
+# #![feature(core)]
 use std::iter::range_step;
 use std::option::Option::{Some, None};
 use std::collections::hash_map::{self, HashMap};
@@ -1080,6 +1080,7 @@ declarations.
 An example of what will and will not work for `use` items:
 
 ```
+# #![feature(core)]
 # #![allow(unused_imports)]
 use foo::core::iter;  // good: foo is at the root of the crate
 use foo::baz::foobaz;    // good: foo is at the root of the crate
@@ -1264,7 +1265,7 @@ be undesired.
 * Sending signals
 * Accessing/modifying the file system
 * Unsigned integer overflow (well-defined as wrapping)
-* Signed integer overflow (well-defined as two's complement representation
+* Signed integer overflow (well-defined as two’s complement representation
   wrapping)
 
 #### Diverging functions
@@ -1781,6 +1782,7 @@ functions, with the exception that they may not have a body and are instead
 terminated by a semicolon.
 
 ```
+# #![feature(libc)]
 extern crate libc;
 use libc::{c_char, FILE};
 
@@ -1982,7 +1984,7 @@ the namespace hierarchy as it normally would.
 ## Attributes
 
 ```{.ebnf .gram}
-attribute : "#!" ? '[' meta_item ']' ;
+attribute : '#' '!' ? '[' meta_item ']' ;
 meta_item : ident [ '=' literal
                   | '(' meta_seq ')' ] ? ;
 meta_seq : meta_item [ ',' meta_seq ] ? ;
@@ -2959,10 +2961,10 @@ meaning of the operators on standard types is given here.
   : Exclusive or.
     Calls the `bitxor` method of the `std::ops::BitXor` trait.
 * `<<`
-  : Logical left shift.
+  : Left shift.
     Calls the `shl` method of the `std::ops::Shl` trait.
 * `>>`
-  : Logical right shift.
+  : Right shift.
     Calls the `shr` method of the `std::ops::Shr` trait.
 
 #### Lazy boolean operators
@@ -3158,7 +3160,7 @@ ten_times(|j| println!("hello, {}", j));
 ### While loops
 
 ```{.ebnf .gram}
-while_expr : "while" no_struct_literal_expr '{' block '}' ;
+while_expr : [ lifetime ':' ] "while" no_struct_literal_expr '{' block '}' ;
 ```
 
 A `while` loop begins by evaluating the boolean loop conditional expression.
@@ -3223,7 +3225,7 @@ A `continue` expression is only permitted in the body of a loop.
 ### For expressions
 
 ```{.ebnf .gram}
-for_expr : "for" pat "in" no_struct_literal_expr '{' block '}' ;
+for_expr : [ lifetime ':' ] "for" pat "in" no_struct_literal_expr '{' block '}' ;
 ```
 
 A `for` expression is a syntactic construct for looping over elements provided

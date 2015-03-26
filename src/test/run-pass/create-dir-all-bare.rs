@@ -8,10 +8,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Test that we generate obsolete syntax errors around usages of `for Sized?`
+#![feature(tempdir)]
 
-trait Foo for Sized? {} //~ ERROR obsolete syntax: for Sized?
+use std::env;
+use std::fs::{self, TempDir};
 
-trait Bar for ?Sized {} //~ ERROR obsolete syntax: for Sized?
-
-fn main() { }
+fn main() {
+    let td = TempDir::new("create-dir-all-bare").unwrap();
+    env::set_current_dir(td.path()).unwrap();
+    fs::create_dir_all("create-dir-all-bare").unwrap();
+}

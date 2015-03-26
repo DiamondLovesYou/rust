@@ -8,8 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// pretty-expanded FIXME #23616
+
 #![allow(unknown_features)]
-#![feature(box_syntax)]
+#![feature(box_syntax, std_misc)]
 
 use std::thread::Thread;
 use std::sync::mpsc::channel;
@@ -17,7 +19,7 @@ use std::sync::mpsc::channel;
 pub fn main() {
     let (tx, rx) = channel::<uint>();
 
-    let x: Box<_> = box 1;
+    let x: Box<int> = box 1;
     let x_in_parent = &(*x) as *const int as uint;
 
     let _t = Thread::spawn(move || {

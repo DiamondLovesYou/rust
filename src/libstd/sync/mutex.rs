@@ -40,7 +40,7 @@ use fmt;
 /// among threads to ensure that a possibly invalid invariant is not witnessed.
 ///
 /// A poisoned mutex, however, does not prevent all access to the underlying
-/// data. The `PoisonError` type has an `into_guard` method which will return
+/// data. The `PoisonError` type has an `into_inner` method which will return
 /// the guard that would have otherwise been returned on a successful lock. This
 /// allows access to the data, despite the lock being poisoned.
 ///
@@ -85,6 +85,7 @@ use fmt;
 /// To recover from a poisoned mutex:
 ///
 /// ```
+/// # #![feature(std_misc)]
 /// use std::sync::{Arc, Mutex};
 /// use std::thread;
 ///
@@ -105,13 +106,13 @@ use fmt;
 /// // pattern matched on to return the underlying guard on both branches.
 /// let mut guard = match lock.lock() {
 ///     Ok(guard) => guard,
-///     Err(poisoned) => poisoned.into_guard(),
+///     Err(poisoned) => poisoned.into_inner(),
 /// };
 ///
 /// *guard += 1;
 /// ```
 #[stable(feature = "rust1", since = "1.0.0")]
-pub struct Mutex<T> {
+pub struct Mutex<T: Send> {
     // Note that this static mutex is in a *box*, not inlined into the struct
     // itself. Once a native mutex has been used once, its address can never
     // change (it can't be moved). This mutex type can be safely moved at any
@@ -136,6 +137,7 @@ unsafe impl<T: Send> Sync for Mutex<T> { }
 /// # Examples
 ///
 /// ```
+/// # #![feature(std_misc)]
 /// use std::sync::{StaticMutex, MUTEX_INIT};
 ///
 /// static LOCK: StaticMutex = MUTEX_INIT;
@@ -364,7 +366,7 @@ mod test {
     use sync::{Arc, Mutex, StaticMutex, MUTEX_INIT, Condvar};
     use thread;
 
-    struct Packet<T>(Arc<(Mutex<T>, Condvar)>);
+    struct Packet<T: Send>(Arc<(Mutex<T>, Condvar)>);
 
     unsafe impl<T: Send> Send for Packet<T> {}
     unsafe impl<T> Sync for Packet<T> {}

@@ -13,6 +13,7 @@
 // FIXME: #6220 Implement floating point formatting
 
 #![allow(unsigned_negation)]
+#![allow(trivial_numeric_casts)]
 
 use fmt;
 use iter::IteratorExt;
@@ -146,6 +147,7 @@ pub struct RadixFmt<T, R>(T, R);
 /// # Examples
 ///
 /// ```
+/// # #![feature(core)]
 /// use std::fmt::radix;
 /// assert_eq!(format!("{}", radix(55, 36)), "1j".to_string());
 /// ```

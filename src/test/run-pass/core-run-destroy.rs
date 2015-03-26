@@ -18,6 +18,7 @@
 // ignore-nacl no libgreen
 
 #![reexport_test_harness_main = "test_main"]
+#![feature(old_io, libc, std_misc)]
 
 extern crate libc;
 

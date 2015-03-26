@@ -29,7 +29,9 @@ use string::String;
 /// # Examples
 ///
 /// ```no_run
-/// use std::old_io::TempDir;
+/// # #![feature(old_io, old_path)]
+/// use std::old_io::*;
+/// use std::old_path::{Path, GenericPath};
 ///
 /// {
 ///     // create a temporary directory

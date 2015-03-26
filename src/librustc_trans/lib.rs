@@ -40,8 +40,12 @@
 #![feature(unicode)]
 #![feature(path_ext)]
 #![feature(fs)]
-#![feature(hash)]
+#![feature(convert)]
 #![feature(path_relative_from)]
+#![feature(fs_ext)]
+
+#![allow(trivial_casts)]
+#![allow(trivial_numeric_casts)]
 
 extern crate arena;
 extern crate flate;

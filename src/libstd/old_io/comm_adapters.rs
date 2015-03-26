@@ -23,8 +23,9 @@ use vec::Vec;
 /// # Examples
 ///
 /// ```
+/// # #![feature(old_io)]
 /// use std::sync::mpsc::channel;
-/// use std::old_io::ChanReader;
+/// use std::old_io::*;
 ///
 /// let (tx, rx) = channel();
 /// # drop(tx);
@@ -114,9 +115,10 @@ impl Reader for ChanReader {
 /// # Examples
 ///
 /// ```
+/// # #![feature(old_io, io)]
 /// # #![allow(unused_must_use)]
 /// use std::sync::mpsc::channel;
-/// use std::old_io::ChanWriter;
+/// use std::old_io::*;
 ///
 /// let (tx, rx) = channel();
 /// # drop(rx);
@@ -160,7 +162,7 @@ mod test {
 
     use sync::mpsc::channel;
     use super::*;
-    use old_io;
+    use old_io::{self, Reader, Writer, Buffer};
     use thread;
 
     #[test]

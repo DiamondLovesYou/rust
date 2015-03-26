@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// pretty-expanded FIXME #23616
+
 mod a {
     pub enum Enum<T> {
         A(T),
@@ -19,7 +21,7 @@ mod a {
     impl X for int {}
 
     pub struct Z<'a>(Enum<&'a (X+'a)>);
-    fn foo() { let x = 42; let z = Z(Enum::A(&x as &X)); let _ = z; }
+    fn foo() { let x: int = 42; let z = Z(Enum::A(&x as &X)); let _ = z; }
 }
 
 mod b {
@@ -32,7 +34,7 @@ mod b {
     }
 
     fn bar() {
-        let x = 42;
+        let x: int = 42;
         let _y = Y { x: Some(&x as &X) };
     }
 }
@@ -41,7 +43,7 @@ mod c {
     pub trait X { fn f(&self); }
     impl X for int { fn f(&self) {} }
     pub struct Z<'a>(Option<&'a (X+'a)>);
-    fn main() { let x = 42; let z = Z(Some(&x as &X)); let _ = z; }
+    fn main() { let x: int = 42; let z = Z(Some(&x as &X)); let _ = z; }
 }
 
 pub fn main() {}

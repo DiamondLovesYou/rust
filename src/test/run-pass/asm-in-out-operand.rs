@@ -10,6 +10,8 @@
 
 // ignore-pnacl
 
+// pretty-expanded FIXME #23616
+
 #![feature(asm)]
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

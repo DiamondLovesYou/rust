@@ -45,6 +45,8 @@
 #![feature(libc)]
 #![feature(set_stdio)]
 #![feature(os)]
+#![feature(convert)]
+#![cfg_attr(test, feature(old_io))]
 
 extern crate getopts;
 extern crate serialize;
@@ -412,7 +414,7 @@ pub fn parse_opts(args: &[String]) -> Option<OptRes> {
     let run_ignored = matches.opt_present("ignored");
 
     let logfile = matches.opt_str("logfile");
-    let logfile = logfile.map(|s| PathBuf::new(&s));
+    let logfile = logfile.map(|s| PathBuf::from(&s));
 
     let run_benchmarks = matches.opt_present("bench");
     let run_tests = ! run_benchmarks ||
@@ -443,7 +445,7 @@ pub fn parse_opts(args: &[String]) -> Option<OptRes> {
     let show_boxplot = matches.opt_present("boxplot");
     let boxplot_width = match matches.opt_str("boxplot-width") {
         Some(width) => {
-            match FromStr::from_str(width.as_slice()) {
+            match FromStr::from_str(&width[..]) {
                 Ok(width) => width,
                 Err(_) => {
                     return Some(Err(format!("argument for --boxplot-width must be a uint")));
@@ -777,7 +779,7 @@ pub fn run_tests_console(opts: &TestOpts, tests: Vec<TestDescAndFn> ) -> io::Res
     match tests.iter().max_by(|t|len_if_padded(*t)) {
         Some(t) => {
             let n = t.desc.name.as_slice();
-            st.max_name_len = n.as_slice().len();
+            st.max_name_len = n.len();
         },
         None => {}
     }
@@ -1111,7 +1113,7 @@ impl MetricMap {
         let MetricMap(ref mm) = *self;
         let v : Vec<String> = mm.iter()
             .map(|(k,v)| format!("{}: {} (+/- {})", *k,
-                                 v.value as f64, v.noise as f64))
+                                 v.value, v.noise))
             .collect();
         v.connect(", ")
     }

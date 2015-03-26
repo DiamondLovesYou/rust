@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// pretty-expanded FIXME #23616
+
 #![allow(unknown_features)]
 #![feature(box_syntax)]
 
@@ -20,6 +22,6 @@ impl double for uint {
 }
 
 pub fn main() {
-    let x: Box<_> = box() (box 3 as Box<double>);
+    let x: Box<_> = box() (box 3u as Box<double>);
     assert_eq!(x.double(), 6);
 }

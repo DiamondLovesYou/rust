@@ -29,6 +29,8 @@
 #[doc(no_inline)] pub use clone::Clone;
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use cmp::{PartialEq, PartialOrd, Eq, Ord};
+#[unstable(feature = "convert")]
+#[doc(no_inline)] pub use convert::{AsRef, AsMut, Into, From};
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use iter::DoubleEndedIterator;
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -40,20 +42,15 @@
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use result::Result::{self, Ok, Err};
 #[stable(feature = "rust1", since = "1.0.0")]
+#[allow(deprecated)]
 #[doc(no_inline)] pub use slice::{SliceConcatExt, AsSlice};
 #[stable(feature = "rust1", since = "1.0.0")]
+#[allow(deprecated)]
 #[doc(no_inline)] pub use str::Str;
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use string::{String, ToString};
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use vec::Vec;
 
-// NB: remove when path reform lands
-#[doc(no_inline)] pub use old_path::{Path, GenericPath};
-// NB: remove when I/O reform lands
-#[doc(no_inline)] pub use old_io::{Buffer, Writer, Reader, Seek, BufferPrelude};
-// NB: remove when range syntax lands
-#[allow(deprecated)]
-#[doc(no_inline)] pub use iter::range;
-
+// FIXME(#23454) should these be here?
 #[doc(no_inline)] pub use num::wrapping::{Wrapping, WrappingOps};

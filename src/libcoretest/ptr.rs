@@ -35,18 +35,18 @@ fn test() {
         let v0 = vec![32000u16, 32001u16, 32002u16];
         let mut v1 = vec![0u16, 0u16, 0u16];
 
-        copy_memory(v1.as_mut_ptr().offset(1),
-                    v0.as_ptr().offset(1), 1);
+        copy(v1.as_mut_ptr().offset(1),
+             v0.as_ptr().offset(1), 1);
         assert!((v1[0] == 0u16 &&
                  v1[1] == 32001u16 &&
                  v1[2] == 0u16));
-        copy_memory(v1.as_mut_ptr(),
-                    v0.as_ptr().offset(2), 1);
+        copy(v1.as_mut_ptr(),
+             v0.as_ptr().offset(2), 1);
         assert!((v1[0] == 32002u16 &&
                  v1[1] == 32001u16 &&
                  v1[2] == 0u16));
-        copy_memory(v1.as_mut_ptr().offset(2),
-                    v0.as_ptr(), 1);
+        copy(v1.as_mut_ptr().offset(2),
+             v0.as_ptr(), 1);
         assert!((v1[0] == 32002u16 &&
                  v1[1] == 32001u16 &&
                  v1[2] == 32000u16));
@@ -84,9 +84,9 @@ fn test_as_ref() {
         assert_eq!(q.as_ref().unwrap(), &2);
 
         // Lifetime inference
-        let u = 2;
+        let u = 2isize;
         {
-            let p: *const int = &u as *const _;
+            let p = &u as *const int;
             assert_eq!(p.as_ref().unwrap(), &2);
         }
     }
@@ -102,9 +102,9 @@ fn test_as_mut() {
         assert!(q.as_mut().unwrap() == &mut 2);
 
         // Lifetime inference
-        let mut u = 2;
+        let mut u = 2isize;
         {
-            let p: *mut int = &mut u as *mut _;
+            let p = &mut u as *mut int;
             assert!(p.as_mut().unwrap() == &mut 2);
         }
     }
@@ -164,15 +164,15 @@ fn test_ptr_subtraction() {
 fn test_set_memory() {
     let mut xs = [0u8; 20];
     let ptr = xs.as_mut_ptr();
-    unsafe { set_memory(ptr, 5u8, xs.len()); }
+    unsafe { write_bytes(ptr, 5u8, xs.len()); }
     assert!(xs == [5u8; 20]);
 }
 
 #[test]
 fn test_unsized_unique() {
-    let xs: &mut [_] = &mut [1, 2, 3];
-    let ptr = unsafe { Unique::new(xs as *mut [_]) };
+    let xs: &mut [i32] = &mut [1, 2, 3];
+    let ptr = unsafe { Unique::new(xs as *mut [i32]) };
     let ys = unsafe { &mut **ptr };
-    let zs: &mut [_] = &mut [1, 2, 3];
+    let zs: &mut [i32] = &mut [1, 2, 3];
     assert!(ys == zs);
 }

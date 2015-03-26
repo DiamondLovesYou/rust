@@ -10,6 +10,7 @@
 
 // ignore-nacl can't spawn processes
 // ignore-aarch64
+#![feature(std_misc, os)]
 
 #[cfg(unix)]
 fn main() {

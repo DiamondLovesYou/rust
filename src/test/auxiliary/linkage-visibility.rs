@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![feature(std_misc, old_path)]
+
 use std::dynamic_lib::DynamicLibrary;
 
 #[no_mangle]
@@ -27,8 +29,7 @@ fn bar() { }
 fn baz() { }
 
 pub fn test() {
-    let none: Option<&Path> = None; // appease the typechecker
-    let lib = DynamicLibrary::open(none).unwrap();
+    let lib = DynamicLibrary::open(None).unwrap();
     unsafe {
         assert!(lib.symbol::<int>("foo").is_ok());
         assert!(lib.symbol::<int>("baz").is_err());

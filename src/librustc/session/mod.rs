@@ -27,7 +27,7 @@ use syntax::{ast, codemap};
 
 use rustc_back::target::Target;
 
-use std::path::{Path, PathBuf, AsPath};
+use std::path::{Path, PathBuf};
 use std::cell::{Cell, RefCell};
 use std::env;
 use std::ffi;
@@ -262,15 +262,15 @@ impl Session {
     }
 
     pub fn no_morestack(&self) -> bool {
-        self.target.target.arch.as_slice() == "le32"
-            && self.target.target.target_os.as_slice() == "nacl"
+        &self.target.target.arch[..] == "le32"
+            && &self.target.target.target_os[..] == "nacl"
     }
 
     pub fn get_nacl_tool_path(&self,
                               nacl_suffix: &str,
                               pnacl_suffix: &str) -> PathBuf {
         let mut toolchain = self.expect_cross_path().to_path_buf();
-        let (arch_libc, prefix, suffix) = match self.target.target.arch.as_slice() {
+        let (arch_libc, prefix, suffix) = match &self.target.target.arch[..] {
             "x86" =>    ("x86_newlib", "i686-nacl-", nacl_suffix),
             "x86_64" => ("x86_newlib", "x86_64-nacl-", nacl_suffix),
             "arm" =>    ("arm_newlib", "arm-nacl-", nacl_suffix),
@@ -297,7 +297,7 @@ impl Session {
         match cross_path.or_else(|| env::var("NACL_SDK_ROOT").ok() ) {
             None => self.fatal("need cross path (-C cross-path, or via NACL_SDK_ROOT) \
                                 for this target"),
-            Some(p) => PathBuf::new(&p),
+            Some(p) => Path::new(&p).to_path_buf(),
         }
     }
 
@@ -310,13 +310,13 @@ impl Session {
 
     /// Shortcut to test if we need to do special things because we are targeting PNaCl.
     pub fn targeting_pnacl(&self) -> bool {
-        self.target.target.target_os.as_slice() == "nacl"
-            && self.target.target.arch.as_slice() == "le32"
+        &self.target.target.target_os[..] == "nacl"
+            && &self.target.target.arch[..] == "le32"
     }
     /// Shortcut to test if we need to do special things because we are targeting NaCl.
     pub fn targeting_nacl(&self) -> bool {
-        self.target.target.target_os.as_slice() == "nacl"
-            && self.target.target.arch.as_slice() != "le32"
+        &self.target.target.target_os[..] == "nacl"
+            && &self.target.target.arch[..] != "le32"
     }
     pub fn would_use_ppapi(&self) -> bool {
         self.targeting_pnacl() || self.targeting_nacl()
@@ -324,7 +324,7 @@ impl Session {
 
     // Emits a fatal error if path is not writeable.
     pub fn check_writeable_output<T: ?Sized>(&self, path: &T, name: &str)
-        where T: AsPath + ffi::AsOsStr + fmt::Debug
+        where T: AsRef<Path> + ffi::AsOsStr + fmt::Debug
     {
         use std::fs::metadata;
         use std::io::ErrorKind;
@@ -335,15 +335,15 @@ impl Session {
         };
 
         if !is_writeable {
-            self.fatal(format!("`{}` file `{:?}` is not writeable -- check it's permissions.",
-                               name, path).as_slice());
+            self.fatal(&format!("`{}` file `{:?}` is not writeable -- check it's permissions.",
+                                name, path)[..]);
         }
     }
 
     // checks if we're saving temps or if we're emitting the specified type.
     // If neither, the file is unlinked from the filesystem.
     pub fn remove_temp<T: ?Sized>(&self, path: &T, t: OutputType)
-        where T: AsPath + ffi::AsOsStr + fmt::Debug
+        where T: AsRef<Path> + ffi::AsOsStr + fmt::Debug
     {
         use std::fs;
         if self.opts.cg.save_temps ||
@@ -354,7 +354,7 @@ impl Session {
             Ok(..) => {}
             Err(e) => {
                 // strictly speaking, this isn't a fatal error.
-                self.warn(format!("failed to remove `{:?}`: `{}`", path, e).as_slice());
+                self.warn(&format!("failed to remove `{:?}`: `{}`", path, e)[..]);
             }
         }
     }

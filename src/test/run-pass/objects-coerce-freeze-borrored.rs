@@ -10,6 +10,8 @@
 
 // Test that we can coerce an `@Object` to an `&Object`
 
+// pretty-expanded FIXME #23616
+
 trait Foo {
     fn foo(&self) -> uint;
     fn bar(&mut self) -> uint;
@@ -40,7 +42,7 @@ fn do_it_imm(obj: &Foo, v: uint) {
 }
 
 pub fn main() {
-    let mut x = 22;
+    let mut x: uint = 22;
     let obj = &mut x as &mut Foo;
     do_it_mut(obj);
     do_it_imm(obj, 23);

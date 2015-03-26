@@ -48,7 +48,9 @@
 //! * Read lines from stdin
 //!
 //!     ```rust
+//!     # #![feature(old_io, old_path)]
 //!     use std::old_io as io;
+//!     use std::old_io::*;
 //!
 //!     let mut stdin = io::stdin();
 //!     for line in stdin.lock().lines() {
@@ -59,7 +61,9 @@
 //! * Read a complete file
 //!
 //!     ```rust
-//!     use std::old_io::File;
+//!     # #![feature(old_io, old_path)]
+//!     use std::old_io::*;
+//!     use std::old_path::Path;
 //!
 //!     let contents = File::open(&Path::new("message.txt")).read_to_end();
 //!     ```
@@ -67,8 +71,10 @@
 //! * Write a line to a file
 //!
 //!     ```rust
+//!     # #![feature(old_io, old_path)]
 //!     # #![allow(unused_must_use)]
-//!     use std::old_io::File;
+//!     use std::old_io::*;
+//!     use std::old_path::Path;
 //!
 //!     let mut file = File::create(&Path::new("message.txt"));
 //!     file.write_all(b"hello, file!\n");
@@ -79,8 +85,9 @@
 //! * Iterate over the lines of a file
 //!
 //!     ```rust,no_run
-//!     use std::old_io::BufferedReader;
-//!     use std::old_io::File;
+//!     # #![feature(old_io, old_path)]
+//!     use std::old_io::*;
+//!     use std::old_path::Path;
 //!
 //!     let path = Path::new("message.txt");
 //!     let mut file = BufferedReader::new(File::open(&path));
@@ -92,8 +99,9 @@
 //! * Pull the lines of a file into a vector of strings
 //!
 //!     ```rust,no_run
-//!     use std::old_io::BufferedReader;
-//!     use std::old_io::File;
+//!     # #![feature(old_io, old_path)]
+//!     use std::old_io::*;
+//!     use std::old_path::Path;
 //!
 //!     let path = Path::new("message.txt");
 //!     let mut file = BufferedReader::new(File::open(&path));
@@ -103,8 +111,9 @@
 //! * Make a simple TCP client connection and request
 //!
 //!     ```rust
+//!     # #![feature(old_io)]
 //!     # #![allow(unused_must_use)]
-//!     use std::old_io::TcpStream;
+//!     use std::old_io::*;
 //!
 //!     # // connection doesn't fail if a server is running on 8080
 //!     # // locally, we still want to be type checking this code, so lets
@@ -119,11 +128,11 @@
 //! * Make a simple TCP server
 //!
 //!     ```rust
+//!     # #![feature(old_io)]
 //!     # fn main() { }
 //!     # fn foo() {
 //!     # #![allow(dead_code)]
-//!     use std::old_io::{TcpListener, TcpStream};
-//!     use std::old_io::{Acceptor, Listener};
+//!     use std::old_io::*;
 //!     use std::thread;
 //!
 //!     let listener = TcpListener::bind("127.0.0.1:80");
@@ -184,8 +193,10 @@
 //! If you wanted to handle the error though you might write:
 //!
 //! ```rust
+//! # #![feature(old_io, old_path)]
 //! # #![allow(unused_must_use)]
-//! use std::old_io::File;
+//! use std::old_io::*;
+//! use std::old_path::Path;
 //!
 //! match File::create(&Path::new("diary.txt")).write_all(b"Met a girl.\n") {
 //!     Ok(()) => (), // succeeded
@@ -218,7 +229,9 @@
 //! If you wanted to read several `u32`s from a file and return their product:
 //!
 //! ```rust
-//! use std::old_io::{File, IoResult};
+//! # #![feature(old_io, old_path)]
+//! use std::old_io::*;
+//! use std::old_path::Path;
 //!
 //! fn file_product(p: &Path) -> IoResult<u32> {
 //!     let mut f = File::open(p);
@@ -944,8 +957,9 @@ unsafe fn slice_vec_capacity<'a, T>(v: &'a mut Vec<T>, start: uint, end: uint) -
 /// # Examples
 ///
 /// ```
+/// # #![feature(old_io)]
 /// use std::old_io as io;
-/// use std::old_io::ByRefReader;
+/// use std::old_io::*;
 /// use std::old_io::util::LimitReader;
 ///
 /// fn process_input<R: Reader>(r: R) {}
@@ -1278,8 +1292,9 @@ impl<'a> Writer for &'a mut (Writer+'a) {
 /// # Examples
 ///
 /// ```
+/// # #![feature(old_io)]
 /// use std::old_io::util::TeeReader;
-/// use std::old_io::{stdin, ByRefWriter};
+/// use std::old_io::*;
 ///
 /// fn process_input<R: Reader>(r: R) {}
 ///
@@ -1403,7 +1418,8 @@ pub trait Buffer: Reader {
     /// # Examples
     ///
     /// ```
-    /// use std::old_io::BufReader;
+    /// # #![feature(old_io)]
+    /// use std::old_io::*;
     ///
     /// let mut reader = BufReader::new(b"hello\nworld");
     /// assert_eq!("hello\n", &*reader.read_line().unwrap());
@@ -1627,6 +1643,7 @@ impl<'a, T, A: ?Sized + Acceptor<T>> Iterator for IncomingConnections<'a, A> {
 /// # Examples
 ///
 /// ```
+/// # #![feature(old_io)]
 /// use std::old_io as io;
 ///
 /// let eof = io::standard_error(io::EndOfFile);
@@ -1715,8 +1732,10 @@ pub enum FileType {
 /// # Examples
 ///
 /// ```no_run
+/// # #![feature(old_io, old_path)]
 ///
 /// use std::old_io::fs::PathExtensions;
+/// use std::old_path::Path;
 ///
 /// let info = match Path::new("foo.txt").stat() {
 ///     Ok(stat) => stat,
@@ -1845,7 +1864,8 @@ impl fmt::Display for FilePermission {
 mod tests {
     use self::BadReaderBehavior::*;
     use super::{IoResult, Reader, MemReader, NoProgress, InvalidInput, Writer};
-    use prelude::v1::{Ok, Vec, Buffer};
+    use super::Buffer;
+    use prelude::v1::{Ok, Vec};
     use usize;
 
     #[derive(Clone, PartialEq, Debug)]

@@ -20,6 +20,8 @@
 #![feature(std_misc)]
 #![feature(test)]
 #![feature(path_ext)]
+#![feature(convert)]
+#![feature(str_char)]
 
 #![deny(warnings)]
 
@@ -117,7 +119,7 @@ pub fn parse_config(args: Vec<String> ) -> Config {
 
     fn opt_path(m: &getopts::Matches, nm: &str) -> PathBuf {
         match m.opt_str(nm) {
-            Some(s) => PathBuf::new(&s),
+            Some(s) => PathBuf::from(&s),
             None => panic!("no option (=path) found for {}", nm),
         }
     }
@@ -132,10 +134,10 @@ pub fn parse_config(args: Vec<String> ) -> Config {
         compile_lib_path: matches.opt_str("compile-lib-path").unwrap(),
         run_lib_path: matches.opt_str("run-lib-path").unwrap(),
         rustc_path: opt_path(matches, "rustc-path"),
-        clang_path: matches.opt_str("clang-path").map(|s| PathBuf::new(&s)),
+        clang_path: matches.opt_str("clang-path").map(|s| PathBuf::from(&s)),
         valgrind_path: matches.opt_str("valgrind-path"),
         force_valgrind: matches.opt_present("force-valgrind"),
-        llvm_bin_path: matches.opt_str("llvm-bin-path").map(|s| PathBuf::new(&s)),
+        llvm_bin_path: matches.opt_str("llvm-bin-path").map(|s| PathBuf::from(&s)),
         src_base: opt_path(matches, "src-base"),
         build_base: opt_path(matches, "build-base"),
         aux_base: opt_path(matches, "aux-base"),
@@ -143,7 +145,7 @@ pub fn parse_config(args: Vec<String> ) -> Config {
         mode: matches.opt_str("mode").unwrap().parse().ok().expect("invalid mode"),
         run_ignored: matches.opt_present("ignored"),
         filter: filter,
-        logfile: matches.opt_str("logfile").map(|s| PathBuf::new(&s)),
+        logfile: matches.opt_str("logfile").map(|s| PathBuf::from(&s)),
         save_metrics: None,
         ratchet_metrics: None,
         ratchet_noise_percent: None,
@@ -156,7 +158,7 @@ pub fn parse_config(args: Vec<String> ) -> Config {
         gdb_version: extract_gdb_version(matches.opt_str("gdb-version")),
         lldb_version: extract_lldb_version(matches.opt_str("lldb-version")),
         android_cross_path: opt_path(matches, "android-cross-path"),
-        nacl_cross_path: matches.opt_str("nacl-cross-path").map(|s| PathBuf::new(&s) ),
+        nacl_cross_path: matches.opt_str("nacl-cross-path").map(|s| Path::new(&s).to_path_buf() ),
         adb_path: opt_str2(matches.opt_str("adb-path")),
         adb_test_dir: format!("{}/{}",
             opt_str2(matches.opt_str("adb-test-dir")),

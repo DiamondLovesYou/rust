@@ -13,24 +13,23 @@
 //! The `slice` module contains useful code to help work with slice values.
 //! Slices are a view into a block of memory represented as a pointer and a length.
 //!
-//! ```rust
+//! ```
 //! // slicing a Vec
-//! let vec = vec!(1, 2, 3);
-//! let int_slice = vec.as_slice();
+//! let vec = vec![1, 2, 3];
+//! let int_slice = &vec[..];
 //! // coercing an array to a slice
 //! let str_slice: &[&str] = &["one", "two", "three"];
 //! ```
 //!
 //! Slices are either mutable or shared. The shared slice type is `&[T]`,
-//! while the mutable slice type is `&mut[T]`. For example, you can mutate the
-//! block of memory that a mutable slice points to:
+//! while the mutable slice type is `&mut [T]`, where `T` represents the element
+//! type. For example, you can mutate the block of memory that a mutable slice
+//! points to:
 //!
-//! ```rust
-//! let x: &mut[i32] = &mut [1, 2, 3];
+//! ```
+//! let x = &mut [1, 2, 3];
 //! x[1] = 7;
-//! assert_eq!(x[0], 1);
-//! assert_eq!(x[1], 7);
-//! assert_eq!(x[2], 3);
+//! assert_eq!(x, &[1, 7, 3]);
 //! ```
 //!
 //! Here are some of the things this module contains:
@@ -40,54 +39,49 @@
 //! There are several structs that are useful for slices, such as `Iter`, which
 //! represents iteration over a slice.
 //!
-//! ## Traits
-//!
-//! A number of traits add methods that allow you to accomplish tasks
-//! with slices, the most important being `SliceExt`. Other traits
-//! apply only to slices of elements satisfying certain bounds (like
-//! `Ord`).
-//!
-//! An example is the `slice` method which enables slicing syntax `[a..b]` that
-//! returns an immutable "view" into a `Vec` or another slice from the index
-//! interval `[a, b)`:
-//!
-//! ```rust
-//! fn main() {
-//!     let numbers = [0, 1, 2];
-//!     let last_numbers = &numbers[1..3];
-//!     // last_numbers is now &[1, 2]
-//! }
-//! ```
-//!
-//! ## Implementations of other traits
+//! ## Trait Implementations
 //!
 //! There are several implementations of common traits for slices. Some examples
 //! include:
 //!
 //! * `Clone`
-//! * `Eq`, `Ord` - for immutable slices whose element type are `Eq` or `Ord`.
+//! * `Eq`, `Ord` - for slices whose element type are `Eq` or `Ord`.
 //! * `Hash` - for slices whose element type is `Hash`
 //!
 //! ## Iteration
 //!
-//! The method `iter()` returns an iteration value for a slice. The iterator
-//! yields references to the slice's elements, so if the element
-//! type of the slice is `isize`, the element type of the iterator is `&isize`.
+//! The slices implement `IntoIterator`. The iterators of yield references
+//! to the slice elements.
 //!
-//! ```rust
-//! let numbers = [0, 1, 2];
-//! for &x in numbers.iter() {
-//!     println!("{} is a number!", x);
+//! ```
+//! let numbers = &[0, 1, 2];
+//! for n in numbers {
+//!     println!("{} is a number!", n);
 //! }
 //! ```
 //!
-//! * `.iter_mut()` returns an iterator that allows modifying each value.
-//! * Further iterators exist that split, chunk or permute the slice.
+//! The mutable slice yields mutable references to the elements:
+//!
+//! ```
+//! let mut scores = [7, 8, 9];
+//! for score in &mut scores[..] {
+//!     *score += 1;
+//! }
+//! ```
+//!
+//! This iterator yields mutable references to the slice's elements, so while the element
+//! type of the slice is `i32`, the element type of the iterator is `&mut i32`.
+//!
+//! * `.iter()` and `.iter_mut()` are the explicit methods to return the default
+//!   iterators.
+//! * Further methods that return iterators are `.split()`, `.splitn()`,
+//!   `.chunks()`, `.windows()` and more.
 
 #![doc(primitive = "slice")]
 #![stable(feature = "rust1", since = "1.0.0")]
 
 use alloc::boxed::Box;
+use core::convert::AsRef;
 use core::clone::Clone;
 use core::cmp::Ordering::{self, Greater, Less};
 use core::cmp::{self, Ord, PartialEq};
@@ -270,6 +264,7 @@ impl<T> [T] {
     /// # Examples
     ///
     /// ```rust
+    /// # #![feature(collections)]
     /// let mut a = [1, 2, 3, 4, 5];
     /// let b = vec![6, 7, 8];
     /// let num_moved = a.move_from(b, 0, 3);
@@ -560,6 +555,7 @@ impl<T> [T] {
     /// found; the fourth could match any position in `[1,4]`.
     ///
     /// ```rust
+    /// # #![feature(core)]
     /// let s = [0, 1, 1, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55];
     /// let s = s.as_slice();
     ///
@@ -842,6 +838,7 @@ impl<T> [T] {
     /// # Examples
     ///
     /// ```rust
+    /// # #![feature(collections)]
     /// let v = [1, 2, 3];
     /// let mut perms = v.permutations();
     ///
@@ -853,6 +850,7 @@ impl<T> [T] {
     /// Iterating through permutations one by one.
     ///
     /// ```rust
+    /// # #![feature(collections)]
     /// let v = [1, 2, 3];
     /// let mut perms = v.permutations();
     ///
@@ -874,6 +872,7 @@ impl<T> [T] {
     /// # Example
     ///
     /// ```rust
+    /// # #![feature(collections)]
     /// let mut dst = [0, 0, 0];
     /// let src = [1, 2];
     ///
@@ -921,6 +920,7 @@ impl<T> [T] {
     /// found; the fourth could match any position in `[1,4]`.
     ///
     /// ```rust
+    /// # #![feature(core)]
     /// let s = [0, 1, 1, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55];
     /// let s = s.as_slice();
     ///
@@ -950,6 +950,7 @@ impl<T> [T] {
     /// # Example
     ///
     /// ```rust
+    /// # #![feature(collections)]
     /// let v: &mut [_] = &mut [0, 1, 2];
     /// v.next_permutation();
     /// let b: &mut [_] = &mut [0, 2, 1];
@@ -972,6 +973,7 @@ impl<T> [T] {
     /// # Example
     ///
     /// ```rust
+    /// # #![feature(collections)]
     /// let v: &mut [_] = &mut [1, 0, 2];
     /// v.prev_permutation();
     /// let b: &mut [_] = &mut [0, 2, 1];
@@ -1088,23 +1090,23 @@ pub trait SliceConcatExt<T: ?Sized, U> {
     fn connect(&self, sep: &T) -> U;
 }
 
-impl<T: Clone, V: AsSlice<T>> SliceConcatExt<T, Vec<T>> for [V] {
+impl<T: Clone, V: AsRef<[T]>> SliceConcatExt<T, Vec<T>> for [V] {
     fn concat(&self) -> Vec<T> {
-        let size = self.iter().fold(0, |acc, v| acc + v.as_slice().len());
+        let size = self.iter().fold(0, |acc, v| acc + v.as_ref().len());
         let mut result = Vec::with_capacity(size);
         for v in self {
-            result.push_all(v.as_slice())
+            result.push_all(v.as_ref())
         }
         result
     }
 
     fn connect(&self, sep: &T) -> Vec<T> {
-        let size = self.iter().fold(0, |acc, v| acc + v.as_slice().len());
+        let size = self.iter().fold(0, |acc, v| acc + v.as_ref().len());
         let mut result = Vec::with_capacity(size + self.len());
         let mut first = true;
         for v in self {
             if first { first = false } else { result.push(sep.clone()) }
-            result.push_all(v.as_slice())
+            result.push_all(v.as_ref())
         }
         result
     }

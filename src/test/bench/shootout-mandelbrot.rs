@@ -38,11 +38,12 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 // OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#![feature(simd)]
+#![feature(simd, old_io, core, io)]
 
 // ignore-pretty very bad with line comments
 
 use std::old_io;
+use std::old_io::*;
 use std::env;
 use std::simd::f64x2;
 use std::sync::Arc;

@@ -92,7 +92,7 @@ impl<'a> Archive<'a> {
     /// Lists all files in an archive
     pub fn files(&self) -> Vec<String> {
         let output = self.run_ar("t", None, &[&self.dst]);
-        let output = str::from_utf8(output.stdout.as_slice()).unwrap();
+        let output = str::from_utf8(&output.stdout[..]).unwrap();
         // use lines_any because windows delimits output with `\r\n` instead of
         // just `\n`
         output.lines_any().map(|s| s.to_string()).collect()
@@ -333,7 +333,7 @@ impl<'a> ArchiveBuilder<'a> {
             };
             let new_filename = self.work_dir.path().join(&filename[..]);
             try!(fs::rename(&file, &new_filename));
-            self.members.push(PathBuf::new(&filename));
+            self.members.push(PathBuf::from(filename));
         }
         Ok(())
     }

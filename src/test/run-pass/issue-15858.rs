@@ -8,6 +8,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// pretty-expanded FIXME #23616
+
 #![feature(unsafe_destructor)]
 
 static mut DROP_RAN: bool = false;
@@ -23,7 +25,7 @@ impl Bar for BarImpl {
 }
 
 
-struct Foo<B>(B);
+struct Foo<B: Bar>(B);
 
 #[unsafe_destructor]
 impl<B: Bar> Drop for Foo<B> {

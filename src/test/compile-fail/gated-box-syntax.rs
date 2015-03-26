@@ -8,8 +8,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// Test that the use of the box syntax is gated by `box_syntax` feature gate.
 
-#[deriving(Clone)] //~ ERROR `deriving` has been renamed to `derive`
-struct Foo;
-
-fn main() {}
+fn main() {
+    let x = box 3;
+    //~^ ERROR box expression syntax is experimental; you can call `Box::new` instead.
+    //~| HELP add #![feature(box_syntax)] to the crate attributes to enable
+}

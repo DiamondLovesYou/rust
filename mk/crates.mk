@@ -55,9 +55,9 @@ TARGET_CRATES := libc std flate arena term \
                  unicode rustc_bitflags
 RUSTC_CRATES := rustc rustc_typeck rustc_borrowck rustc_resolve rustc_driver \
                 rustc_trans rustc_back rustc_llvm rustc_privacy rustc_lint
-HOST_CRATES := syntax $(RUSTC_CRATES) rustdoc fmt_macros rust-pnacl-trans
+HOST_CRATES := syntax $(RUSTC_CRATES) rustdoc fmt_macros rust_pnacl_trans
 CRATES := $(TARGET_CRATES) $(HOST_CRATES)
-TOOLS := compiletest rustdoc rustc rustbook rust-pnacl-trans
+TOOLS := compiletest rustdoc rustc rustbook rust_pnacl_trans
 
 DEPS_core :=
 DEPS_libc := core
@@ -86,7 +86,7 @@ DEPS_rustc_back := std syntax rustc_llvm flate log libc
 DEPS_rustdoc := rustc rustc_driver native:hoedown serialize getopts \
                 test rustc_lint
 DEPS_rustc_bitflags := core
-DEPS_rust-pnacl-trans := libc getopts log rustc_llvm
+DEPS_rust_pnacl_trans := libc getopts log rustc_llvm
 DEPS_flate := std native:miniz
 DEPS_arena := std
 DEPS_graphviz := std
@@ -106,12 +106,12 @@ TOOL_DEPS_compiletest := test getopts
 TOOL_DEPS_rustdoc := rustdoc
 TOOL_DEPS_rustc := rustc_driver
 TOOL_DEPS_rustbook := std rustdoc
-TOOL_DEPS_rust-pnacl-trans := rust-pnacl-trans
+TOOL_DEPS_rust_pnacl_trans := rust_pnacl_trans
 TOOL_SOURCE_compiletest := $(S)src/compiletest/compiletest.rs
 TOOL_SOURCE_rustdoc := $(S)src/driver/driver.rs
 TOOL_SOURCE_rustc := $(S)src/driver/driver.rs
 TOOL_SOURCE_rustbook := $(S)src/rustbook/main.rs
-TOOL_SOURCE_rust-pnacl-trans := $(S)src/driver/driver.rs
+TOOL_SOURCE_rust_pnacl_trans := $(S)src/driver/driver.rs
 
 ONLY_RLIB_core := 1
 ONLY_RLIB_libc := 1

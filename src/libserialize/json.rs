@@ -1218,6 +1218,7 @@ impl Json {
     }
 }
 
+#[cfg(stage0)]
 impl<'a> Index<&'a str>  for Json {
     type Output = Json;
 
@@ -1226,12 +1227,34 @@ impl<'a> Index<&'a str>  for Json {
     }
 }
 
+#[cfg(not(stage0))]
+impl<'a> Index<&'a str>  for Json {
+    type Output = Json;
+
+    fn index(&self, idx: &'a str) -> &Json {
+        self.find(idx).unwrap()
+    }
+}
+
+#[cfg(stage0)]
 impl Index<uint> for Json {
     type Output = Json;
 
     fn index<'a>(&'a self, idx: &uint) -> &'a Json {
         match self {
             &Json::Array(ref v) => &v[*idx],
+            _ => panic!("can only index Json with uint if it is an array")
+        }
+    }
+}
+
+#[cfg(not(stage0))]
+impl Index<uint> for Json {
+    type Output = Json;
+
+    fn index<'a>(&'a self, idx: uint) -> &'a Json {
+        match self {
+            &Json::Array(ref v) => &v[idx],
             _ => panic!("can only index Json with uint if it is an array")
         }
     }
@@ -2406,7 +2429,10 @@ pub trait ToJson {
 macro_rules! to_json_impl_i64 {
     ($($t:ty), +) => (
         $(impl ToJson for $t {
-            fn to_json(&self) -> Json { Json::I64(*self as i64) }
+            fn to_json(&self) -> Json {
+                #![allow(trivial_numeric_casts)]
+                Json::I64(*self as i64)
+            }
         })+
     )
 }
@@ -2416,7 +2442,10 @@ to_json_impl_i64! { int, i8, i16, i32, i64 }
 macro_rules! to_json_impl_u64 {
     ($($t:ty), +) => (
         $(impl ToJson for $t {
-            fn to_json(&self) -> Json { Json::U64(*self as u64) }
+            fn to_json(&self) -> Json {
+                #![allow(trivial_numeric_casts)]
+                Json::U64(*self as u64)
+            }
         })+
     )
 }
@@ -2622,6 +2651,7 @@ mod tests {
     use std::{i64, u64, f32, f64};
     use std::collections::BTreeMap;
     use std::string;
+    use std::old_io::Writer;
 
     #[derive(RustcDecodable, Eq, PartialEq, Debug)]
     struct OptionData {

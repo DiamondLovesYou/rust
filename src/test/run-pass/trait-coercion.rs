@@ -9,9 +9,9 @@
 // except according to those terms.
 
 #![allow(unknown_features)]
-#![feature(box_syntax)]
+#![feature(box_syntax, old_io, io)]
 
-use std::old_io;
+use std::io::{self, Write};
 
 trait Trait {
     fn f(&self);
@@ -29,9 +29,7 @@ impl Trait for Struct {
     }
 }
 
-fn foo(mut a: Box<Writer>) {
-    a.write(b"Hello\n");
-}
+fn foo(mut a: Box<Write>) {}
 
 // FIXME (#22405): Replace `Box::new` with `box` here when/if possible.
 
@@ -42,6 +40,6 @@ pub fn main() {
     let c: &Trait = &a;
     c.f();
 
-    let out = old_io::stdout();
+    let out = io::stdout();
     foo(Box::new(out));
 }

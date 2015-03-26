@@ -821,8 +821,13 @@ impl<'a> State<'a> {
             ast::ItemExternCrate(ref optional_path) => {
                 try!(self.head(&visibility_qualified(item.vis,
                                                      "extern crate")));
-                if let Some((ref p, style)) = *optional_path {
-                    try!(self.print_string(p, style));
+                if let Some(p) = *optional_path {
+                    let val = token::get_name(p);
+                    if val.contains("-") {
+                        try!(self.print_string(&val, ast::CookedStr));
+                    } else {
+                        try!(self.print_name(p));
+                    }
                     try!(space(&mut self.s));
                     try!(word(&mut self.s, "as"));
                     try!(space(&mut self.s));
@@ -2712,8 +2717,20 @@ impl<'a> State<'a> {
                        opt_explicit_self: Option<&ast::ExplicitSelf_>)
                        -> io::Result<()> {
         try!(self.ibox(indent_unit));
+        if generics.lifetimes.len() > 0 || generics.ty_params.len() > 0 {
+            try!(word(&mut self.s, "for"));
+            try!(self.print_generics(generics));
+        }
+        let generics = ast::Generics {
+            lifetimes: Vec::new(),
+            ty_params: OwnedSlice::empty(),
+            where_clause: ast::WhereClause {
+                id: ast::DUMMY_NODE_ID,
+                predicates: Vec::new(),
+            },
+        };
         try!(self.print_fn(decl, unsafety, abi, name,
-                           generics, opt_explicit_self,
+                           &generics, opt_explicit_self,
                            ast::Inherited));
         self.end()
     }
@@ -2819,7 +2836,7 @@ impl<'a> State<'a> {
             ast::LitBinary(ref v) => {
                 let mut escaped: String = String::new();
                 for &ch in &**v {
-                    escaped.extend(ascii::escape_default(ch as u8)
+                    escaped.extend(ascii::escape_default(ch)
                                          .map(|c| c as char));
                 }
                 word(&mut self.s, &format!("b\"{}\"", escaped))

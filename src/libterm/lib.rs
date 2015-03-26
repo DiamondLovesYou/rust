@@ -19,6 +19,7 @@
 //! # Examples
 //!
 //! ```no_run
+//! # #![feature(rustc_private)]
 //! extern crate term;
 //!
 //! use std::io::prelude::*;
@@ -62,6 +63,7 @@
 #![feature(std_misc)]
 #![feature(str_char)]
 #![feature(path_ext)]
+#![feature(convert)]
 #![cfg_attr(windows, feature(libc))]
 
 #[macro_use] extern crate log;
@@ -101,7 +103,7 @@ impl Write for WriterWrapper {
 /// opened.
 pub fn stdout() -> Option<Box<Terminal<WriterWrapper> + Send>> {
     TerminfoTerminal::new(WriterWrapper {
-        wrapped: box std::io::stdout() as Box<Write + Send>,
+        wrapped: box std::io::stdout(),
     })
 }
 
@@ -110,14 +112,14 @@ pub fn stdout() -> Option<Box<Terminal<WriterWrapper> + Send>> {
 /// opened.
 pub fn stdout() -> Option<Box<Terminal<WriterWrapper> + Send>> {
     let ti = TerminfoTerminal::new(WriterWrapper {
-        wrapped: box std::io::stdout() as Box<Write + Send>,
+        wrapped: box std::io::stdout(),
     });
 
     match ti {
         Some(t) => Some(t),
         None => {
             WinConsole::new(WriterWrapper {
-                wrapped: box std::io::stdout() as Box<Write + Send>,
+                wrapped: box std::io::stdout(),
             })
         }
     }
@@ -128,7 +130,7 @@ pub fn stdout() -> Option<Box<Terminal<WriterWrapper> + Send>> {
 /// opened.
 pub fn stderr() -> Option<Box<Terminal<WriterWrapper> + Send>> {
     TerminfoTerminal::new(WriterWrapper {
-        wrapped: box std::io::stderr() as Box<Write + Send>,
+        wrapped: box std::io::stderr(),
     })
 }
 
@@ -137,14 +139,14 @@ pub fn stderr() -> Option<Box<Terminal<WriterWrapper> + Send>> {
 /// opened.
 pub fn stderr() -> Option<Box<Terminal<WriterWrapper> + Send>> {
     let ti = TerminfoTerminal::new(WriterWrapper {
-        wrapped: box std::io::stderr() as Box<Write + Send>,
+        wrapped: box std::io::stderr(),
     });
 
     match ti {
         Some(t) => Some(t),
         None => {
             WinConsole::new(WriterWrapper {
-                wrapped: box std::io::stderr() as Box<Write + Send>,
+                wrapped: box std::io::stderr(),
             })
         }
     }

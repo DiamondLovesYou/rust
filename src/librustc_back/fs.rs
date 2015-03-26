@@ -9,7 +9,7 @@
 // except according to those terms.
 
 use std::io;
-#[allow(deprecated)] use std::old_path;
+#[allow(deprecated)] use std::old_path::{self, GenericPath};
 #[allow(deprecated)] use std::old_io;
 use std::path::{Path, PathBuf};
 
@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 pub fn realpath(original: &Path) -> io::Result<PathBuf> {
     let old = old_path::Path::new(original.to_str().unwrap());
     match old_realpath(&old) {
-        Ok(p) => Ok(PathBuf::new(p.as_str().unwrap())),
+        Ok(p) => Ok(PathBuf::from(p.as_str().unwrap())),
         Err(e) => Err(io::Error::new(io::ErrorKind::Other,
                                      "realpath error",
                                      Some(e.to_string())))
@@ -72,6 +72,7 @@ mod test {
     use std::old_io::fs::{File, symlink, mkdir, mkdir_recursive};
     use super::old_realpath as realpath;
     use std::old_io::TempDir;
+    use std::old_path::{Path, GenericPath};
 
     #[test]
     fn realpath_works() {

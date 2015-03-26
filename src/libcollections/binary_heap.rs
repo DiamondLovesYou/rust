@@ -216,6 +216,7 @@ impl<T: Ord> BinaryHeap<T> {
     /// # Examples
     ///
     /// ```
+    /// # #![feature(collections)]
     /// use std::collections::BinaryHeap;
     /// let heap = BinaryHeap::from_vec(vec![9, 1, 2, 7, 3, 2]);
     /// ```
@@ -235,6 +236,7 @@ impl<T: Ord> BinaryHeap<T> {
     /// # Examples
     ///
     /// ```
+    /// # #![feature(collections)]
     /// use std::collections::BinaryHeap;
     /// let heap = BinaryHeap::from_vec(vec![1, 2, 3, 4]);
     ///
@@ -255,6 +257,7 @@ impl<T: Ord> BinaryHeap<T> {
     /// # Examples
     ///
     /// ```
+    /// # #![feature(collections)]
     /// use std::collections::BinaryHeap;
     /// let heap = BinaryHeap::from_vec(vec![1, 2, 3, 4]);
     ///
@@ -360,6 +363,7 @@ impl<T: Ord> BinaryHeap<T> {
     /// # Examples
     ///
     /// ```
+    /// # #![feature(collections)]
     /// use std::collections::BinaryHeap;
     /// let mut heap = BinaryHeap::from_vec(vec![1, 3]);
     ///
@@ -405,6 +409,7 @@ impl<T: Ord> BinaryHeap<T> {
     /// # Examples
     ///
     /// ```
+    /// # #![feature(collections)]
     /// use std::collections::BinaryHeap;
     /// let mut heap = BinaryHeap::new();
     /// heap.push(1);
@@ -436,6 +441,7 @@ impl<T: Ord> BinaryHeap<T> {
     /// # Examples
     ///
     /// ```
+    /// # #![feature(collections)]
     /// use std::collections::BinaryHeap;
     /// let mut heap = BinaryHeap::new();
     ///
@@ -461,6 +467,7 @@ impl<T: Ord> BinaryHeap<T> {
     /// # Examples
     ///
     /// ```
+    /// # #![feature(collections)]
     /// use std::collections::BinaryHeap;
     /// let heap = BinaryHeap::from_vec(vec![1, 2, 3, 4, 5, 6, 7]);
     /// let vec = heap.into_vec();
@@ -478,6 +485,7 @@ impl<T: Ord> BinaryHeap<T> {
     /// # Examples
     ///
     /// ```
+    /// # #![feature(collections)]
     /// use std::collections::BinaryHeap;
     ///
     /// let mut heap = BinaryHeap::from_vec(vec![1, 2, 4, 5, 7]);
@@ -555,6 +563,8 @@ impl<T: Ord> BinaryHeap<T> {
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 
     /// Clears the binary heap, returning an iterator over the removed elements.
+    ///
+    /// The elements are removed in arbitrary order.
     #[inline]
     #[unstable(feature = "collections",
                reason = "matches collection reform specification, waiting for dust to settle")]

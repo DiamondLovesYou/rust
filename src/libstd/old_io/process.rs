@@ -24,8 +24,9 @@ use collections::HashMap;
 use ffi::CString;
 use fmt;
 use old_io::pipe::{PipeStream, PipePair};
-use old_io::{IoResult, IoError};
+use old_io::{IoResult, IoError, Reader, Writer};
 use old_io;
+use old_path::{Path, GenericPath};
 use libc;
 use os;
 use old_path::BytesContainer;
@@ -60,7 +61,8 @@ use thread;
 /// # Examples
 ///
 /// ```should_fail
-/// use std::old_io::Command;
+/// # #![feature(old_io)]
+/// use std::old_io::*;
 ///
 /// let mut child = match Command::new("/bin/cat").arg("file.txt").spawn() {
 ///     Ok(child) => child,
@@ -163,7 +165,8 @@ pub type EnvMap = HashMap<EnvKey, CString>;
 /// to be changed (for example, by adding arguments) prior to spawning:
 ///
 /// ```
-/// use std::old_io::Command;
+/// # #![feature(old_io)]
+/// use std::old_io::*;
 ///
 /// let mut process = match Command::new("sh").arg("-c").arg("echo hello").spawn() {
 ///   Ok(p) => p,
@@ -364,6 +367,7 @@ impl Command {
     /// # Examples
     ///
     /// ```
+    /// # #![feature(old_io, core)]
     /// use std::old_io::Command;
     ///
     /// let output = match Command::new("cat").arg("foot.txt").output() {
@@ -385,6 +389,7 @@ impl Command {
     /// # Examples
     ///
     /// ```
+    /// # #![feature(old_io)]
     /// use std::old_io::Command;
     ///
     /// let status = match Command::new("ls").status() {
@@ -659,6 +664,7 @@ impl Process {
     /// # Examples
     ///
     /// ```no_run
+    /// # #![feature(old_io, io)]
     /// use std::old_io::{Command, IoResult};
     /// use std::old_io::process::ProcessExit;
     ///
@@ -759,9 +765,11 @@ impl Drop for Process {
 #[cfg(test)]
 mod tests {
     use old_io::{Truncate, Write, TimedOut, timer, process, FileNotFound};
-    use prelude::v1::{Ok, Err, range, drop, Some, None, Vec};
-    use prelude::v1::{Path, String, Reader, Writer, Clone};
-    use prelude::v1::{Str, AsSlice, ToString, GenericPath};
+    use old_io::{Reader, Writer};
+    use prelude::v1::{Ok, Err, drop, Some, None, Vec};
+    use prelude::v1::{String, Clone};
+    use prelude::v1::{Str, AsSlice, ToString};
+    use old_path::{GenericPath, Path};
     use old_io::fs::PathExtensions;
     use old_io::timer::*;
     use rt::running_on_valgrind;

@@ -521,7 +521,7 @@ impl<'b, 'tcx> CrateContext<'b, 'tcx> {
 
     pub fn is_split_stack_supported(&self) -> bool {
         self.sess().target.target.options.morestack
-            && self.sess().target.target.target_os.as_slice() != "nacl"
+            && &self.sess().target.target.target_os[..] != "nacl"
     }
 
 

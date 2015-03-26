@@ -187,6 +187,7 @@ As an example, we give a reimplementation of owned boxes by wrapping
 reimplementation is as safe as the `Box` type.
 
 ```
+# #![feature(libc)]
 #![feature(unsafe_destructor)]
 
 extern crate libc;
@@ -196,15 +197,16 @@ use std::ptr;
 
 // Define a wrapper around the handle returned by the foreign code.
 // Unique<T> has the same semantics as Box<T>
-pub struct Unique<T> {
+//
+// NB: For simplicity and correctness, we require that T has kind Send
+// (owned boxes relax this restriction).
+pub struct Unique<T: Send> {
     // It contains a single raw, mutable pointer to the object in question.
     ptr: *mut T
 }
 
 // Implement methods for creating and using the values in the box.
 
-// NB: For simplicity and correctness, we require that T has kind Send
-// (owned boxes relax this restriction).
 impl<T: Send> Unique<T> {
     pub fn new(value: T) -> Unique<T> {
         unsafe {
@@ -238,11 +240,11 @@ impl<T: Send> Unique<T> {
 // Unique<T>, making the struct manage the raw pointer: when the
 // struct goes out of scope, it will automatically free the raw pointer.
 //
-// NB: This is an unsafe destructor, because rustc will not normally
-// allow destructors to be associated with parameterized types, due to
-// bad interaction with managed boxes. (With the Send restriction,
-// we don't have this problem.) Note that the `#[unsafe_destructor]`
-// feature gate is required to use unsafe destructors.
+// NB: This is an unsafe destructor; rustc will not normally allow
+// destructors to be associated with parameterized types (due to
+// historically failing to check them soundly).  Note that the
+// `#[unsafe_destructor]` feature gate is currently required to use
+// unsafe destructors.
 #[unsafe_destructor]
 impl<T: Send> Drop for Unique<T> {
     fn drop(&mut self) {
@@ -443,6 +445,7 @@ The function marked `#[start]` is passed the command line parameters
 in the same format as C:
 
 ```
+# #![feature(libc)]
 #![feature(lang_items, start, no_std)]
 #![no_std]
 
@@ -470,6 +473,7 @@ correct ABI and the correct name, which requires overriding the
 compiler's name mangling too:
 
 ```ignore
+# #![feature(libc)]
 #![feature(no_std)]
 #![no_std]
 #![no_main]
@@ -526,6 +530,7 @@ As an example, here is a program that will calculate the dot product of two
 vectors provided from C, using idiomatic Rust practices.
 
 ```
+# #![feature(libc, core)]
 #![feature(lang_items, start, no_std)]
 #![no_std]
 
@@ -650,6 +655,7 @@ and one for deallocation. A freestanding program that uses the `Box`
 sugar for dynamic allocations via `malloc` and `free`:
 
 ```
+# #![feature(libc)]
 #![feature(lang_items, box_syntax, start, no_std)]
 #![no_std]
 

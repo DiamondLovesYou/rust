@@ -605,6 +605,8 @@ impl Path {
     /// # Examples
     ///
     /// ```
+    /// # #![feature(old_path)]
+    /// use std::old_path::{Path, GenericPath};
     /// println!("{}", Path::new(r"C:\some\path").display());
     /// ```
     #[inline]
@@ -619,6 +621,8 @@ impl Path {
     /// # Examples
     ///
     /// ```
+    /// # #![feature(old_path)]
+    /// use std::old_path::{Path, GenericPath};
     /// let path = Path::new_opt(r"C:\some\path");
     ///
     /// match path {

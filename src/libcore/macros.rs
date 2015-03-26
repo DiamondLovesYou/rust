@@ -176,6 +176,7 @@ macro_rules! try {
 ///
 /// ```
 /// # #![allow(unused_must_use)]
+/// use std::io::Write;
 ///
 /// let mut w = Vec::new();
 /// write!(&mut w, "test");
@@ -230,6 +231,7 @@ macro_rules! writeln {
 /// Iterators:
 ///
 /// ```
+/// # #![feature(core)]
 /// fn divide_by_three(x: u32) -> u32 { // one of the poorest implementations of x/3
 ///     for i in std::iter::count(0, 1) {
 ///         if 3*i < i { panic!("u32 overflow"); }

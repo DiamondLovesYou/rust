@@ -624,6 +624,7 @@ impl<'a> Formatter<'a> {
     /// # Examples
     ///
     /// ```rust
+    /// # #![feature(debug_builders, core)]
     /// use std::fmt;
     ///
     /// struct Foo {
@@ -655,6 +656,7 @@ impl<'a> Formatter<'a> {
     /// # Examples
     ///
     /// ```rust
+    /// # #![feature(debug_builders, core)]
     /// use std::fmt;
     ///
     /// struct Foo(i32, String);
@@ -683,6 +685,7 @@ impl<'a> Formatter<'a> {
     /// # Examples
     ///
     /// ```rust
+    /// # #![feature(debug_builders, core)]
     /// use std::fmt;
     ///
     /// struct Foo(Vec<i32>);
@@ -712,6 +715,7 @@ impl<'a> Formatter<'a> {
     /// # Examples
     ///
     /// ```rust
+    /// # #![feature(debug_builders, core)]
     /// use std::fmt;
     ///
     /// struct Foo(Vec<(String, i32)>);
@@ -829,6 +833,8 @@ impl<T> Pointer for *const T {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Pointer for *mut T {
     fn fmt(&self, f: &mut Formatter) -> Result {
+        // FIXME(#23542) Replace with type ascription.
+        #![allow(trivial_casts)]
         Pointer::fmt(&(*self as *const T), f)
     }
 }
@@ -836,6 +842,8 @@ impl<T> Pointer for *mut T {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, T> Pointer for &'a T {
     fn fmt(&self, f: &mut Formatter) -> Result {
+        // FIXME(#23542) Replace with type ascription.
+        #![allow(trivial_casts)]
         Pointer::fmt(&(*self as *const T), f)
     }
 }
@@ -843,6 +851,8 @@ impl<'a, T> Pointer for &'a T {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, T> Pointer for &'a mut T {
     fn fmt(&self, f: &mut Formatter) -> Result {
+        // FIXME(#23542) Replace with type ascription.
+        #![allow(trivial_casts)]
         Pointer::fmt(&(&**self as *const T), f)
     }
 }

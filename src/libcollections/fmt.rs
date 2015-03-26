@@ -174,6 +174,7 @@
 //! like:
 //!
 //! ```
+//! # #![feature(core, std_misc)]
 //! use std::fmt;
 //! use std::f64;
 //! use std::num::Float;
@@ -261,7 +262,9 @@
 //! Example usage is:
 //!
 //! ```
+//! # #![feature(old_io)]
 //! # #![allow(unused_must_use)]
+//! use std::io::Write;
 //! let mut w = Vec::new();
 //! write!(&mut w, "Hello {}!", "world");
 //! ```
@@ -287,16 +290,17 @@
 //! off, some example usage is:
 //!
 //! ```
+//! # #![feature(old_io)]
 //! use std::fmt;
-//! use std::old_io;
+//! use std::io::{self, Write};
 //!
 //! fmt::format(format_args!("this returns {}", "String"));
 //!
-//! let mut some_writer = old_io::stdout();
+//! let mut some_writer = io::stdout();
 //! write!(&mut some_writer, "{}", format_args!("print with a {}", "macro"));
 //!
 //! fn my_fmt_fn(args: fmt::Arguments) {
-//!     write!(&mut old_io::stdout(), "{}", args);
+//!     write!(&mut io::stdout(), "{}", args);
 //! }
 //! my_fmt_fn(format_args!("or a {} too", "function"));
 //! ```

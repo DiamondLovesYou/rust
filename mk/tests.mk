@@ -435,9 +435,9 @@ define DEF_TEST_CRATE_RULES_le32-unknown-nacl
 check-stage$(1)-T-$(2)-H-$(3)-$(4)-exec: $$(call TEST_OK_FILE,$(1),$(2),$(3),$(4))
 $$(call TEST_OK_FILE,$(1),$(2),$(3),$(4)): \
 		$(3)/stage$(1)/test/$(4)test-$(2)$$(X_$(2))
-	@$$(call E, run: rust-pnacl-trans $$<)
+	@$$(call E, run: rust_pnacl_trans $$<)
 	$$(Q)$$(RPATH_VAR$(1)_T_$(2)_H_$(3)) \
-		$$(HBIN$(1)_H_$(3))/rust-pnacl-trans$$(X_$(3)) \
+		$$(HBIN$(1)_H_$(3))/rust_pnacl_trans$$(X_$(3)) \
 		--cross-path=$$(CFG_NACL_CROSS_PATH) $$< \
 		-o $$<.nexe
 	@$$(call E, run: $$<.nexe)
@@ -587,6 +587,11 @@ endif
 
 ifeq ($(CFG_OSTYPE),apple-darwin)
 CTEST_DISABLE_debuginfo-gdb = "gdb on darwin needs root"
+endif
+
+ifeq ($(findstring android, $(CFG_TARGET)), android)
+CTEST_DISABLE_debuginfo-gdb =
+CTEST_DISABLE_debuginfo-lldb = "lldb tests are disabled on android"
 endif
 
 # CTEST_DISABLE_NONSELFHOST_$(TEST_GROUP), if set, will cause that

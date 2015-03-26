@@ -171,9 +171,9 @@ pub struct Config {
 
 impl Config {
     pub fn targeting_nacl(&self) -> bool {
-        self.target.as_slice().ends_with("-unknown-nacl")
+        self.target.ends_with("-unknown-nacl")
     }
     pub fn targeting_pnacl(&self) -> bool {
-        "le32-unknown-nacl" == self.target.as_slice()
+        "le32-unknown-nacl" == &self.target[..]
     }
 }

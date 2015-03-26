@@ -79,13 +79,12 @@ pub fn llvm_actual_err(sess: &Session, msg: String) {
     unsafe {
         let cstr = llvm::LLVMRustGetLastError();
         if cstr == ptr::null() {
-            sess.err(msg.as_slice());
+            sess.err(&msg[..]);
         } else {
             let err = ffi::CStr::from_ptr(cstr).to_bytes();
-            let err = String::from_utf8_lossy(err.as_slice()).to_string();
-            sess.err(format!("{}: {}",
-                             msg.as_slice(),
-                             err.as_slice()).as_slice());
+            let err = String::from_utf8_lossy(&err[..]).to_string();
+            sess.err(&format!("{}: {}",
+                              msg, err)[..]);
         }
     }
 }
@@ -94,13 +93,12 @@ pub fn llvm_warn(sess: &Session, msg: String) {
     unsafe {
         let cstr = llvm::LLVMRustGetLastError();
         if cstr == ptr::null() {
-            sess.warn(msg.as_slice());
+            sess.warn(&msg[..]);
         } else {
             let err = ffi::CStr::from_ptr(cstr).to_bytes();
-            let err = String::from_utf8_lossy(err.as_slice()).to_string();
-            sess.warn(format!("{}: {}",
-                              msg.as_slice(),
-                              err.as_slice()).as_slice());
+            let err = String::from_utf8_lossy(&err[..]).to_string();
+            sess.warn(&format!("{}: {}",
+                               msg, err)[..]);
         }
     }
 }
@@ -584,18 +582,18 @@ fn link_pnacl_rlib(sess: &Session,
 
     for (index, mtrans) in trans.modules.iter().enumerate() {
         let f = match mtrans.name {
-            Some(ref name) => outputs.with_extension(format!("{}.bc",
-                                                             name)
-                                                     .as_slice()),
-            None => outputs.with_extension(format!("{}.bc",
-                                                   index)
-                                           .as_slice()),
+            Some(ref name) => outputs
+                .with_extension(&format!("{}.bc",
+                                         name)[..]),
+            None => outputs
+                .with_extension(&format!("{}.bc",
+                                         index)[..]),
         };
         let _: Result<(), ()> = a
             .add_file(&f)
             .or_else(|e| {
-                sess.err(format!("error adding file to archive: `{}`",
-                                 e).as_slice());
+                sess.err(&format!("error adding file to archive: `{}`",
+                                  e)[..]);
                 Ok(())
             });
     }
@@ -608,20 +606,20 @@ fn link_pnacl_rlib(sess: &Session,
     let tmpdir = TempDir::new("rustc").ok().expect("needs a temp dir");
     let metadata = tmpdir.path().join(METADATA_FILENAME);
     match fs::File::create(&metadata)
-        .and_then(|mut f| f.write_all(trans.metadata.as_slice()) )
+        .and_then(|mut f| f.write_all(&trans.metadata[..]) )
     {
         Ok(..) => {}
         Err(e) => {
-            sess.fatal(format!("failed to write {:?}: {}",
-                               metadata, e).as_slice());
+            sess.fatal(&format!("failed to write {:?}: {}",
+                                metadata, e)[..]);
         }
     }
 
     let _: Result<(), ()> = a
         .add_file(&metadata)
         .or_else(|e| {
-            sess.err(format!("error adding file to archive: `{}`",
-                             e).as_slice());
+            sess.err(&format!("error adding file to archive: `{}`",
+                              e)[..]);
             Ok(())
         });
 
@@ -638,7 +636,7 @@ pub fn link_outputs_for_pnacl(sess: &Session,
     use super::write;
 
     write::run_passes(sess, trans,
-                      sess.opts.output_types.as_slice(),
+                      &sess.opts.output_types[..],
                       outputs);
 
     // Rlibs and statics first, then exes.
@@ -666,12 +664,12 @@ pub fn link_outputs_for_pnacl(sess: &Session,
     if !sess.opts.cg.save_temps {
         for (index, mtrans) in trans.modules.iter().enumerate() {
             let f = match mtrans.name {
-                Some(ref name) => outputs.with_extension(format!("{}.bc",
-                                                                 name)
-                                                         .as_slice()),
-                None => outputs.with_extension(format!("{}.bc",
-                                                       index)
-                                               .as_slice()),
+                Some(ref name) => outputs
+                    .with_extension(&format!("{}.bc",
+                                             name)[..]),
+                None => outputs
+                    .with_extension(&format!("{}.bc",
+                                             index)[..]),
             };
             remove(sess, &f);
         }
@@ -777,10 +775,12 @@ pub fn link_pnacl_module(sess: &Session,
                ]);
     for (index, mtrans) in trans.modules.iter().enumerate() {
         let f = match mtrans.name {
-            Some(ref name) => outputs.with_extension(format!("{}.bc",
-                                                             name).as_slice()),
-            None => outputs.with_extension(format!("{}.bc",
-                                                   index).as_slice()),
+            Some(ref name) => outputs
+                .with_extension(&format!("{}.bc",
+                                         name)[..]),
+            None => outputs
+                .with_extension(&format!("{}.bc",
+                                         index)[..]),
         };
         cmd.arg(&f);
     }
@@ -797,7 +797,7 @@ pub fn link_pnacl_module(sess: &Session,
         _ => {}
     }
     for arg in sess.cstore.get_used_link_args().borrow().iter() {
-        cmd.arg(arg.as_slice());
+        cmd.arg(&arg[..]);
     }
     cmd.arg("--start-group");
     let deps = sess.cstore.get_used_crates(cstore::RequireStatic);
@@ -818,21 +818,19 @@ pub fn link_pnacl_module(sess: &Session,
     match prog {
         Ok(prog) => {
             if !prog.status.success() {
-                sess.err(format!("linking with `{}` failed: {}",
-                                 linker.display(),
-                                 prog.status).as_slice());
-                sess.note(format!("{:?}", &cmd).as_slice());
+                sess.err(&format!("linking with `{}` failed: {}",
+                                  linker.display(),
+                                  prog.status)[..]);
+                sess.note(&format!("{:?}", &cmd)[..]);
                 let mut output = prog.stderr.clone();
-                output.push_all(prog.stdout.as_slice());
-                sess.note(str::from_utf8(output.as_slice()).unwrap()
-                                                           .as_slice());
+                output.push_all(&prog.stdout[..]);
+                sess.note(&str::from_utf8(&output[..]).unwrap()[..]);
                 sess.abort_if_errors();
             }
         },
         Err(e) => {
-            sess.err(format!("could not exec the linker `{}`: {}",
-                             linker.display(),
-                             e).as_slice());
+            sess.err(&format!("could not exec the linker `{}`: {}",
+                              linker.display(), e)[..]);
             sess.abort_if_errors();
         }
     }
@@ -855,11 +853,11 @@ pub fn link_pnacl_module(sess: &Session,
                                  llcx,
                                  None,
                                  &post_link_path,
-                                 buf.as_slice()).unwrap()
+                                 &buf[..]).unwrap()
         },
         Err(e) => {
-            sess.fatal(format!("error reading file `{:?}`: `{}`",
-                               post_link_path, e).as_slice());
+            sess.fatal(&format!("error reading file `{:?}`: `{}`",
+                                post_link_path, e)[..]);
         }
     };
 
@@ -1418,7 +1416,7 @@ fn link_args(cmd: &mut Command,
         if t.options.is_like_osx {
             let morestack = lib_path.join("libmorestack.a");
 
-            let mut v = OsString::from_str("-Wl,-force_load,");
+            let mut v = OsString::from("-Wl,-force_load,");
             v.push(&morestack);
             cmd.arg(&v);
         } else {
@@ -1543,7 +1541,7 @@ fn link_args(cmd: &mut Command,
             cmd.args(&["-dynamiclib", "-Wl,-dylib"]);
 
             if sess.opts.cg.rpath {
-                let mut v = OsString::from_str("-Wl,-install_name,@rpath/");
+                let mut v = OsString::from("-Wl,-install_name,@rpath/");
                 v.push(out_filename.file_name().unwrap());
                 cmd.arg(&v);
             }
@@ -1561,7 +1559,7 @@ fn link_args(cmd: &mut Command,
         let mut get_install_prefix_lib_path = || {
             let install_prefix = option_env!("CFG_PREFIX").expect("CFG_PREFIX");
             let tlib = filesearch::relative_target_lib_path(sysroot, target_triple);
-            let mut path = PathBuf::new(install_prefix);
+            let mut path = PathBuf::from(install_prefix);
             path.push(&tlib);
 
             path
@@ -1643,7 +1641,7 @@ fn add_local_native_libraries(cmd: &mut Command, sess: &Session) {
                                             &sess.target.target.options.staticlib_suffix,
                                             &search_path[..],
                                             &sess.diagnostic().handler);
-            let mut v = OsString::from_str("-Wl,-force_load,");
+            let mut v = OsString::from("-Wl,-force_load,");
             v.push(&lib);
             cmd.arg(&v);
         }
@@ -1682,9 +1680,9 @@ fn add_upstream_rust_crates(cmd: &mut Command, sess: &Session,
     // involves just passing the right -l flag.
 
     let data = if dylib {
-        &trans.crate_formats[config::CrateTypeDylib]
+        trans.crate_formats.get(&config::CrateTypeDylib).unwrap()
     } else {
-        &trans.crate_formats[config::CrateTypeExecutable]
+        trans.crate_formats.get(&config::CrateTypeExecutable).unwrap()
     };
 
     // Invoke get_used_crates to ensure that we get a topological sorting of

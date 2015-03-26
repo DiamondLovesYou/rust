@@ -2439,6 +2439,7 @@ pub mod consts {
         }
         pub mod posix88 {
             use types::os::arch::c95::c_int;
+            use types::os::arch::posix88::mode_t;
 
             pub const O_RDONLY : c_int = 0;
             pub const O_WRONLY : c_int = 1;
@@ -2461,6 +2462,14 @@ pub mod consts {
             pub const S_IXUSR : c_int = 64;
             pub const S_IWUSR : c_int = 128;
             pub const S_IRUSR : c_int = 256;
+            pub const S_IRWXG : mode_t = 56;
+            pub const S_IXGRP : mode_t = 8;
+            pub const S_IWGRP : mode_t = 16;
+            pub const S_IRGRP : mode_t = 32;
+            pub const S_IRWXO : mode_t = 7;
+            pub const S_IXOTH : mode_t = 1;
+            pub const S_IWOTH : mode_t = 2;
+            pub const S_IROTH : mode_t = 4;
             pub const F_OK : c_int = 0;
             pub const R_OK : c_int = 4;
             pub const W_OK : c_int = 2;
@@ -2495,10 +2504,24 @@ pub mod consts {
 
             pub const TCP_NODELAY: c_int = 0x0001;
             pub const SOL_SOCKET: c_int = 0xffff;
-            pub const SO_KEEPALIVE: c_int = 8;
-            pub const SO_BROADCAST: c_int = 32;
-            pub const SO_REUSEADDR: c_int = 4;
+
+            pub const SO_DEBUG: c_int = 0x0001;
+            pub const SO_ACCEPTCONN: c_int = 0x0002;
+            pub const SO_REUSEADDR: c_int = 0x0004;
+            pub const SO_KEEPALIVE: c_int = 0x0008;
+            pub const SO_DONTROUTE: c_int = 0x0010;
+            pub const SO_BROADCAST: c_int = 0x0020;
+            pub const SO_USELOOPBACK: c_int = 0x0040;
+            pub const SO_LINGER: c_int = 0x0080;
+            pub const SO_OOBINLINE: c_int = 0x0100;
+            pub const SO_SNDBUF: c_int = 0x1001;
+            pub const SO_RCVBUF: c_int = 0x1002;
+            pub const SO_SNDLOWAT: c_int = 0x1003;
+            pub const SO_RCVLOWAT: c_int = 0x1004;
+            pub const SO_SNDTIMEO: c_int = 0x1005;
+            pub const SO_RCVTIMEO: c_int = 0x1006;
             pub const SO_ERROR: c_int = 0x1007;
+            pub const SO_TYPE: c_int = 0x1008;
 
             pub const IFF_LOOPBACK: c_int = 4;
 
@@ -2797,6 +2820,14 @@ pub mod consts {
             pub const S_IXUSR : mode_t = 64;
             pub const S_IWUSR : mode_t = 128;
             pub const S_IRUSR : mode_t = 256;
+            pub const S_IRWXG : mode_t = 56;
+            pub const S_IXGRP : mode_t = 8;
+            pub const S_IWGRP : mode_t = 16;
+            pub const S_IRGRP : mode_t = 32;
+            pub const S_IRWXO : mode_t = 7;
+            pub const S_IXOTH : mode_t = 1;
+            pub const S_IWOTH : mode_t = 2;
+            pub const S_IROTH : mode_t = 4;
             pub const F_OK : c_int = 0;
             pub const R_OK : c_int = 4;
             pub const W_OK : c_int = 2;
@@ -3010,6 +3041,14 @@ pub mod consts {
             pub const S_IXUSR : mode_t = 64;
             pub const S_IWUSR : mode_t = 128;
             pub const S_IRUSR : mode_t = 256;
+            pub const S_IRWXG : mode_t = 56;
+            pub const S_IXGRP : mode_t = 8;
+            pub const S_IWGRP : mode_t = 16;
+            pub const S_IRGRP : mode_t = 32;
+            pub const S_IRWXO : mode_t = 7;
+            pub const S_IXOTH : mode_t = 1;
+            pub const S_IWOTH : mode_t = 2;
+            pub const S_IROTH : mode_t = 4;
             pub const F_OK : c_int = 0;
             pub const R_OK : c_int = 4;
             pub const W_OK : c_int = 2;
@@ -3451,10 +3490,24 @@ pub mod consts {
 
             pub const TCP_NODELAY: c_int = 1;
             pub const SOL_SOCKET: c_int = 1;
-            pub const SO_KEEPALIVE: c_int = 9;
-            pub const SO_BROADCAST: c_int = 6;
+
+            pub const SO_DEBUG: c_int = 1;
             pub const SO_REUSEADDR: c_int = 2;
+            pub const SO_TYPE: c_int = 3;
             pub const SO_ERROR: c_int = 4;
+            pub const SO_DONTROUTE: c_int = 5;
+            pub const SO_BROADCAST: c_int = 6;
+            pub const SO_SNDBUF: c_int = 7;
+            pub const SO_RCVBUF: c_int = 8;
+            pub const SO_KEEPALIVE: c_int = 9;
+            pub const SO_OOBINLINE: c_int = 10;
+            pub const SO_LINGER: c_int = 13;
+            pub const SO_REUSEPORT: c_int = 15;
+            pub const SO_RCVLOWAT: c_int = 18;
+            pub const SO_SNDLOWAT: c_int = 19;
+            pub const SO_RCVTIMEO: c_int = 20;
+            pub const SO_SNDTIMEO: c_int = 21;
+            pub const SO_ACCEPTCONN: c_int = 30;
 
             pub const SHUT_RD: c_int = 0;
             pub const SHUT_WR: c_int = 1;
@@ -3497,10 +3550,24 @@ pub mod consts {
 
             pub const TCP_NODELAY: c_int = 1;
             pub const SOL_SOCKET: c_int = 65535;
-            pub const SO_KEEPALIVE: c_int = 8;
-            pub const SO_BROADCAST: c_int = 32;
-            pub const SO_REUSEADDR: c_int = 4;
-            pub const SO_ERROR: c_int = 4103;
+
+            pub const SO_DEBUG: c_int = 0x0001;
+            pub const SO_REUSEADDR: c_int = 0x0004;
+            pub const SO_KEEPALIVE: c_int = 0x0008;
+            pub const SO_DONTROUTE: c_int = 0x0010;
+            pub const SO_BROADCAST: c_int = 0x0020;
+            pub const SO_LINGER: c_int = 0x0080;
+            pub const SO_OOBINLINE: c_int = 0x100;
+            pub const SO_REUSEPORT: c_int = 0x0200;
+            pub const SO_SNDBUF: c_int = 0x1001;
+            pub const SO_RCVBUF: c_int = 0x1002;
+            pub const SO_SNDLOWAT: c_int = 0x1003;
+            pub const SO_RCVLOWAT: c_int = 0x1004;
+            pub const SO_SNDTIMEO: c_int = 0x1005;
+            pub const SO_RCVTIMEO: c_int = 0x1006;
+            pub const SO_ERROR: c_int = 0x1007;
+            pub const SO_TYPE: c_int = 0x1008;
+            pub const SO_ACCEPTCONN: c_int = 0x1009;
 
             pub const SHUT_RD: c_int = 0;
             pub const SHUT_WR: c_int = 1;
@@ -3720,6 +3787,14 @@ pub mod consts {
             pub const S_IXUSR : mode_t = 64;
             pub const S_IWUSR : mode_t = 128;
             pub const S_IRUSR : mode_t = 256;
+            pub const S_IRWXG : mode_t = 56;
+            pub const S_IXGRP : mode_t = 8;
+            pub const S_IWGRP : mode_t = 16;
+            pub const S_IRGRP : mode_t = 32;
+            pub const S_IRWXO : mode_t = 7;
+            pub const S_IXOTH : mode_t = 1;
+            pub const S_IWOTH : mode_t = 2;
+            pub const S_IROTH : mode_t = 4;
             pub const F_OK : c_int = 0;
             pub const R_OK : c_int = 4;
             pub const W_OK : c_int = 2;
@@ -4012,10 +4087,24 @@ pub mod consts {
             pub const TCP_NODELAY: c_int = 1;
             pub const TCP_KEEPIDLE: c_int = 256;
             pub const SOL_SOCKET: c_int = 0xffff;
-            pub const SO_KEEPALIVE: c_int = 0x0008;
-            pub const SO_BROADCAST: c_int = 0x0020;
+            pub const SO_DEBUG: c_int = 0x01;
+            pub const SO_ACCEPTCONN: c_int = 0x0002;
             pub const SO_REUSEADDR: c_int = 0x0004;
+            pub const SO_KEEPALIVE: c_int = 0x0008;
+            pub const SO_DONTROUTE: c_int = 0x0010;
+            pub const SO_BROADCAST: c_int = 0x0020;
+            pub const SO_USELOOPBACK: c_int = 0x0040;
+            pub const SO_LINGER: c_int = 0x0080;
+            pub const SO_OOBINLINE: c_int = 0x0100;
+            pub const SO_REUSEPORT: c_int = 0x0200;
+            pub const SO_SNDBUF: c_int = 0x1001;
+            pub const SO_RCVBUF: c_int = 0x1002;
+            pub const SO_SNDLOWAT: c_int = 0x1003;
+            pub const SO_RCVLOWAT: c_int = 0x1004;
+            pub const SO_SNDTIMEO: c_int = 0x1005;
+            pub const SO_RCVTIMEO: c_int = 0x1006;
             pub const SO_ERROR: c_int = 0x1007;
+            pub const SO_TYPE: c_int = 0x1008;
 
             pub const IFF_LOOPBACK: c_int = 0x8;
 
@@ -4152,6 +4241,14 @@ pub mod consts {
             pub const S_IXUSR : mode_t = 64;
             pub const S_IWUSR : mode_t = 128;
             pub const S_IRUSR : mode_t = 256;
+            pub const S_IRWXG : mode_t = 56;
+            pub const S_IXGRP : mode_t = 8;
+            pub const S_IWGRP : mode_t = 16;
+            pub const S_IRGRP : mode_t = 32;
+            pub const S_IRWXO : mode_t = 7;
+            pub const S_IXOTH : mode_t = 1;
+            pub const S_IWOTH : mode_t = 2;
+            pub const S_IROTH : mode_t = 4;
             pub const F_OK : c_int = 0;
             pub const R_OK : c_int = 4;
             pub const W_OK : c_int = 2;
@@ -4413,10 +4510,24 @@ pub mod consts {
 
             pub const TCP_NODELAY: c_int = 0x01;
             pub const SOL_SOCKET: c_int = 0xffff;
-            pub const SO_KEEPALIVE: c_int = 0x0008;
-            pub const SO_BROADCAST: c_int = 0x0020;
+            pub const SO_DEBUG: c_int = 0x01;
+            pub const SO_ACCEPTCONN: c_int = 0x0002;
             pub const SO_REUSEADDR: c_int = 0x0004;
+            pub const SO_KEEPALIVE: c_int = 0x0008;
+            pub const SO_DONTROUTE: c_int = 0x0010;
+            pub const SO_BROADCAST: c_int = 0x0020;
+            pub const SO_USELOOPBACK: c_int = 0x0040;
+            pub const SO_LINGER: c_int = 0x0080;
+            pub const SO_OOBINLINE: c_int = 0x0100;
+            pub const SO_REUSEPORT: c_int = 0x0200;
+            pub const SO_SNDBUF: c_int = 0x1001;
+            pub const SO_RCVBUF: c_int = 0x1002;
+            pub const SO_SNDLOWAT: c_int = 0x1003;
+            pub const SO_RCVLOWAT: c_int = 0x1004;
+            pub const SO_SNDTIMEO: c_int = 0x1005;
+            pub const SO_RCVTIMEO: c_int = 0x1006;
             pub const SO_ERROR: c_int = 0x1007;
+            pub const SO_TYPE: c_int = 0x1008;
 
             pub const IFF_LOOPBACK: c_int = 0x8;
 
@@ -4550,6 +4661,14 @@ pub mod consts {
             pub const S_IXUSR : mode_t = 64;
             pub const S_IWUSR : mode_t = 128;
             pub const S_IRUSR : mode_t = 256;
+            pub const S_IRWXG : mode_t = 56;
+            pub const S_IXGRP : mode_t = 8;
+            pub const S_IWGRP : mode_t = 16;
+            pub const S_IRGRP : mode_t = 32;
+            pub const S_IRWXO : mode_t = 7;
+            pub const S_IXOTH : mode_t = 1;
+            pub const S_IWOTH : mode_t = 2;
+            pub const S_IROTH : mode_t = 4;
             pub const F_OK : c_int = 0;
             pub const R_OK : c_int = 4;
             pub const W_OK : c_int = 2;
@@ -4830,10 +4949,25 @@ pub mod consts {
             pub const TCP_NODELAY: c_int = 0x01;
             pub const TCP_KEEPALIVE: c_int = 0x10;
             pub const SOL_SOCKET: c_int = 0xffff;
-            pub const SO_KEEPALIVE: c_int = 0x0008;
-            pub const SO_BROADCAST: c_int = 0x0020;
+
+            pub const SO_DEBUG: c_int = 0x01;
+            pub const SO_ACCEPTCONN: c_int = 0x0002;
             pub const SO_REUSEADDR: c_int = 0x0004;
+            pub const SO_KEEPALIVE: c_int = 0x0008;
+            pub const SO_DONTROUTE: c_int = 0x0010;
+            pub const SO_BROADCAST: c_int = 0x0020;
+            pub const SO_USELOOPBACK: c_int = 0x0040;
+            pub const SO_LINGER: c_int = 0x0080;
+            pub const SO_OOBINLINE: c_int = 0x0100;
+            pub const SO_REUSEPORT: c_int = 0x0200;
+            pub const SO_SNDBUF: c_int = 0x1001;
+            pub const SO_RCVBUF: c_int = 0x1002;
+            pub const SO_SNDLOWAT: c_int = 0x1003;
+            pub const SO_RCVLOWAT: c_int = 0x1004;
+            pub const SO_SNDTIMEO: c_int = 0x1005;
+            pub const SO_RCVTIMEO: c_int = 0x1006;
             pub const SO_ERROR: c_int = 0x1007;
+            pub const SO_TYPE: c_int = 0x1008;
 
             pub const IFF_LOOPBACK: c_int = 0x8;
 
@@ -4859,6 +4993,15 @@ pub mod consts {
             pub const MAP_STACK : c_int = 0;
 
             pub const IPPROTO_RAW : c_int = 255;
+
+            pub const SO_NREAD: c_int = 0x1020;
+            pub const SO_NKE: c_int = 0x1021;
+            pub const SO_NOSIGPIPE: c_int = 0x1022;
+            pub const SO_NOADDRERR: c_int = 0x1023;
+            pub const SO_NWRITE: c_int = 0x1024;
+            pub const SO_DONTTRUNC: c_int = 0x2000;
+            pub const SO_WANTMORE: c_int = 0x4000;
+            pub const SO_WANTOOBFLAG: c_int = 0x8000;
         }
         pub mod sysconf {
             use types::os::arch::c95::c_int;
@@ -5041,7 +5184,7 @@ pub mod funcs {
                 ///
                 /// # Examples
                 ///
-                /// ```no_run
+                /// ```no_run,ignore
                 /// extern crate libc;
                 ///
                 /// fn main() {

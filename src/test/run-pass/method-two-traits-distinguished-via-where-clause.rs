@@ -11,6 +11,10 @@
 // Test that we select between traits A and B. To do that, we must
 // consider the `Sized` bound.
 
+// pretty-expanded FIXME #23616
+
+#![feature(core)]
+
 trait A {
     fn foo(self);
 }
@@ -29,6 +33,6 @@ impl<T> B for *const [T] {
 
 fn main() {
     let x: [int; 4] = [1,2,3,4];
-    let xptr = x.as_slice() as *const _;
+    let xptr = x.as_slice() as *const [int];
     xptr.foo();
 }

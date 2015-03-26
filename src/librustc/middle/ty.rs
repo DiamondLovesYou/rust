@@ -52,6 +52,7 @@ use middle::mem_categorization as mc;
 use middle::region;
 use middle::resolve_lifetime;
 use middle::infer;
+use middle::pat_util;
 use middle::stability;
 use middle::subst::{self, ParamSpace, Subst, Substs, VecPerParamSpace};
 use middle::traits;
@@ -967,7 +968,7 @@ impl<'tcx> Eq for TyS<'tcx> {}
 
 impl<'tcx> Hash for TyS<'tcx> {
     fn hash<H: Hasher>(&self, s: &mut H) {
-        (self as *const _).hash(s)
+        (self as *const TyS).hash(s)
     }
 }
 
@@ -1792,6 +1793,9 @@ impl RegionParameterDef {
     pub fn to_early_bound_region(&self) -> ty::Region {
         ty::ReEarlyBound(self.def_id.node, self.space, self.index, self.name)
     }
+    pub fn to_bound_region(&self) -> ty::BoundRegion {
+        ty::BoundRegion::BrNamed(self.def_id, self.name)
+    }
 }
 
 /// Information about the formal type/lifetime parameters associated
@@ -2461,8 +2465,11 @@ pub struct ItemSubsts<'tcx> {
     pub substs: Substs<'tcx>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, RustcEncodable, RustcDecodable)]
+#[derive(Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Debug, RustcEncodable, RustcDecodable)]
 pub enum ClosureKind {
+    // Warning: Ordering is significant here! The ordering is chosen
+    // because the trait Fn is a subtrait of FnMut and so in turn, and
+    // hence we order it so that Fn < FnMut < FnOnce.
     FnClosureKind,
     FnMutClosureKind,
     FnOnceClosureKind,
@@ -2482,6 +2489,20 @@ impl ClosureKind {
         match result {
             Ok(trait_did) => trait_did,
             Err(err) => cx.sess.fatal(&err[..]),
+        }
+    }
+
+    /// True if this a type that impls this closure kind
+    /// must also implement `other`.
+    pub fn extends(self, other: ty::ClosureKind) -> bool {
+        match (self, other) {
+            (FnClosureKind, FnClosureKind) => true,
+            (FnClosureKind, FnMutClosureKind) => true,
+            (FnClosureKind, FnOnceClosureKind) => true,
+            (FnMutClosureKind, FnMutClosureKind) => true,
+            (FnMutClosureKind, FnOnceClosureKind) => true,
+            (FnOnceClosureKind, FnOnceClosureKind) => true,
+            _ => false,
         }
     }
 }
@@ -2667,7 +2688,7 @@ impl<'tcx> ctxt<'tcx> {
     }
 
     pub fn closure_kind(&self, def_id: ast::DefId) -> ty::ClosureKind {
-        self.closure_kinds.borrow()[def_id]
+        *self.closure_kinds.borrow().get(&def_id).unwrap()
     }
 
     pub fn closure_type(&self,
@@ -2675,14 +2696,22 @@ impl<'tcx> ctxt<'tcx> {
                         substs: &subst::Substs<'tcx>)
                         -> ty::ClosureTy<'tcx>
     {
-        self.closure_tys.borrow()[def_id].subst(self, substs)
+        self.closure_tys.borrow().get(&def_id).unwrap().subst(self, substs)
     }
 
     pub fn type_parameter_def(&self,
                               node_id: ast::NodeId)
                               -> TypeParameterDef<'tcx>
     {
-        self.ty_param_defs.borrow()[node_id].clone()
+        self.ty_param_defs.borrow().get(&node_id).unwrap().clone()
+    }
+
+    pub fn pat_contains_ref_binding(&self, pat: &ast::Pat) -> bool {
+        pat_util::pat_contains_ref_binding(&self.def_map, pat)
+    }
+
+    pub fn arm_contains_ref_binding(&self, arm: &ast::Arm) -> bool {
+        pat_util::arm_contains_ref_binding(&self.def_map, arm)
     }
 }
 
@@ -2712,7 +2741,7 @@ fn intern_ty<'tcx>(type_arena: &'tcx TypedArena<TyS<'tcx>>,
     };
 
     debug!("Interned type: {:?} Pointer: {:?}",
-           ty, ty as *const _);
+           ty, ty as *const TyS);
 
     interner.insert(InternedTy { ty: ty }, ty);
 
@@ -4797,32 +4826,6 @@ pub fn expr_kind(tcx: &ctxt, expr: &ast::Expr) -> ExprKind {
             RvalueDpsExpr
         }
 
-        ast::ExprCast(..) => {
-            match tcx.node_types.borrow().get(&expr.id) {
-                Some(&ty) => {
-                    if type_is_trait(ty) {
-                        RvalueDpsExpr
-                    } else {
-                        RvalueDatumExpr
-                    }
-                }
-                None => {
-                    // Technically, it should not happen that the expr is not
-                    // present within the table.  However, it DOES happen
-                    // during type check, because the final types from the
-                    // expressions are not yet recorded in the tcx.  At that
-                    // time, though, we are only interested in knowing lvalue
-                    // vs rvalue.  It would be better to base this decision on
-                    // the AST type in cast node---but (at the time of this
-                    // writing) it's not easy to distinguish casts to traits
-                    // from other casts based on the AST.  This should be
-                    // easier in the future, when casts to traits
-                    // would like @Foo, Box<Foo>, or &Foo.
-                    RvalueDatumExpr
-                }
-            }
-        }
-
         ast::ExprBreak(..) |
         ast::ExprAgain(..) |
         ast::ExprRet(..) |
@@ -4838,7 +4841,8 @@ pub fn expr_kind(tcx: &ctxt, expr: &ast::Expr) -> ExprKind {
         ast::ExprUnary(..) |
         ast::ExprBox(None, _) |
         ast::ExprAddrOf(..) |
-        ast::ExprBinary(..) => {
+        ast::ExprBinary(..) |
+        ast::ExprCast(..) => {
             RvalueDatumExpr
         }
 
@@ -5980,10 +5984,7 @@ pub fn item_variances(tcx: &ctxt, item_id: ast::DefId) -> Rc<ItemVariances> {
 
 pub fn trait_has_default_impl(tcx: &ctxt, trait_def_id: DefId) -> bool {
     populate_implementations_for_trait_if_necessary(tcx, trait_def_id);
-    match tcx.lang_items.to_builtin_kind(trait_def_id) {
-        Some(BoundSend) | Some(BoundSync) => true,
-        _ => tcx.traits_with_default_impls.borrow().contains_key(&trait_def_id),
-    }
+    tcx.traits_with_default_impls.borrow().contains_key(&trait_def_id)
 }
 
 /// Records a trait-to-implementation mapping.
@@ -6540,7 +6541,7 @@ impl<'tcx> ctxt<'tcx> {
     }
 
     pub fn upvar_capture(&self, upvar_id: ty::UpvarId) -> Option<ty::UpvarCapture> {
-        Some(self.upvar_capture_map.borrow()[upvar_id].clone())
+        Some(self.upvar_capture_map.borrow().get(&upvar_id).unwrap().clone())
     }
 }
 

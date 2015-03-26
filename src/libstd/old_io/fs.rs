@@ -30,9 +30,11 @@
 //! # Examples
 //!
 //! ```rust
+//! # #![feature(old_io, io, old_path)]
 //! # #![allow(unused_must_use)]
 //! use std::old_io::fs::PathExtensions;
-//! use std::old_io::{File, fs};
+//! use std::old_io::*;
+//! use std::old_path::Path;
 //!
 //! let path = Path::new("foo.txt");
 //!
@@ -104,7 +106,9 @@ impl File {
     /// # Examples
     ///
     /// ```rust,should_fail
-    /// use std::old_io::{File, Open, ReadWrite};
+    /// # #![feature(old_io, old_path)]
+    /// use std::old_io::*;
+    /// use std::old_path::Path;
     ///
     /// let p = Path::new("/some/file/path.txt");
     ///
@@ -175,7 +179,9 @@ impl File {
     /// # Examples
     ///
     /// ```
-    /// use std::old_io::File;
+    /// # #![feature(old_io, old_path)]
+    /// use std::old_io::*;
+    /// use std::old_path::Path;
     ///
     /// let contents = File::open(&Path::new("foo.txt")).read_to_end();
     /// ```
@@ -194,8 +200,10 @@ impl File {
     /// # Examples
     ///
     /// ```
+    /// # #![feature(old_io, old_path, io)]
     /// # #![allow(unused_must_use)]
-    /// use std::old_io::File;
+    /// use std::old_io::*;
+    /// use std::old_path::Path;
     ///
     /// let mut f = File::create(&Path::new("foo.txt"));
     /// f.write(b"This is a sample file");
@@ -285,8 +293,10 @@ impl File {
 /// # Examples
 ///
 /// ```
+/// # #![feature(old_io, old_path)]
 /// # #![allow(unused_must_use)]
-/// use std::old_io::fs;
+/// use std::old_io::*;
+/// use std::old_path::Path;
 ///
 /// let p = Path::new("/some/file/path.txt");
 /// fs::unlink(&p);
@@ -316,7 +326,9 @@ pub fn unlink(path: &Path) -> IoResult<()> {
 /// # Examples
 ///
 /// ```
-/// use std::old_io::fs;
+/// # #![feature(old_io, old_path)]
+/// use std::old_io::*;
+/// use std::old_path::Path;
 ///
 /// let p = Path::new("/some/file/path.txt");
 /// match fs::stat(&p) {
@@ -358,8 +370,10 @@ pub fn lstat(path: &Path) -> IoResult<FileStat> {
 /// # Examples
 ///
 /// ```
+/// # #![feature(old_io, old_path)]
 /// # #![allow(unused_must_use)]
-/// use std::old_io::fs;
+/// use std::old_io::*;
+/// use std::old_path::Path;
 ///
 /// fs::rename(&Path::new("foo"), &Path::new("bar"));
 /// ```
@@ -386,8 +400,10 @@ pub fn rename(from: &Path, to: &Path) -> IoResult<()> {
 /// # Examples
 ///
 /// ```
+/// # #![feature(old_io, old_path)]
 /// # #![allow(unused_must_use)]
-/// use std::old_io::fs;
+/// use std::old_io::*;
+/// use std::old_path::Path;
 ///
 /// fs::copy(&Path::new("foo.txt"), &Path::new("bar.txt"));
 /// ```
@@ -436,9 +452,11 @@ pub fn copy(from: &Path, to: &Path) -> IoResult<()> {
 /// # Examples
 ///
 /// ```
+/// # #![feature(old_io, old_path)]
 /// # #![allow(unused_must_use)]
 /// use std::old_io;
-/// use std::old_io::fs;
+/// use std::old_io::*;
+/// use std::old_path::Path;
 ///
 /// fs::chmod(&Path::new("file.txt"), old_io::USER_FILE);
 /// fs::chmod(&Path::new("file.txt"), old_io::USER_READ | old_io::USER_WRITE);
@@ -507,9 +525,11 @@ pub fn readlink(path: &Path) -> IoResult<Path> {
 /// # Examples
 ///
 /// ```
+/// # #![feature(old_io, old_path, old_fs)]
 /// # #![allow(unused_must_use)]
 /// use std::old_io;
-/// use std::old_io::fs;
+/// use std::old_io::*;
+/// use std::old_path::Path;
 ///
 /// let p = Path::new("/some/dir");
 /// fs::mkdir(&p, old_io::USER_RWX);
@@ -531,8 +551,10 @@ pub fn mkdir(path: &Path, mode: FilePermission) -> IoResult<()> {
 /// # Examples
 ///
 /// ```
+/// # #![feature(old_io, old_path)]
 /// # #![allow(unused_must_use)]
-/// use std::old_io::fs;
+/// use std::old_io::*;
+/// use std::old_path::Path;
 ///
 /// let p = Path::new("/some/dir");
 /// fs::rmdir(&p);
@@ -555,9 +577,11 @@ pub fn rmdir(path: &Path) -> IoResult<()> {
 /// # Examples
 ///
 /// ```
+/// # #![feature(old_io, old_path)]
 /// use std::old_io::fs::PathExtensions;
-/// use std::old_io::fs;
 /// use std::old_io;
+/// use std::old_io::*;
+/// use std::old_path::Path;
 ///
 /// // one possible implementation of fs::walk_dir only visiting files
 /// fn visit_dirs<F>(dir: &Path, cb: &mut F) -> old_io::IoResult<()> where
@@ -881,7 +905,8 @@ fn access_string(access: FileAccess) -> &'static str {
 mod test {
     use prelude::v1::*;
     use old_io::{SeekSet, SeekCur, SeekEnd, Read, Open, ReadWrite, FileType};
-    use old_io;
+    use old_io::{self, Reader, Writer, Seek};
+    use old_path::{Path, GenericPath};
     use str;
     use old_io::fs::*;
 
@@ -1608,7 +1633,7 @@ mod test {
         use rand::{StdRng, Rng};
 
         let mut bytes = [0; 1024];
-        StdRng::new().ok().unwrap().fill_bytes(&mut bytes);
+        StdRng::new().unwrap().fill_bytes(&mut bytes);
 
         let tmpdir = tmpdir();
 

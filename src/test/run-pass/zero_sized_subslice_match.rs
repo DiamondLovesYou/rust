@@ -8,12 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// pretty-expanded FIXME #23616
+
 fn main() {
     let x = [(), ()];
 
     // The subslice used to go out of bounds for zero-sized array items, check that this doesn't
     // happen anymore
     match x {
-        [_, y..] => assert_eq!(&x[1] as *const _, &y[0] as *const _)
+        [_, y..] => assert_eq!(&x[1] as *const (), &y[0] as *const ())
     }
 }

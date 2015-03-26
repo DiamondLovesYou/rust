@@ -33,7 +33,9 @@ use vec::Vec;
 /// # Examples
 ///
 /// ```
-/// use std::old_io::{BufferedReader, File};
+/// # #![feature(old_io, old_path)]
+/// use std::old_io::*;
+/// use std::old_path::Path;
 ///
 /// let file = File::open(&Path::new("message.txt"));
 /// let mut reader = BufferedReader::new(file);
@@ -136,7 +138,9 @@ impl<R: Reader> Reader for BufferedReader<R> {
 /// # Examples
 ///
 /// ```
-/// use std::old_io::{BufferedWriter, File};
+/// # #![feature(old_io, old_path)]
+/// use std::old_io::*;
+/// use std::old_path::Path;
 ///
 /// let file = File::create(&Path::new("message.txt")).unwrap();
 /// let mut writer = BufferedWriter::new(file);
@@ -144,14 +148,14 @@ impl<R: Reader> Reader for BufferedReader<R> {
 /// writer.write_str("hello, world").unwrap();
 /// writer.flush().unwrap();
 /// ```
-pub struct BufferedWriter<W> {
+pub struct BufferedWriter<W: Writer> {
     inner: Option<W>,
     buf: Vec<u8>,
     pos: uint
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<W> fmt::Debug for BufferedWriter<W> where W: fmt::Debug {
+impl<W: Writer> fmt::Debug for BufferedWriter<W> where W: fmt::Debug {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(fmt, "BufferedWriter {{ writer: {:?}, buffer: {}/{} }}",
                self.inner.as_ref().unwrap(), self.pos, self.buf.len())
@@ -246,12 +250,12 @@ impl<W: Writer> Drop for BufferedWriter<W> {
 /// `'\n'`) is detected.
 ///
 /// This writer will be flushed when it is dropped.
-pub struct LineBufferedWriter<W> {
+pub struct LineBufferedWriter<W: Writer> {
     inner: BufferedWriter<W>,
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<W> fmt::Debug for LineBufferedWriter<W> where W: fmt::Debug {
+impl<W: Writer> fmt::Debug for LineBufferedWriter<W> where W: fmt::Debug {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(fmt, "LineBufferedWriter {{ writer: {:?}, buffer: {}/{} }}",
                self.inner.inner, self.inner.pos, self.inner.buf.len())
@@ -295,16 +299,16 @@ impl<W: Writer> Writer for LineBufferedWriter<W> {
     fn flush(&mut self) -> IoResult<()> { self.inner.flush() }
 }
 
-struct InternalBufferedWriter<W>(BufferedWriter<W>);
+struct InternalBufferedWriter<W: Writer>(BufferedWriter<W>);
 
-impl<W> InternalBufferedWriter<W> {
+impl<W: Writer> InternalBufferedWriter<W> {
     fn get_mut<'a>(&'a mut self) -> &'a mut BufferedWriter<W> {
         let InternalBufferedWriter(ref mut w) = *self;
         return w;
     }
 }
 
-impl<W: Reader> Reader for InternalBufferedWriter<W> {
+impl<W: Reader + Writer> Reader for InternalBufferedWriter<W> {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> {
         self.get_mut().inner.as_mut().unwrap().read(buf)
     }
@@ -322,8 +326,10 @@ impl<W: Reader> Reader for InternalBufferedWriter<W> {
 /// # Examples
 ///
 /// ```
+/// # #![feature(old_io, old_path)]
 /// # #![allow(unused_must_use)]
-/// use std::old_io::{BufferedStream, File};
+/// use std::old_io::*;
+/// use std::old_path::Path;
 ///
 /// let file = File::open(&Path::new("message.txt"));
 /// let mut stream = BufferedStream::new(file);
@@ -337,12 +343,12 @@ impl<W: Reader> Reader for InternalBufferedWriter<W> {
 ///     Err(e) => println!("error reading: {}", e)
 /// }
 /// ```
-pub struct BufferedStream<S> {
+pub struct BufferedStream<S: Writer> {
     inner: BufferedReader<InternalBufferedWriter<S>>
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<S> fmt::Debug for BufferedStream<S> where S: fmt::Debug {
+impl<S: Writer> fmt::Debug for BufferedStream<S> where S: fmt::Debug {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         let reader = &self.inner;
         let writer = &self.inner.inner.0;
@@ -422,7 +428,7 @@ impl<S: Stream> Writer for BufferedStream<S> {
 #[cfg(test)]
 mod test {
     extern crate test;
-    use old_io;
+    use old_io::{self, Reader, Writer, Buffer, BufferPrelude};
     use prelude::v1::*;
     use super::*;
     use super::super::{IoResult, EndOfFile};

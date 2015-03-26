@@ -18,6 +18,6 @@ extern crate "rustdoc" as this;
 extern crate "rustc_driver" as this;
 
 #[cfg(rust_pnacl_trans)]
-extern crate "rust-pnacl-trans" as this;
+extern crate "rust_pnacl_trans" as this;
 
 fn main() { this::main() }

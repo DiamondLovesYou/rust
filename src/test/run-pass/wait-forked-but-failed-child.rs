@@ -10,6 +10,10 @@
 
 // ignore-nacl
 
+// pretty-expanded FIXME #23616
+
+#![feature(libc, old_io)]
+
 extern crate libc;
 
 use std::old_io::process::Command;

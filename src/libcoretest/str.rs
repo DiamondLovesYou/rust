@@ -13,9 +13,7 @@ fn test_pattern_deref_forward() {
     let data = "aabcdaa";
     assert!(data.contains("bcd"));
     assert!(data.contains(&"bcd"));
-    assert!(data.contains(&&"bcd"));
     assert!(data.contains(&"bcd".to_string()));
-    assert!(data.contains(&&"bcd".to_string()));
 }
 
 #[test]
@@ -35,7 +33,7 @@ fn test_bool_from_str() {
 fn check_contains_all_substrings(s: &str) {
     assert!(s.contains(""));
     for i in 0..s.len() {
-        for j in range(i+1, s.len() + 1) {
+        for j in i+1..s.len() + 1 {
             assert!(s.contains(&s[i..j]));
         }
     }

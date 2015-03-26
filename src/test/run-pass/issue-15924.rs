@@ -8,7 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(unsafe_destructor)]
+// pretty-expanded FIXME #23616
+
+#![feature(unsafe_destructor, rustc_private)]
 
 extern crate serialize;
 
@@ -16,7 +18,7 @@ use std::fmt;
 use serialize::{Encoder, Encodable};
 use serialize::json;
 
-struct Foo<T> {
+struct Foo<T: Encodable> {
     v: T,
 }
 

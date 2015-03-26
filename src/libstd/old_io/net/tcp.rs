@@ -41,7 +41,8 @@ use sys_common;
 /// # Examples
 ///
 /// ```no_run
-/// use std::old_io::TcpStream;
+/// # #![feature(old_io, io)]
+/// use std::old_io::*;
 ///
 /// {
 ///     let mut stream = TcpStream::connect("127.0.0.1:34254");
@@ -133,9 +134,9 @@ impl TcpStream {
     /// # Examples
     ///
     /// ```no_run
+    /// # #![feature(old_io, std_misc)]
     /// # #![allow(unused_must_use)]
-    /// use std::old_io::timer;
-    /// use std::old_io::TcpStream;
+    /// use std::old_io::*;
     /// use std::time::Duration;
     /// use std::thread;
     ///
@@ -279,9 +280,9 @@ impl sys_common::AsInner<TcpStreamImp> for TcpStream {
 /// # Examples
 ///
 /// ```
+/// # #![feature(old_io)]
 /// # fn foo() {
-/// use std::old_io::{TcpListener, TcpStream};
-/// use std::old_io::{Acceptor, Listener};
+/// use std::old_io::*;
 /// use std::thread;
 ///
 /// let listener = TcpListener::bind("127.0.0.1:80").unwrap();
@@ -376,8 +377,8 @@ impl TcpAcceptor {
     /// # Examples
     ///
     /// ```no_run
-    /// use std::old_io::TcpListener;
-    /// use std::old_io::{Listener, Acceptor, TimedOut};
+    /// # #![feature(old_io, io)]
+    /// use std::old_io::*;
     ///
     /// let mut a = TcpListener::bind("127.0.0.1:8482").listen().unwrap();
     ///
@@ -420,7 +421,8 @@ impl TcpAcceptor {
     /// # Examples
     ///
     /// ```
-    /// use std::old_io::{TcpListener, Listener, Acceptor, EndOfFile};
+    /// # #![feature(old_io, io)]
+    /// use std::old_io::*;
     /// use std::thread;
     ///
     /// let mut a = TcpListener::bind("127.0.0.1:8482").listen().unwrap();
@@ -496,6 +498,7 @@ mod test {
     use old_io::{ConnectionReset, NotConnected, PermissionDenied, OtherIoError};
     use old_io::{InvalidInput};
     use old_io::{Acceptor, Listener};
+    use old_io::{Reader, Writer};
 
     // FIXME #11530 this fails on android because tests are run as root
     #[cfg_attr(any(windows, target_os = "android"), ignore)]

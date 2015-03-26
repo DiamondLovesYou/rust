@@ -10,8 +10,10 @@
 
 // exec-env:RUST_LOG=info
 
+// pretty-expanded FIXME #23616
+
 #![allow(unknown_features)]
-#![feature(box_syntax)]
+#![feature(box_syntax, old_io, rustc_private, std_misc)]
 
 #[macro_use]
 extern crate log;
@@ -19,7 +21,7 @@ extern crate log;
 use log::{set_logger, Logger, LogRecord};
 use std::sync::mpsc::channel;
 use std::fmt;
-use std::old_io::{ChanReader, ChanWriter};
+use std::old_io::{ChanReader, ChanWriter, Reader, Writer};
 use std::thread::Thread;
 
 struct MyWriter(ChanWriter);

@@ -11,6 +11,8 @@
 // Tests that you can use an early-bound lifetime parameter as
 // on of the generic parameters in a trait.
 
+// pretty-expanded FIXME #23616
+
 #![allow(unknown_features)]
 #![feature(box_syntax)]
 
@@ -81,7 +83,10 @@ impl<'s> Trait<'s> for (int,int) {
 }
 
 impl<'t> MakerTrait for Box<Trait<'t>+'static> {
-    fn mk() -> Box<Trait<'t>+'static> { box() (4,5) as Box<Trait> }
+    fn mk() -> Box<Trait<'t>+'static> {
+        let tup: Box<(int, int)> = box() (4,5);
+        tup as Box<Trait>
+    }
 }
 
 enum List<'l> {

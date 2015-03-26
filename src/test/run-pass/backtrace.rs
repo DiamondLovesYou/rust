@@ -14,7 +14,7 @@
 // backtraces aren't supported for nexe's, yet.
 // ignore-nacl
 #![feature(unboxed_closures)]
-#![feature(unsafe_destructor)]
+#![feature(unsafe_destructor, old_io, collections)]
 
 
 use std::env;
