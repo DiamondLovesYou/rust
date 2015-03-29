@@ -164,7 +164,6 @@ extern "rust-intrinsic" {
     /// with optimization of surrounding code and reduce performance. It should
     /// not be used if the invariant can be discovered by the optimizer on its
     /// own, or if it does not enable any significant optimizations.
-    #[cfg(not(target_os = "nacl"))]
     pub fn assume(b: bool);
 
     /// Execute a breakpoint trap, for inspection by a debugger.
@@ -513,9 +512,6 @@ extern "rust-intrinsic" {
     pub fn cttz16(x: u16) -> u16;
 
 }
-
-#[cfg(target_os = "nacl")]
-pub fn assume(_: bool) { }
 
 extern "rust-intrinsic" {
 
