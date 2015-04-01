@@ -20,7 +20,6 @@ CFG_DEF_SUFFIX_le32-unknown-nacl := .le32.nacl.def
 CFG_INSTALL_NAME_le32-unknown-nacl =
 CFG_LIBUV_LINK_FLAGS_le32-unknown-nacl =
 CFG_DISABLE_LIBUV_le32-unknown-nacl := 1
-CFG_LLVM_BUILD_ENV_le32-unknown-nacl="CXXFLAGS=-fno-omit-frame-pointer"
 CFG_EXE_SUFFIX_le32-unknown-nacl = .pexe
 CFG_WINDOWSY_le32-unknown-nacl :=
 CFG_UNIXY_le32-unknown-nacl := 1

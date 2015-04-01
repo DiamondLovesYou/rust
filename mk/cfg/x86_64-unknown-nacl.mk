@@ -19,7 +19,6 @@ CFG_GCCISH_POST_LIB_FLAGS_x86_64-unknown-nacl :=
 CFG_DEF_SUFFIX_x86_64-unknown-nacl := .x86_64.nacl.def
 CFG_INSTALL_NAME_x86_64-unknown-nacl =
 CFG_LIBUV_LINK_FLAGS_x86_64-unknown-nacl = -lnacl_io
-CFG_LLVM_BUILD_ENV_x86_64-unknown-nacl="CXXFLAGS=-fno-omit-frame-pointer"
 CFG_EXE_SUFFIX_x86_64-unknown-nacl = .nexe
 CFG_WINDOWSY_x86_64-unknown-nacl :=
 CFG_UNIXY_x86_64-unknown-nacl := 1

@@ -19,7 +19,6 @@ CFG_GCCISH_POST_LIB_FLAGS_i686-unknown-nacl :=
 CFG_DEF_SUFFIX_i686-unknown-nacl := .i686.nacl.def
 CFG_INSTALL_NAME_i686-unknown-nacl =
 CFG_LIBUV_LINK_FLAGS_i686-unknown-nacl = -lnacl_io
-CFG_LLVM_BUILD_ENV_i686-unknown-nacl="CXXFLAGS=-fno-omit-frame-pointer"
 CFG_EXE_SUFFIX_i686-unknown-nacl = .nexe
 CFG_WINDOWSY_i686-unknown-nacl :=
 CFG_UNIXY_i686-unknown-nacl := 1

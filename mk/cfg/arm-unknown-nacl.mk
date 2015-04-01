@@ -17,7 +17,6 @@ CFG_DEF_SUFFIX_arm-unknown-nacl := .arm.nacl.def
 CFG_INSTALL_NAME_arm-unknown-nacl =
 CFG_LIBUV_LINK_FLAGS_arm-unknown-nacl = -lnacl_io
 CFG_DISABLE_LIBUV_arm-unknown-nacl := 1
-CFG_LLVM_BUILD_ENV_arm-unknown-nacl="CXXFLAGS=-fno-omit-frame-pointer"
 CFG_EXE_SUFFIX_arm-unknown-nacl = .nexe
 CFG_WINDOWSY_arm-unknown-nacl :=
 CFG_UNIXY_arm-unknown-nacl := 1
