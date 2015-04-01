@@ -1205,6 +1205,9 @@ do
         LLVMBINUTILS_PREFIX=""
     fi
 
+    LLVMBINUTILS_AR="ar"
+    LLVMBINUTILS_RANLIB="ranlib"
+
     case "$CFG_CC" in
         ("ccache clang")
             LLVMBINUTILS_CXX_32="ccache ${LLVMBINUTILS_PREFIX}clang++ -Qunused-arguments"
@@ -1282,14 +1285,46 @@ do
         LLVMBINUTILS_LDFLAGS=$LLVMBINUTILS_LDFLAGS_32
     fi
 
+    # Toolchain overrides
+    case "$t" in
+        (le32-unknown-nacl)
+            BUILD_CXX=clang++
+            BUILD_CC=clang
+            BUILD_CXXFLAGS=$LLVMBINUTILS_CXXFLAGS
+            BUILD_CFLAGS=$LLVMBINUTILS_CFLAGS
+
+            export BUILD_CXX
+            export BUILD_CC
+            export BUILD_CXXFLAGS
+            export BUILD_CFLAGS
+
+            LLVMBINUTILS_CXX="`$CFG_NACL_CROSS_PATH/tools/nacl_config.py -t pnacl --tool=c++`"
+            LLVMBINUTILS_CC="`$CFG_NACL_CROSS_PATH/tools/nacl_config.py -t pnacl --tool=cc`"
+            LLVMBINUTILS_RANLIB="`$CFG_NACL_CROSS_PATH/tools/nacl_config.py -t pnacl --tool=ranlib`"
+            LLVMBINUTILS_CFLAGS="-isystem${CFG_SRC_DIR}/src/etc/third-party/glibc-compat/include -L${CFG_SRC_DIR}/src/etc/third-party/glibc-compat/lib"
+            LLVMBINUTILS_CXXFLAGS=$LLVMBINUTILS_CFLAGS
+            LLVMBINUTILS_AR="`$CFG_NACL_CROSS_PATH/tools/nacl_config.py -t pnacl --tool=ar`"
+        ;;
+        (*)
+            unset BUILD_CXX
+            unset BUILD_CC
+            unset BUILD_CXXFLAGS
+            unset BUILD_CFLAGS
+        ;;
+    esac
+
     CXX=$LLVMBINUTILS_CXX
     CC=$LLVMBINUTILS_CC
+    AR=$LLVMBINUTILS_AR
+    RANLIB=$LLVMBINUTILS_RANLIB
     CFLAGS=$LLVMBINUTILS_CFLAGS
     CXXFLAGS=$LLVMBINUTILS_CXXFLAGS
     LDFLAGS=$LLVMBINUTILS_LDFLAGS
 
     export CXX
     export CC
+    export AR
+    export RANLIB
     export CFLAGS
     export CXXFLAGS
     export LDFLAGS
@@ -1348,13 +1383,24 @@ do
     then
         msg "configuring LLVM for $gnu_t"
 
-        LLVM_TARGETS="--enable-targets=x86,x86_64,arm,aarch64,mips,powerpc"
         LLVM_BUILD="--build=$(to_gnu_triple $CFG_BUILD)"
         LLVM_HOST="--host=$gnu_t"
         LLVM_TARGET="--target=$gnu_t"
 
         # Disable unused LLVM features
         LLVM_OPTS="$LLVM_DBG_OPTS $LLVM_ASSERTION_OPTS --disable-docs --enable-bindings=none"
+
+        case "$t" in
+            (le32-unknown-nacl)
+                LLVM_TARGETS="--enable-targets="
+                # Use libc++ to match Rust.
+                LLVM_OPTS="$LLVM_OPTS --enable-libcpp"
+            ;;
+            (*)
+                LLVM_TARGETS="--enable-targets=x86,x86_64,arm,aarch64,mips,powerpc"
+            ;;
+        esac
+
         # Disable term-info, linkage of which comes in multiple forms,
         # making our snapshots incompatible (#9334)
         LLVM_OPTS="$LLVM_OPTS --disable-terminfo"
