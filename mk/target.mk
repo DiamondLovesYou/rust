@@ -169,8 +169,7 @@ $(foreach crate,$(CRATES),						    \
   $(foreach target,$(CFG_TARGET),					    \
    $(eval $(call RUST_TARGET_STAGE_N,0,$(target),$(source),$(crate)))	    \
    $(eval $(call RUST_TARGET_STAGE_N,1,$(target),$(source),$(crate)))	    \
-   $(eval $(if $(filter-out $(DISABLED_CRATES_$(target)),$(crate)),         \
-	$(call RUST_TARGET_STAGE_N,2,$(target),$(source),$(crate))))        \
+   $(eval $(call RUST_TARGET_STAGE_N,2,$(target),$(source),$(crate)))       \
    $(eval $(call RUST_TARGET_STAGE_N,3,$(target),$(source),$(crate))))))
 
 $(foreach host,$(CFG_HOST), \
