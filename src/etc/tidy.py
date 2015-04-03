@@ -109,6 +109,7 @@ try:
             'src/rt/valgrind',
             'src/rt/msvc',
             'src/nacl-binutils',
+            'src/etc/third-party/glibc-compat',
             'src/rust-installer'
         }
 
