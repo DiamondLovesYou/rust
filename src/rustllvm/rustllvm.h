@@ -60,7 +60,7 @@
 
 // Used by RustMCJITMemoryManager::getPointerToNamedFunction()
 // to get around glibc issues. See the function for more information.
-#ifdef __linux__
+#if defined(__linux__) || defined(__native_client__)
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
