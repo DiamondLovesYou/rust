@@ -9,3 +9,4 @@ src/etc/pkg/rust-logo.png binary
 src/rt/msvc/* -whitespace
 src/rt/valgrind/* -whitespace
 *.woff binary
+*.a binary
