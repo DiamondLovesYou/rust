@@ -298,11 +298,26 @@ LLVM_BINDIR_$(1)=$$(shell "$$(LLVM_CONFIG_$(1))" --bindir)
 LLVM_INCDIR_$(1)=$$(shell "$$(LLVM_CONFIG_$(1))" --includedir)
 LLVM_LIBDIR_$(1)=$$(shell "$$(LLVM_CONFIG_$(1))" --libdir)
 LLVM_LIBDIR_RUSTFLAGS_$(1)=-L "$$(LLVM_LIBDIR_$(1))"
+ifeq (le32-unknown-nacl,$(1))
+LLVM_LIBS_$(1)=$$(shell "$$(LLVM_CONFIG_$(1))" --libs $$(filter-out x86 arm aarch64 mips powerpc, \
+                                                           $$(LLVM_COMPONENTS))
+else
 LLVM_LIBS_$(1)=$$(shell "$$(LLVM_CONFIG_$(1))" --libs $$(LLVM_COMPONENTS))
+endif
 LLVM_LDFLAGS_$(1)=$$(shell "$$(LLVM_CONFIG_$(1))" --ldflags)
+
+ifneq (le32-unknown-nacl,$(1))
 # On FreeBSD, it may search wrong headers (that are for pre-installed LLVM),
 # so we replace -I with -iquote to ensure that it searches bundled LLVM first.
 LLVM_CXXFLAGS_$(1)=$$(subst -I, -iquote , $$(shell "$$(LLVM_CONFIG_$(1))" --cxxflags))
+else
+# strdup isn't defined unless -std=gnu++11 is used:
+LLVM_CXXFLAGS_$(1)=
+LLVM_CXXFLAGS_$(1)=$$(filter-out -std=c++11, \
+                        $$(subst -I, -iquote , \
+                             $$(shell "$$(LLVM_CONFIG_$(1))" --cxxflags))) \
+                   -std=gnu++11
+endif
 LLVM_HOST_TRIPLE_$(1)=$$(shell "$$(LLVM_CONFIG_$(1))" --host-target)
 
 LLVM_AS_$(1)=$$(CFG_LLVM_INST_DIR_$(1))/bin/llvm-as$$(X_$(1))
@@ -406,10 +421,13 @@ ifeq ($(1),0)
 HSREQ$(1)_H_$(3) = $$(HBIN$(1)_H_$(3))/rustc$$(X_$(3))
 else
 HSREQ$(1)_H_$(3) = \
-	$$(TROOT$(1)_T_$(3)_H_$(3))/lib/$$(subst lib,,$$(call CFG_LIB_NAME_$(3),LLVMgold)) \
 	$$(HBIN$(1)_H_$(3))/rustc$$(X_$(3)) \
 	$$(MKFILE_DEPS) \
 	tmp/install-debugger-scripts$(1)_H_$(3)-$$(call TRIPLE_TO_DEBUGGER_SCRIPT_SETTING,$(3)).done
+
+ifneq (le32-unknown-nacl,$(3))
+HSREQ$(1)_H_$(3) += $$(TROOT$(1)_T_$(3)_H_$(3))/lib/$$(subst lib,,$$(call CFG_LIB_NAME_$(3),LLVMgold))
+endif
 endif
 
 # Prerequisites for using the stageN compiler to build target artifacts
