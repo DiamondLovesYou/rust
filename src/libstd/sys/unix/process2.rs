@@ -22,13 +22,6 @@ use ptr;
 use sys::pipe2::AnonPipe;
 use sys::{self, retry, c, cvt};
 
-#[cfg(target_os = "nacl")]
-fn nacl_permission_denied() -> Error {
-    Error::new(ErrorKind::PermissionDenied,
-               "Can't interact with system processes from within sandbox",
-               None)
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 // Command
 ////////////////////////////////////////////////////////////////////////////////
@@ -134,15 +127,6 @@ impl Process {
         Ok(())
     }
 
-    #[cfg(target_os = "nacl")]
-    pub fn spawn(_: &Command,
-                 _: Option<AnonPipe>,
-                 _: Option<AnonPipe>,
-                 _: Option<AnonPipe>) -> io::Result<Process> {
-        Err(nacl_permission_denied())
-    }
-
-    #[cfg(not(target_os = "nacl"))]
     pub fn spawn(cfg: &Command,
                  in_fd: Option<AnonPipe>, out_fd: Option<AnonPipe>, err_fd: Option<AnonPipe>)
                  -> io::Result<Process>
@@ -155,10 +139,13 @@ impl Process {
             }
         }
 
+        #[cfg(not(target_os = "nacl"))]
         unsafe fn set_cloexec(fd: c_int) {
             let ret = c::ioctl(fd, c::FIOCLEX);
             assert_eq!(ret, 0);
         }
+        #[cfg(target_os = "nacl")]
+        unsafe fn set_cloexec(_fd: c_int) { }
 
         #[cfg(all(target_os = "android", target_arch = "aarch64"))]
         unsafe fn getdtablesize() -> c_int {
@@ -361,21 +348,12 @@ impl Process {
         })
     }
 
-    #[cfg(target_os = "nacl")]
-    pub fn wait(&self) -> io::Result<ExitStatus> {
-        Err(nacl_permission_denied())
-    }
-    #[cfg(target_os = "nacl")]
-    pub fn try_wait(&self) -> Option<ExitStatus> { None }
-
-    #[cfg(not(target_os = "nacl"))]
     pub fn wait(&self) -> io::Result<ExitStatus> {
         let mut status = 0 as c_int;
         try!(cvt(retry(|| unsafe { c::waitpid(self.pid, &mut status, 0) })));
         Ok(translate_status(status))
     }
 
-    #[cfg(not(target_os = "nacl"))]
     pub fn try_wait(&self) -> Option<ExitStatus> {
         let mut status = 0 as c_int;
         match retry(|| unsafe {
@@ -442,10 +420,10 @@ fn with_envp<T, F>(env: Option<&HashMap<OsString, OsString>>, cb: F) -> T
     }
 }
 
-#[cfg(not(target_os = "nacl"))]
 fn translate_status(status: c_int) -> ExitStatus {
     #![allow(non_snake_case)]
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android",
+              target_os = "nacl"))]
     mod imp {
         pub fn WIFEXITED(status: i32) -> bool { (status & 0xff) == 0 }
         pub fn WEXITSTATUS(status: i32) -> i32 { (status >> 8) & 0xff }
