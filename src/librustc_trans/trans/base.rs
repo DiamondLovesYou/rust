@@ -2554,7 +2554,13 @@ pub fn create_entry_wrapper(ccx: &CrateContext,
         let llfty = Type::func(&[ccx.int_type(), Type::i8p(ccx).ptr_to()],
                                &ccx.int_type());
 
-        let llfn = decl_cdecl_fn(ccx, "main", llfty, ty::mk_nil(ccx.tcx()));
+        let main_name = if ccx.sess().targeting_nacl() || ccx.sess().targeting_pnacl() {
+            "nacl_main"
+        } else {
+            "main"
+        };
+
+        let llfn = decl_cdecl_fn(ccx, main_name, llfty, ty::mk_nil(ccx.tcx()));
 
         // FIXME: #16581: Marking a symbol in the executable with `dllexport`
         // linkage forces MinGW's linker to output a `.reloc` section for ASLR
