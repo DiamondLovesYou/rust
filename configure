@@ -1392,7 +1392,7 @@ do
 
         case "$t" in
             (le32-unknown-nacl)
-                LLVM_TARGETS="--enable-targets="
+                LLVM_TARGETS="--enable-targets=x86,arm"
                 # Use libc++ to match Rust.
                 LLVM_OPTS="$LLVM_OPTS --enable-libcpp"
             ;;
