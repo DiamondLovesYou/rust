@@ -5520,7 +5520,6 @@ pub mod funcs {
             #[cfg(not(target_os = "nacl"))]
             extern {
                 pub fn access(path: *const c_char, amode: c_int) -> c_int;
-                #[cfg(not(target_os = "nacl"))]
                 pub fn alarm(seconds: c_uint) -> c_uint;
                 pub fn chdir(dir: *const c_char) -> c_int;
                 pub fn chown(path: *const c_char, uid: uid_t,
@@ -5536,23 +5535,18 @@ pub mod funcs {
                 pub fn execvp(c: *const c_char,
                               argv: *mut *const c_char) -> c_int;
                 pub fn fork() -> pid_t;
-                #[cfg(not(target_os = "nacl"))]
                 pub fn fpathconf(filedes: c_int, name: c_int) -> c_long;
                 pub fn getcwd(buf: *mut c_char, size: size_t) -> *mut c_char;
                 pub fn getegid() -> gid_t;
                 pub fn geteuid() -> uid_t;
                 pub fn getgid() -> gid_t;
-                #[cfg(not(target_os = "nacl"))]
                 pub fn getgroups(ngroups_max: c_int, groups: *mut gid_t)
                                  -> c_int;
                 pub fn getlogin() -> *mut c_char;
                 pub fn getopt(argc: c_int, argv: *mut *const c_char,
                               optstr: *const c_char) -> c_int;
-                #[cfg(not(target_os = "nacl"))]
                 pub fn getpgrp() -> pid_t;
-                #[cfg(not(target_os = "nacl"))]
                 pub fn getpid() -> pid_t;
-                #[cfg(not(target_os = "nacl"))]
                 pub fn getppid() -> pid_t;
                 pub fn getuid() -> uid_t;
                 pub fn getsid(pid: pid_t) -> pid_t;
@@ -5560,18 +5554,14 @@ pub mod funcs {
                 pub fn link(src: *const c_char, dst: *const c_char) -> c_int;
                 pub fn lseek(fd: c_int, offset: off_t, whence: c_int)
                              -> off_t;
-                #[cfg(not(target_os = "nacl"))]
                 pub fn pathconf(path: *mut c_char, name: c_int) -> c_long;
-                #[cfg(not(target_os = "nacl"))]
                 pub fn pause() -> c_int;
                 pub fn pipe(fds: *mut c_int) -> c_int;
                 pub fn read(fd: c_int, buf: *mut c_void, count: size_t)
                             -> ssize_t;
                 pub fn rmdir(path: *const c_char) -> c_int;
                 pub fn setgid(gid: gid_t) -> c_int;
-                #[cfg(not(target_os = "nacl"))]
                 pub fn setpgid(pid: pid_t, pgid: pid_t) -> c_int;
-                #[cfg(not(target_os = "nacl"))]
                 pub fn setsid() -> pid_t;
                 pub fn setuid(uid: uid_t) -> c_int;
                 pub fn sleep(secs: c_uint) -> c_uint;
@@ -5579,7 +5569,6 @@ pub mod funcs {
                 pub fn nanosleep(rqtp: *const timespec,
                                  rmtp: *mut timespec) -> c_int;
                 pub fn sysconf(name: c_int) -> c_long;
-                #[cfg(not(target_os = "nacl"))]
                 pub fn tcgetpgrp(fd: c_int) -> pid_t;
                 pub fn ttyname(fd: c_int) -> *mut c_char;
                 pub fn unlink(c: *const c_char) -> c_int;
