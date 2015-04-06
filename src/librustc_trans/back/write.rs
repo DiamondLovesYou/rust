@@ -824,7 +824,10 @@ pub fn run_passes(sess: &Session,
             .flat_map(|(l, p): (String, PathBuf)| {
                 debug!("processing archive `{}`", p.display());
                 let archive = ArchiveRO::open(&p)
-                    .expect("maybe invalid archive?");
+                    .unwrap_or_else(|| {
+                        sess.fatal(&format!("invalid archive: `{}`",
+                                            p.display())[..]);
+                    });
                 let mut bitcodes = Vec::new();
                 archive.foreach_child(|name, bc| {
                     debug!("processing object `{}`", name);
