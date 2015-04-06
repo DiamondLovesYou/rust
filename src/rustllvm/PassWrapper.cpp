@@ -50,6 +50,7 @@ LLVMInitializePasses() {
   initializeAddPNaClExternalDeclsPass(Registry);
   initializeBackendCanonicalizePass(Registry);
   initializeCanonicalizeMemIntrinsicsPass(Registry);
+  initializeCleanupUsedGlobalsMetadataPass(Registry);
   initializeConstantInsertExtractElementIndexPass(Registry);
   initializeExpandArithWithOverflowPass(Registry);
   initializeExpandByValPass(Registry);
@@ -70,6 +71,7 @@ LLVMInitializePasses() {
   initializeGlobalizeConstantVectorsPass(Registry);
   initializeInsertDivideCheckPass(Registry);
   initializeInternalizeUsedGlobalsPass(Registry);
+  initializeNormalizeAlignmentPass(Registry);
   initializePNaClABIVerifyFunctionsPass(Registry);
   initializePNaClABIVerifyModulePass(Registry);
   initializePNaClSjLjEHPass(Registry);
@@ -87,6 +89,14 @@ LLVMInitializePasses() {
   initializeStripAttributesPass(Registry);
   initializeStripMetadataPass(Registry);
   initializeStripModuleFlagsPass(Registry);
+  // Emscripten passes:
+  initializeExpandI64Pass(Registry);
+  initializeExpandInsertExtractElementPass(Registry);
+  initializeLowerEmAsyncifyPass(Registry);
+  initializeLowerEmExceptionsPass(Registry);
+  initializeLowerEmSetjmpPass(Registry);
+  initializeNoExitRuntimePass(Registry);
+  // Emscripten passes end.
 }
 
 extern "C" bool
