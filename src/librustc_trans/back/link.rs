@@ -936,9 +936,11 @@ pub fn link_pnacl_module(sess: &Session,
             ap("simplify-allocas\0");
             ap("replace-ptrs-with-ints\0");
             ap("expand-struct-regs\0");
+            ap("normalize-alignment\0");
             ap("strip-dead-prototypes\0");
             ap("die\0");
             ap("dce\0");
+            ap("cleanup-used-globals-metadata\0");
 
             if !sess.no_verify() {
                 ap("verify\0");
