@@ -320,9 +320,6 @@ impl Session {
         &self.target.target.target_os[..] == "nacl"
             && &self.target.target.arch[..] != "le32"
     }
-    pub fn would_use_ppapi(&self) -> bool {
-        self.targeting_pnacl() || self.targeting_nacl()
-    }
 
     // Emits a fatal error if path is not writeable.
     pub fn check_writeable_output<T: ?Sized>(&self, path: &T, name: &str)
