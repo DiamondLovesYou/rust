@@ -16,10 +16,11 @@ use prelude::v1::*;
 use io::prelude::*;
 
 use cmp;
-use error::{self, FromError};
+use error;
 use fmt;
-use io::{self, Cursor, DEFAULT_BUF_SIZE, Error, ErrorKind};
+use io::{self, DEFAULT_BUF_SIZE, Error, ErrorKind};
 use ptr;
+use iter;
 
 /// Wraps a `Read` and buffers input from it
 ///
@@ -30,7 +31,9 @@ use ptr;
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct BufReader<R> {
     inner: R,
-    buf: Cursor<Vec<u8>>,
+    buf: Vec<u8>,
+    pos: usize,
+    cap: usize,
 }
 
 impl<R: Read> BufReader<R> {
@@ -43,9 +46,13 @@ impl<R: Read> BufReader<R> {
     /// Creates a new `BufReader` with the specified buffer capacity
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn with_capacity(cap: usize, inner: R) -> BufReader<R> {
+        let mut buf = Vec::with_capacity(cap);
+        buf.extend(iter::repeat(0).take(cap));
         BufReader {
             inner: inner,
-            buf: Cursor::new(Vec::with_capacity(cap)),
+            buf: buf,
+            pos: 0,
+            cap: 0,
         }
     }
 
@@ -74,12 +81,15 @@ impl<R: Read> Read for BufReader<R> {
         // If we don't have any buffered data and we're doing a massive read
         // (larger than our internal buffer), bypass our internal buffer
         // entirely.
-        if self.buf.get_ref().len() == self.buf.position() as usize &&
-            buf.len() >= self.buf.get_ref().capacity() {
+        if self.pos == self.cap && buf.len() >= self.buf.len() {
             return self.inner.read(buf);
         }
-        try!(self.fill_buf());
-        self.buf.read(buf)
+        let nread = {
+            let mut rem = try!(self.fill_buf());
+            try!(rem.read(buf))
+        };
+        self.consume(nread);
+        Ok(nread)
     }
 }
 
@@ -88,26 +98,25 @@ impl<R: Read> BufRead for BufReader<R> {
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
         // If we've reached the end of our internal buffer then we need to fetch
         // some more data from the underlying reader.
-        if self.buf.position() as usize == self.buf.get_ref().len() {
-            self.buf.set_position(0);
-            let v = self.buf.get_mut();
-            v.truncate(0);
-            let inner = &mut self.inner;
-            try!(super::with_end_to_cap(v, |b| inner.read(b)));
+        if self.pos == self.cap {
+            self.cap = try!(self.inner.read(&mut self.buf));
+            self.pos = 0;
         }
-        self.buf.fill_buf()
+        Ok(&self.buf[self.pos..self.cap])
     }
 
-    fn consume(&mut self, amt: uint) {
-        self.buf.consume(amt)
+    fn consume(&mut self, amt: usize) {
+        self.pos = cmp::min(self.pos + amt, self.cap);
     }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<R> fmt::Debug for BufReader<R> where R: fmt::Debug {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "BufReader {{ reader: {:?}, buffer: {}/{} }}",
-               self.inner, self.buf.position(), self.buf.get_ref().len())
+        fmt.debug_struct("BufReader")
+            .field("reader", &self.inner)
+            .field("buffer", &format_args!("{}/{}", self.cap - self.pos, self.buf.len()))
+            .finish()
     }
 }
 
@@ -156,7 +165,7 @@ impl<W: Write> BufWriter<W> {
             match self.inner.as_mut().unwrap().write(&self.buf[written..]) {
                 Ok(0) => {
                     ret = Err(Error::new(ErrorKind::WriteZero,
-                                         "failed to write the buffered data", None));
+                                         "failed to write the buffered data"));
                     break;
                 }
                 Ok(n) => written += n,
@@ -168,8 +177,8 @@ impl<W: Write> BufWriter<W> {
         if written > 0 {
             // NB: would be better expressed as .remove(0..n) if it existed
             unsafe {
-                ptr::copy(self.buf.as_mut_ptr(),
-                          self.buf.as_ptr().offset(written as isize),
+                ptr::copy(self.buf.as_ptr().offset(written as isize),
+                          self.buf.as_mut_ptr(),
                           len - written);
             }
         }
@@ -222,8 +231,10 @@ impl<W: Write> Write for BufWriter<W> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<W: Write> fmt::Debug for BufWriter<W> where W: fmt::Debug {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "BufWriter {{ writer: {:?}, buffer: {}/{} }}",
-               self.inner.as_ref().unwrap(), self.buf.len(), self.buf.capacity())
+        fmt.debug_struct("BufWriter")
+            .field("writer", &self.inner.as_ref().unwrap())
+            .field("buffer", &format_args!("{}/{}", self.buf.len(), self.buf.capacity()))
+            .finish()
     }
 }
 
@@ -253,8 +264,8 @@ impl<W> IntoInnerError<W> {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<W> FromError<IntoInnerError<W>> for Error {
-    fn from_error(iie: IntoInnerError<W>) -> Error { iie.1 }
+impl<W> From<IntoInnerError<W>> for Error {
+    fn from(iie: IntoInnerError<W>) -> Error { iie.1 }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -337,9 +348,11 @@ impl<W: Write> Write for LineWriter<W> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<W: Write> fmt::Debug for LineWriter<W> where W: fmt::Debug {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "LineWriter {{ writer: {:?}, buffer: {}/{} }}",
-               self.inner.inner, self.inner.buf.len(),
-               self.inner.buf.capacity())
+        fmt.debug_struct("LineWriter")
+            .field("writer", &self.inner.inner)
+            .field("buffer",
+                   &format_args!("{}/{}", self.inner.buf.len(), self.inner.buf.capacity()))
+            .finish()
     }
 }
 
@@ -415,10 +428,10 @@ impl<S: Read + Write> BufStream<S> {
     /// Any leftover data in the read buffer is lost.
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn into_inner(self) -> Result<S, IntoInnerError<BufStream<S>>> {
-        let BufReader { inner: InternalBufWriter(w), buf } = self.inner;
+        let BufReader { inner: InternalBufWriter(w), buf, pos, cap } = self.inner;
         w.into_inner().map_err(|IntoInnerError(w, e)| {
             IntoInnerError(BufStream {
-                inner: BufReader { inner: InternalBufWriter(w), buf: buf },
+                inner: BufReader { inner: InternalBufWriter(w), buf: buf, pos: pos, cap: cap },
             }, e)
         })
     }
@@ -427,7 +440,7 @@ impl<S: Read + Write> BufStream<S> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<S: Read + Write> BufRead for BufStream<S> {
     fn fill_buf(&mut self) -> io::Result<&[u8]> { self.inner.fill_buf() }
-    fn consume(&mut self, amt: uint) { self.inner.consume(amt) }
+    fn consume(&mut self, amt: usize) { self.inner.consume(amt) }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -452,10 +465,12 @@ impl<S: Write> fmt::Debug for BufStream<S> where S: fmt::Debug {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         let reader = &self.inner;
         let writer = &self.inner.inner.0;
-        write!(fmt, "BufStream {{ stream: {:?}, write_buffer: {}/{}, read_buffer: {}/{} }}",
-               writer.inner,
-               writer.buf.len(), writer.buf.capacity(),
-               reader.buf.position(), reader.buf.get_ref().len())
+        fmt.debug_struct("BufStream")
+            .field("stream", &writer.inner)
+            .field("write_buffer", &format_args!("{}/{}", writer.buf.len(), writer.buf.capacity()))
+            .field("read_buffer",
+                   &format_args!("{}/{}", reader.cap - reader.pos, reader.buf.len()))
+            .finish()
     }
 }
 
@@ -488,34 +503,34 @@ mod tests {
 
         let mut buf = [0, 0, 0];
         let nread = reader.read(&mut buf);
-        assert_eq!(Ok(3), nread);
+        assert_eq!(nread.unwrap(), 3);
         let b: &[_] = &[5, 6, 7];
         assert_eq!(buf, b);
 
         let mut buf = [0, 0];
         let nread = reader.read(&mut buf);
-        assert_eq!(Ok(2), nread);
+        assert_eq!(nread.unwrap(), 2);
         let b: &[_] = &[0, 1];
         assert_eq!(buf, b);
 
         let mut buf = [0];
         let nread = reader.read(&mut buf);
-        assert_eq!(Ok(1), nread);
+        assert_eq!(nread.unwrap(), 1);
         let b: &[_] = &[2];
         assert_eq!(buf, b);
 
         let mut buf = [0, 0, 0];
         let nread = reader.read(&mut buf);
-        assert_eq!(Ok(1), nread);
+        assert_eq!(nread.unwrap(), 1);
         let b: &[_] = &[3, 0, 0];
         assert_eq!(buf, b);
 
         let nread = reader.read(&mut buf);
-        assert_eq!(Ok(1), nread);
+        assert_eq!(nread.unwrap(), 1);
         let b: &[_] = &[4, 0, 0];
         assert_eq!(buf, b);
 
-        assert_eq!(reader.read(&mut buf), Ok(0));
+        assert_eq!(reader.read(&mut buf).unwrap(), 0);
     }
 
     #[test]
@@ -577,7 +592,7 @@ mod tests {
         }
 
         let mut stream = BufStream::new(S);
-        assert_eq!(stream.read(&mut [0; 10]), Ok(0));
+        assert_eq!(stream.read(&mut [0; 10]).unwrap(), 0);
         stream.write(&[0; 10]).unwrap();
         stream.flush().unwrap();
     }
@@ -643,10 +658,10 @@ mod tests {
         let in_buf: &[u8] = b"a\nb\nc";
         let reader = BufReader::with_capacity(2, in_buf);
         let mut it = reader.lines();
-        assert_eq!(it.next(), Some(Ok("a".to_string())));
-        assert_eq!(it.next(), Some(Ok("b".to_string())));
-        assert_eq!(it.next(), Some(Ok("c".to_string())));
-        assert_eq!(it.next(), None);
+        assert_eq!(it.next().unwrap().unwrap(), "a".to_string());
+        assert_eq!(it.next().unwrap().unwrap(), "b".to_string());
+        assert_eq!(it.next().unwrap().unwrap(), "c".to_string());
+        assert!(it.next().is_none());
     }
 
     #[test]
@@ -654,20 +669,20 @@ mod tests {
         let inner = ShortReader{lengths: vec![0, 1, 2, 0, 1, 0]};
         let mut reader = BufReader::new(inner);
         let mut buf = [0, 0];
-        assert_eq!(reader.read(&mut buf), Ok(0));
-        assert_eq!(reader.read(&mut buf), Ok(1));
-        assert_eq!(reader.read(&mut buf), Ok(2));
-        assert_eq!(reader.read(&mut buf), Ok(0));
-        assert_eq!(reader.read(&mut buf), Ok(1));
-        assert_eq!(reader.read(&mut buf), Ok(0));
-        assert_eq!(reader.read(&mut buf), Ok(0));
+        assert_eq!(reader.read(&mut buf).unwrap(), 0);
+        assert_eq!(reader.read(&mut buf).unwrap(), 1);
+        assert_eq!(reader.read(&mut buf).unwrap(), 2);
+        assert_eq!(reader.read(&mut buf).unwrap(), 0);
+        assert_eq!(reader.read(&mut buf).unwrap(), 1);
+        assert_eq!(reader.read(&mut buf).unwrap(), 0);
+        assert_eq!(reader.read(&mut buf).unwrap(), 0);
     }
 
     #[test]
     fn read_char_buffered() {
         let buf = [195, 159];
         let reader = BufReader::with_capacity(1, &buf[..]);
-        assert_eq!(reader.chars().next(), Some(Ok('ß')));
+        assert_eq!(reader.chars().next().unwrap().unwrap(), 'ß');
     }
 
     #[test]
@@ -675,13 +690,13 @@ mod tests {
         let buf = [195, 159, b'a'];
         let reader = BufReader::with_capacity(1, &buf[..]);
         let mut it = reader.chars();
-        assert_eq!(it.next(), Some(Ok('ß')));
-        assert_eq!(it.next(), Some(Ok('a')));
-        assert_eq!(it.next(), None);
+        assert_eq!(it.next().unwrap().unwrap(), 'ß');
+        assert_eq!(it.next().unwrap().unwrap(), 'a');
+        assert!(it.next().is_none());
     }
 
     #[test]
-    #[should_fail]
+    #[should_panic]
     fn dont_panic_in_drop_on_panicked_flush() {
         struct FailFlushWriter;
 

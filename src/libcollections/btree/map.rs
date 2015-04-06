@@ -24,7 +24,7 @@ use core::default::Default;
 use core::fmt::Debug;
 use core::hash::{Hash, Hasher};
 use core::iter::{Map, FromIterator, IntoIterator};
-use core::ops::{Index};
+use core::ops::Index;
 use core::{iter, fmt, mem, usize};
 use Bound::{self, Included, Excluded, Unbounded};
 
@@ -904,31 +904,10 @@ impl<K: Ord, V: Ord> Ord for BTreeMap<K, V> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<K: Debug, V: Debug> Debug for BTreeMap<K, V> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, "{{"));
-
-        for (i, (k, v)) in self.iter().enumerate() {
-            if i != 0 { try!(write!(f, ", ")); }
-            try!(write!(f, "{:?}: {:?}", *k, *v));
-        }
-
-        write!(f, "}}")
+        self.iter().fold(f.debug_map(), |b, (k, v)| b.entry(k, v)).finish()
     }
 }
 
-#[cfg(stage0)]
-#[stable(feature = "rust1", since = "1.0.0")]
-impl<K: Ord, Q: ?Sized, V> Index<Q> for BTreeMap<K, V>
-    where K: Borrow<Q>, Q: Ord
-{
-    type Output = V;
-
-    #[inline]
-    fn index(&self, key: &Q) -> &V {
-        self.get(key).expect("no entry found for key")
-    }
-}
-
-#[cfg(not(stage0))]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, K: Ord, Q: ?Sized, V> Index<&'a Q> for BTreeMap<K, V>
     where K: Borrow<Q>, Q: Ord
@@ -1143,13 +1122,35 @@ impl<'a, K, V> DoubleEndedIterator for RangeMut<'a, K, V> {
 }
 
 impl<'a, K: Ord, V> Entry<'a, K, V> {
-    /// Returns a mutable reference to the entry if occupied, or the VacantEntry if vacant
     #[unstable(feature = "std_misc",
                reason = "will soon be replaced by or_insert")]
+    #[deprecated(since = "1.0",
+                reason = "replaced with more ergonomic `or_insert` and `or_insert_with`")]
+    /// Returns a mutable reference to the entry if occupied, or the VacantEntry if vacant
     pub fn get(self) -> Result<&'a mut V, VacantEntry<'a, K, V>> {
         match self {
             Occupied(entry) => Ok(entry.into_mut()),
             Vacant(entry) => Err(entry),
+        }
+    }
+
+    #[stable(feature = "rust1", since = "1.0.0")]
+    /// Ensures a value is in the entry by inserting the default if empty, and returns
+    /// a mutable reference to the value in the entry.
+    pub fn or_insert(self, default: V) -> &'a mut V {
+        match self {
+            Occupied(entry) => entry.into_mut(),
+            Vacant(entry) => entry.insert(default),
+        }
+    }
+
+    #[stable(feature = "rust1", since = "1.0.0")]
+    /// Ensures a value is in the entry by inserting the result of the default function if empty,
+    /// and returns a mutable reference to the value in the entry.
+    pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> &'a mut V {
+        match self {
+            Occupied(entry) => entry.into_mut(),
+            Vacant(entry) => entry.insert(default()),
         }
     }
 }
@@ -1563,21 +1564,12 @@ impl<K: Ord, V> BTreeMap<K, V> {
     /// ```
     /// # #![feature(collections)]
     /// use std::collections::BTreeMap;
-    /// use std::collections::btree_map::Entry;
     ///
     /// let mut count: BTreeMap<&str, usize> = BTreeMap::new();
     ///
     /// // count the number of occurrences of letters in the vec
-    /// for x in vec!["a","b","a","c","a","b"].iter() {
-    ///     match count.entry(*x) {
-    ///         Entry::Vacant(view) => {
-    ///             view.insert(1);
-    ///         },
-    ///         Entry::Occupied(mut view) => {
-    ///             let v = view.get_mut();
-    ///             *v += 1;
-    ///         },
-    ///     }
+    /// for x in vec!["a","b","a","c","a","b"] {
+    ///     *count.entry(x).or_insert(0) += 1;
     /// }
     ///
     /// assert_eq!(count["a"], 3);

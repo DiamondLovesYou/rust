@@ -13,17 +13,17 @@
 #![allow(unknown_features)]
 #![feature(box_syntax, std_misc)]
 
-use std::thread::Thread;
+use std::thread;
 
 struct Pair {
-    a: int,
-    b: int
+    a: isize,
+    b: isize
 }
 
 pub fn main() {
     let z: Box<_> = box Pair { a : 10, b : 12};
 
-    let _t = Thread::spawn(move|| {
+    let _t = thread::scoped(move|| {
         assert_eq!(z.a, 10);
         assert_eq!(z.b, 12);
     });

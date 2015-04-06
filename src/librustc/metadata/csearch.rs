@@ -29,7 +29,7 @@ use syntax::parse::token;
 
 use std::collections::hash_map::HashMap;
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct MethodInfo {
     pub name: ast::Name,
     pub def_id: ast::DefId,
@@ -46,7 +46,7 @@ pub fn each_lang_item<F>(cstore: &cstore::CStore,
                          cnum: ast::CrateNum,
                          f: F)
                          -> bool where
-    F: FnMut(ast::NodeId, uint) -> bool,
+    F: FnMut(ast::NodeId, usize) -> bool,
 {
     let crate_data = cstore.get_crate_data(cnum);
     decoder::each_lang_item(&*crate_data, f)

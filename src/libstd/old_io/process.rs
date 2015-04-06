@@ -41,16 +41,16 @@ use thread;
 
 /// Signal a process to exit, without forcibly killing it. Corresponds to
 /// SIGTERM on unix platforms.
-#[cfg(windows)] pub const PleaseExitSignal: int = 15;
+#[cfg(windows)] pub const PleaseExitSignal: isize = 15;
 /// Signal a process to exit immediately, forcibly killing it. Corresponds to
 /// SIGKILL on unix platforms.
-#[cfg(windows)] pub const MustDieSignal: int = 9;
+#[cfg(windows)] pub const MustDieSignal: isize = 9;
 /// Signal a process to exit, without forcibly killing it. Corresponds to
 /// SIGTERM on unix platforms.
-#[cfg(not(windows))] pub const PleaseExitSignal: int = libc::SIGTERM as int;
+#[cfg(not(windows))] pub const PleaseExitSignal: isize = libc::SIGTERM as isize;
 /// Signal a process to exit immediately, forcibly killing it. Corresponds to
 /// SIGKILL on unix platforms.
-#[cfg(not(windows))] pub const MustDieSignal: int = libc::SIGKILL as int;
+#[cfg(not(windows))] pub const MustDieSignal: isize = libc::SIGKILL as isize;
 
 /// Representation of a running or exited child process.
 ///
@@ -60,7 +60,7 @@ use thread;
 ///
 /// # Examples
 ///
-/// ```should_fail
+/// ```should_panic
 /// # #![feature(old_io)]
 /// use std::old_io::*;
 ///
@@ -80,7 +80,7 @@ pub struct Process {
     exit_code: Option<ProcessExit>,
 
     /// Manually delivered signal
-    exit_signal: Option<int>,
+    exit_signal: Option<isize>,
 
     /// Deadline after which wait() will return
     deadline: u64,
@@ -186,8 +186,8 @@ pub struct Command {
     stdin: StdioContainer,
     stdout: StdioContainer,
     stderr: StdioContainer,
-    uid: Option<uint>,
-    gid: Option<uint>,
+    uid: Option<usize>,
+    gid: Option<usize>,
     detach: bool,
 }
 
@@ -246,7 +246,7 @@ impl Command {
             None => {
                 // if the env is currently just inheriting from the parent's,
                 // materialize the parent's env into a hashtable.
-                self.env = Some(os::env_as_bytes().into_iter().map(|(k, v)| {
+                self.env = Some(::env::vars().map(|(k, v)| {
                     (EnvKey(CString::new(k).unwrap()),
                      CString::new(v).unwrap())
                 }).collect());
@@ -321,14 +321,14 @@ impl Command {
     /// the child process. Setting this value on windows will cause the spawn to
     /// fail. Failure in the `setuid` call on unix will also cause the spawn to
     /// fail.
-    pub fn uid<'a>(&'a mut self, id: uint) -> &'a mut Command {
+    pub fn uid<'a>(&'a mut self, id: usize) -> &'a mut Command {
         self.uid = Some(id);
         self
     }
 
     /// Similar to `uid`, but sets the group id of the child process. This has
     /// the same semantics as the `uid` field.
-    pub fn gid<'a>(&'a mut self, id: uint) -> &'a mut Command {
+    pub fn gid<'a>(&'a mut self, id: usize) -> &'a mut Command {
         self.gid = Some(id);
         self
     }
@@ -367,7 +367,7 @@ impl Command {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(old_io, core)]
+    /// # #![feature(old_io, core, convert)]
     /// use std::old_io::Command;
     ///
     /// let output = match Command::new("cat").arg("foot.txt").output() {
@@ -376,8 +376,8 @@ impl Command {
     /// };
     ///
     /// println!("status: {}", output.status);
-    /// println!("stdout: {}", String::from_utf8_lossy(output.output.as_slice()));
-    /// println!("stderr: {}", String::from_utf8_lossy(output.error.as_slice()));
+    /// println!("stdout: {}", String::from_utf8_lossy(output.output.as_ref()));
+    /// println!("stderr: {}", String::from_utf8_lossy(output.error.as_ref()));
     /// ```
     pub fn output(&self) -> IoResult<ProcessOutput> {
         self.spawn().and_then(|p| p.wait_with_output())
@@ -458,10 +458,10 @@ impl sys::process::ProcessConfig<EnvKey, CString> for Command {
     fn cwd(&self) -> Option<&CString> {
         self.cwd.as_ref()
     }
-    fn uid(&self) -> Option<uint> {
+    fn uid(&self) -> Option<usize> {
         self.uid.clone()
     }
-    fn gid(&self) -> Option<uint> {
+    fn gid(&self) -> Option<usize> {
         self.gid.clone()
     }
     fn detach(&self) -> bool {
@@ -507,10 +507,10 @@ pub enum StdioContainer {
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ProcessExit {
     /// Normal termination with an exit status.
-    ExitStatus(int),
+    ExitStatus(isize),
 
     /// Termination by signal, with the signal number.
-    ExitSignal(int),
+    ExitSignal(isize),
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -533,7 +533,7 @@ impl ProcessExit {
 
     /// Checks whether this ProcessExit matches the given exit status.
     /// Termination by signal will never match an exit code.
-    pub fn matches_exit_status(&self, wanted: int) -> bool {
+    pub fn matches_exit_status(&self, wanted: isize) -> bool {
         *self == ExitStatus(wanted)
     }
 }
@@ -549,7 +549,7 @@ impl Process {
     /// process. Note, though, that on some platforms signals will continue to
     /// be successfully delivered if the child has exited, but not yet been
     /// reaped.
-    pub fn kill(id: libc::pid_t, signal: int) -> IoResult<()> {
+    pub fn kill(id: libc::pid_t, signal: isize) -> IoResult<()> {
         unsafe { ProcessImp::killpid(id, signal) }
     }
 
@@ -571,7 +571,7 @@ impl Process {
     /// # Errors
     ///
     /// If the signal delivery fails, the corresponding error is returned.
-    pub fn signal(&mut self, signal: int) -> IoResult<()> {
+    pub fn signal(&mut self, signal: isize) -> IoResult<()> {
         #[cfg(unix)] fn collect_status(p: &mut Process) {
             // On Linux (and possibly other unices), a process that has exited will
             // continue to accept signals because it is "defunct". The delivery of
@@ -764,11 +764,9 @@ impl Drop for Process {
 
 #[cfg(test)]
 mod tests {
+    use prelude::v1::*;
     use old_io::{Truncate, Write, TimedOut, timer, process, FileNotFound};
     use old_io::{Reader, Writer};
-    use prelude::v1::{Ok, Err, drop, Some, None, Vec};
-    use prelude::v1::{String, Clone};
-    use prelude::v1::{Str, AsSlice, ToString};
     use old_path::{GenericPath, Path};
     use old_io::fs::PathExtensions;
     use old_io::timer::*;
@@ -888,8 +886,8 @@ mod tests {
         use libc;
         let mut p = Command::new("/bin/sh")
                             .arg("-c").arg("true")
-                            .uid(unsafe { libc::getuid() as uint })
-                            .gid(unsafe { libc::getgid() as uint })
+                            .uid(unsafe { libc::getuid() as usize })
+                            .gid(unsafe { libc::getgid() as usize })
                             .spawn().unwrap();
         assert!(p.wait().unwrap().success());
     }
@@ -1003,7 +1001,7 @@ mod tests {
         let prog = pwd_cmd().spawn().unwrap();
 
         let output = String::from_utf8(prog.wait_with_output().unwrap().output).unwrap();
-        let parent_dir = os::getcwd().unwrap();
+        let parent_dir = Path::new(::env::current_dir().unwrap().to_str().unwrap());
         let child_dir = Path::new(output.trim());
 
         let parent_stat = parent_dir.stat().unwrap();
@@ -1018,7 +1016,7 @@ mod tests {
         use os;
         // test changing to the parent of os::getcwd() because we know
         // the path exists (and os::getcwd() is not expected to be root)
-        let parent_dir = os::getcwd().unwrap().dir_path();
+        let parent_dir = Path::new(::env::current_dir().unwrap().to_str().unwrap());
         let prog = pwd_cmd().cwd(&parent_dir).spawn().unwrap();
 
         let output = String::from_utf8(prog.wait_with_output().unwrap().output).unwrap();
@@ -1058,11 +1056,11 @@ mod tests {
         let prog = env_cmd().spawn().unwrap();
         let output = String::from_utf8(prog.wait_with_output().unwrap().output).unwrap();
 
-        let r = os::env();
-        for &(ref k, ref v) in &r {
+        let r = ::env::vars();
+        for (k, v) in r {
             // don't check windows magical empty-named variables
             assert!(k.is_empty() ||
-                    output.contains(&format!("{}={}", *k, *v)),
+                    output.contains(&format!("{}={}", k, v)),
                     "output doesn't contain `{}={}`\n{}",
                     k, v, output);
         }
@@ -1076,16 +1074,12 @@ mod tests {
         let mut prog = env_cmd().spawn().unwrap();
         let output = String::from_utf8(prog.wait_with_output().unwrap().output).unwrap();
 
-        let r = os::env();
-        for &(ref k, ref v) in &r {
+        let r = ::env::vars();
+        for (k, v) in r {
             // don't check android RANDOM variables
-            if *k != "RANDOM".to_string() {
-                assert!(output.contains(&format!("{}={}",
-                                                 *k,
-                                                 *v)) ||
-                        output.contains(&format!("{}=\'{}\'",
-                                                 *k,
-                                                 *v)));
+            if k != "RANDOM".to_string() {
+                assert!(output.contains(&format!("{}={}", k, v)) ||
+                        output.contains(&format!("{}=\'{}\'", k, v)));
             }
         }
     }
@@ -1100,9 +1094,9 @@ mod tests {
         // PATH to our sub-process.
         let path_val: String;
         let mut new_env = vec![("RUN_TEST_NEW_ENV", "123")];
-        match os::getenv("PATH") {
-            None => {}
-            Some(val) => {
+        match ::env::var("PATH") {
+            Err(..) => {}
+            Ok(val) => {
                 path_val = val;
                 new_env.push(("PATH", &path_val))
             }

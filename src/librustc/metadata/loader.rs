@@ -212,7 +212,7 @@
 //! no means all of the necessary details. Take a look at the rest of
 //! metadata::loader or metadata::creader for all the juicy details!
 
-use back::archive::{METADATA_FILENAME};
+use back::archive::METADATA_FILENAME;
 use back::svh::Svh;
 use session::Session;
 use session::search_paths::PathKind;
@@ -429,8 +429,8 @@ impl<'a> Context<'a> {
             info!("lib candidate: {}", path.display());
 
             let hash_str = hash.to_string();
-            let slot = candidates.entry(hash_str).get().unwrap_or_else(
-                |vacant_entry| vacant_entry.insert((HashMap::new(), HashMap::new())));
+            let slot = candidates.entry(hash_str)
+                                 .or_insert_with(|| (HashMap::new(), HashMap::new()));
             let (ref mut rlibs, ref mut dylibs) = *slot;
             if rlib {
                 rlibs.insert(fs::realpath(path).unwrap(), kind);
@@ -748,7 +748,7 @@ fn get_metadata_section_imp(is_osx: bool, filename: &Path) -> Result<MetadataBlo
     unsafe {
         let buf = common::path2cstr(filename);
         let mb = llvm::LLVMRustCreateMemoryBufferWithContentsOfFile(buf.as_ptr());
-        if mb as int == 0 {
+        if mb as isize == 0 {
             return Err(format!("error reading library: '{}'",
                                filename.display()))
         }
@@ -764,12 +764,12 @@ fn get_metadata_section_imp(is_osx: bool, filename: &Path) -> Result<MetadataBlo
             let mut name_buf = ptr::null();
             let name_len = llvm::LLVMRustGetSectionName(si.llsi, &mut name_buf);
             let name = slice::from_raw_parts(name_buf as *const u8,
-                                             name_len as uint).to_vec();
+                                             name_len as usize).to_vec();
             let name = String::from_utf8(name).unwrap();
             debug!("get_metadata_section: name {}", name);
             if read_meta_section_name(is_osx) == name {
                 let cbuf = llvm::LLVMGetSectionContents(si.llsi);
-                let csz = llvm::LLVMGetSectionSize(si.llsi) as uint;
+                let csz = llvm::LLVMGetSectionSize(si.llsi) as usize;
                 let cvbuf: *const u8 = cbuf as *const u8;
                 let vlen = encoder::metadata_encoding_version.len();
                 debug!("checking {} bytes of metadata-version stamp",
@@ -782,7 +782,7 @@ fn get_metadata_section_imp(is_osx: bool, filename: &Path) -> Result<MetadataBlo
                                         filename.display())));
                 }
 
-                let cvbuf1 = cvbuf.offset(vlen as int);
+                let cvbuf1 = cvbuf.offset(vlen as isize);
                 debug!("inflating {} bytes of compressed metadata",
                        csz - vlen);
                 let bytes = slice::from_raw_parts(cvbuf1, csz - vlen);

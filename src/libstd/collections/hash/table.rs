@@ -15,7 +15,7 @@ use self::BucketState::*;
 use clone::Clone;
 use cmp;
 use hash::{Hash, Hasher};
-use iter::{Iterator, IteratorExt, ExactSizeIterator, count};
+use iter::{Iterator, ExactSizeIterator};
 use marker::{Copy, Send, Sync, Sized, self};
 use mem::{min_align_of, size_of};
 use mem;
@@ -87,6 +87,9 @@ struct RawBucket<K, V> {
 }
 
 impl<K,V> Copy for RawBucket<K,V> {}
+impl<K,V> Clone for RawBucket<K,V> {
+    fn clone(&self) -> RawBucket<K, V> { *self }
+}
 
 pub struct Bucket<K, V, M> {
     raw:   RawBucket<K, V>,
@@ -95,6 +98,9 @@ pub struct Bucket<K, V, M> {
 }
 
 impl<K,V,M:Copy> Copy for Bucket<K,V,M> {}
+impl<K,V,M:Copy> Clone for Bucket<K,V,M> {
+    fn clone(&self) -> Bucket<K,V,M> { *self }
+}
 
 pub struct EmptyBucket<K, V, M> {
     raw:   RawBucket<K, V>,
@@ -129,7 +135,7 @@ struct GapThenFull<K, V, M> {
 
 /// A hash that is not zero, since we use a hash of zero to represent empty
 /// buckets.
-#[derive(PartialEq, Copy)]
+#[derive(PartialEq, Copy, Clone)]
 pub struct SafeHash {
     hash: u64,
 }
@@ -480,8 +486,8 @@ impl<K, V, M: Deref<Target=RawTable<K, V>>> GapThenFull<K, V, M> {
     pub fn shift(mut self) -> Option<GapThenFull<K, V, M>> {
         unsafe {
             *self.gap.raw.hash = mem::replace(&mut *self.full.raw.hash, EMPTY_BUCKET);
-            ptr::copy_nonoverlapping(self.gap.raw.key, self.full.raw.key, 1);
-            ptr::copy_nonoverlapping(self.gap.raw.val, self.full.raw.val, 1);
+            ptr::copy_nonoverlapping(self.full.raw.key, self.gap.raw.key, 1);
+            ptr::copy_nonoverlapping(self.full.raw.val, self.gap.raw.val, 1);
         }
 
         let FullBucket { raw: prev_raw, idx: prev_idx, .. } = self.full;
@@ -985,7 +991,7 @@ impl<K: Clone, V: Clone> Clone for RawTable<K, V> {
 #[unsafe_destructor]
 impl<K, V> Drop for RawTable<K, V> {
     fn drop(&mut self) {
-        if self.capacity == 0 {
+        if self.capacity == 0 || self.capacity == mem::POST_DROP_USIZE {
             return;
         }
 

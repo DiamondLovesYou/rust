@@ -11,6 +11,7 @@
 // ignore-linux see joyent/libuv#1189
 // ignore-android needs extra network permissions
 // ignore-openbsd system ulimit (Too many open files)
+// ignore-bitrig system ulimit (Too many open files)
 // exec-env:RUST_LOG=debug
 
 #![feature(rustc_private, libc, old_io, io, std_misc)]
@@ -23,12 +24,12 @@ extern crate libc;
 use std::sync::mpsc::channel;
 use std::old_io::net::tcp::{TcpListener, TcpStream};
 use std::old_io::{Acceptor, Listener, Reader, Writer};
-use std::thread::{Builder, Thread};
+use std::thread::{self, Builder};
 use std::time::Duration;
 
 fn main() {
     // This test has a chance to time out, try to not let it time out
-    Thread::spawn(move|| -> () {
+    thread::spawn(move|| -> () {
         use std::old_io::timer;
         timer::sleep(Duration::milliseconds(30 * 1000));
         println!("timed out!");
@@ -36,7 +37,7 @@ fn main() {
     });
 
     let (tx, rx) = channel();
-    Thread::spawn(move || -> () {
+    thread::spawn(move || -> () {
         let mut listener = TcpListener::bind("127.0.0.1:0").unwrap();
         tx.send(listener.socket_name().unwrap()).unwrap();
         let mut acceptor = listener.listen();

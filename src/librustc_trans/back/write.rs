@@ -815,7 +815,7 @@ pub fn run_passes(sess: &Session,
         let mut linked = already_linked_libs
             (sess, &sess.cstore.get_used_crates(cstore::RequireStatic));
         let lib_paths = pnacl_lib_paths(sess);
-        let mut index = 0u;
+        let mut index = 0usize;
         let bitcodes: Vec<ModuleTranslation> = (*used)
             .iter()
             .filter_map(|&(ref lib, kind)| {
@@ -1141,7 +1141,7 @@ fn run_work_singlethreaded(sess: &Session,
 
 fn run_work_multithreaded(sess: &Session,
                           work_items: Vec<WorkItem>,
-                          num_workers: uint) {
+                          num_workers: usize) {
     // Run some workers to process the work items.
     let work_items_arc = Arc::new(Mutex::new(work_items));
     let mut diag_emitter = SharedEmitter::new();

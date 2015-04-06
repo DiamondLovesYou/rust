@@ -88,17 +88,14 @@ When `guard` goes out of scope, it will block execution until the thread is
 finished. If we didn't want this behaviour, we could use `thread::spawn()`:
 
 ```
-# #![feature(old_io, std_misc)]
 use std::thread;
-use std::old_io::timer;
-use std::time::Duration;
 
 fn main() {
     thread::spawn(|| {
         println!("Hello from a thread!");
     });
 
-    timer::sleep(Duration::milliseconds(50));
+    thread::sleep_ms(50);
 }
 ```
 
@@ -147,10 +144,7 @@ As an example, here is a Rust program that would have a data race in many
 languages. It will not compile:
 
 ```ignore
-# #![feature(old_io, std_misc)]
 use std::thread;
-use std::old_io::timer;
-use std::time::Duration;
 
 fn main() {
     let mut data = vec![1u32, 2, 3];
@@ -161,14 +155,14 @@ fn main() {
         });
     }
 
-    timer::sleep(Duration::milliseconds(50));
+    thread::sleep_ms(50);
 }
 ```
 
 This gives us an error:
 
 ```text
-12:17 error: capture of moved value: `data`
+8:17 error: capture of moved value: `data`
         data[i] += 1;
         ^~~~
 ```
@@ -187,10 +181,7 @@ only one person at a time can mutate what's inside. For that, we can use the
 but for a different reason:
 
 ```ignore
-# #![feature(old_io, std_misc)]
 use std::thread;
-use std::old_io::timer;
-use std::time::Duration;
 use std::sync::Mutex;
 
 fn main() {
@@ -203,17 +194,17 @@ fn main() {
         });
     }
 
-    timer::sleep(Duration::milliseconds(50));
+    thread::sleep_ms(50);
 }
 ```
 
 Here's the error:
 
 ```text
-<anon>:11:9: 11:22 error: the trait `core::marker::Send` is not implemented for the type `std::sync::mutex::MutexGuard<'_, collections::vec::Vec<u32>>` [E0277]
+<anon>:9:9: 9:22 error: the trait `core::marker::Send` is not implemented for the type `std::sync::mutex::MutexGuard<'_, collections::vec::Vec<u32>>` [E0277]
 <anon>:11         thread::spawn(move || {
                   ^~~~~~~~~~~~~
-<anon>:11:9: 11:22 note: `std::sync::mutex::MutexGuard<'_, collections::vec::Vec<u32>>` cannot be sent between threads safely
+<anon>:9:9: 9:22 note: `std::sync::mutex::MutexGuard<'_, collections::vec::Vec<u32>>` cannot be sent between threads safely
 <anon>:11         thread::spawn(move || {
                   ^~~~~~~~~~~~~
 ```
@@ -232,11 +223,8 @@ guard across thread boundaries, which gives us our error.
 We can use `Arc<T>` to fix this. Here's the working version:
 
 ```
-# #![feature(old_io, std_misc)]
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::old_io::timer;
-use std::time::Duration;
 
 fn main() {
     let data = Arc::new(Mutex::new(vec![1u32, 2, 3]));
@@ -249,7 +237,7 @@ fn main() {
         });
     }
 
-    timer::sleep(Duration::milliseconds(50));
+    thread::sleep_ms(50);
 }
 ```
 
@@ -257,12 +245,9 @@ We now call `clone()` on our `Arc`, which increases the internal count. This
 handle is then moved into the new thread. Let's examine the body of the
 thread more closely:
 
-```
-# #![feature(old_io, std_misc)]
+```rust
 # use std::sync::{Arc, Mutex};
 # use std::thread;
-# use std::old_io::timer;
-# use std::time::Duration;
 # fn main() {
 #     let data = Arc::new(Mutex::new(vec![1u32, 2, 3]));
 #     for i in 0..2 {
@@ -272,6 +257,7 @@ thread::spawn(move || {
     data[i] += 1;
 });
 #     }
+#     thread::sleep_ms(50);
 # }
 ```
 
@@ -280,13 +266,15 @@ it returns an `Result<T, E>`, and because this is just an example, we `unwrap()`
 it to get a reference to the data. Real code would have more robust error handling
 here. We're then free to mutate it, since we have the lock.
 
-This timer bit is a bit awkward, however. We have picked a reasonable amount of
-time to wait, but it's entirely possible that we've picked too high, and that
-we could be taking less time. It's also possible that we've picked too low,
-and that we aren't actually finishing this computation.
+Lastly, while the threads are running, we wait on a short timer. But
+this is not ideal: we may have picked a reasonable amount of time to
+wait but it's more likely we'll either be waiting longer than
+necessary or not long enough, depending on just how much time the
+threads actually take to finish computing when the program runs.
 
-Rust's standard library provides a few more mechanisms for two threads to
-synchronize with each other. Let's talk about one: channels.
+A more precise alternative to the timer would be to use one of the
+mechanisms provided by the Rust standard library for synchronizing
+threads with each other. Let's talk about one of them: channels.
 
 ## Channels
 

@@ -30,7 +30,7 @@ pub use self::ValueOrigin::*;
 use super::CrateTranslation;
 use super::ModuleTranslation;
 
-use back::link::{mangle_exported_name};
+use back::link::mangle_exported_name;
 use back::{link, abi};
 use lint;
 use llvm::{AttrHelper, BasicBlockRef, Linkage, ValueRef, Vector, get_param};
@@ -41,7 +41,7 @@ use middle::cfg;
 use middle::lang_items::{LangItem, ExchangeMallocFnLangItem, StartFnLangItem};
 use middle::weak_lang_items;
 use middle::subst::{Subst, Substs};
-use middle::ty::{self, Ty, ClosureTyper};
+use middle::ty::{self, Ty, ClosureTyper, type_is_simd, simd_size};
 use session::config::{self, NoDebugInfo};
 use session::Session;
 use trans::_match;
@@ -52,7 +52,7 @@ use trans::callee;
 use trans::cleanup::CleanupMethods;
 use trans::cleanup;
 use trans::closure;
-use trans::common::{Block, C_bool, C_bytes_in_context, C_i32, C_integral};
+use trans::common::{Block, C_bool, C_bytes_in_context, C_i32, C_int, C_integral};
 use trans::common::{C_null, C_struct_in_context, C_u64, C_u8, C_undef};
 use trans::common::{CrateContext, ExternMap, FunctionContext};
 use trans::common::{Result, NodeIdAndSpan};
@@ -151,7 +151,7 @@ pub fn push_ctxt(s: &'static str) -> _InsnCtxt {
 pub struct StatRecorder<'a, 'tcx: 'a> {
     ccx: &'a CrateContext<'a, 'tcx>,
     name: Option<String>,
-    istart: uint,
+    istart: usize,
 }
 
 impl<'a, 'tcx> StatRecorder<'a, 'tcx> {
@@ -560,7 +560,7 @@ pub fn compare_scalar_types<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                 _ => bcx.sess().bug("compare_scalar_types: must be a comparison operator")
             }
         }
-        ty::ty_bool | ty::ty_uint(_) | ty::ty_char => {
+        ty::ty_bare_fn(..) | ty::ty_bool | ty::ty_uint(_) | ty::ty_char => {
             ICmp(bcx, bin_op_to_icmp_predicate(bcx.ccx(), op, false), lhs, rhs, debug_loc)
         }
         ty::ty_ptr(mt) if common::type_is_sized(bcx.tcx(), mt.ty) => {
@@ -707,7 +707,7 @@ pub fn iter_structural_ty<'blk, 'tcx, F>(cx: Block<'blk, 'tcx>,
                                     substs, &mut f);
               }
               (_match::Switch, Some(lldiscrim_a)) => {
-                  cx = f(cx, lldiscrim_a, cx.tcx().types.int);
+                  cx = f(cx, lldiscrim_a, cx.tcx().types.isize);
                   let unr_cx = fcx.new_temp_block("enum-iter-unr");
                   Unreachable(unr_cx);
                   let llswitch = Switch(cx, lldiscrim_a, unr_cx.llbb,
@@ -824,6 +824,15 @@ pub fn fail_if_zero_or_overflows<'blk, 'tcx>(
             let zero = C_integral(Type::uint_from_ty(cx.ccx(), t), 0, false);
             (ICmp(cx, llvm::IntEQ, rhs, zero, debug_loc), false)
         }
+        ty::ty_struct(_, _) if type_is_simd(cx.tcx(), rhs_t) => {
+            let mut res = C_bool(cx.ccx(), false);
+            for i in 0 .. simd_size(cx.tcx(), rhs_t) {
+                res = Or(cx, res,
+                         IsNull(cx,
+                                ExtractElement(cx, rhs, C_int(cx.ccx(), i as i64))), debug_loc);
+            }
+            (res, false)
+        }
         _ => {
             cx.sess().bug(&format!("fail-if-zero on unexpected type: {}",
                                   ty_to_string(cx.tcx(), rhs_t)));
@@ -847,8 +856,8 @@ pub fn fail_if_zero_or_overflows<'blk, 'tcx>(
             ty::ty_int(t) => {
                 let llty = Type::int_from_ty(cx.ccx(), t);
                 let min = match t {
-                    ast::TyIs(_) if llty == Type::i32(cx.ccx()) => i32::MIN as u64,
-                    ast::TyIs(_) => i64::MIN as u64,
+                    ast::TyIs if llty == Type::i32(cx.ccx()) => i32::MIN as u64,
+                    ast::TyIs => i64::MIN as u64,
                     ast::TyI8 => i8::MIN as u64,
                     ast::TyI16 => i16::MIN as u64,
                     ast::TyI32 => i32::MIN as u64,
@@ -859,7 +868,7 @@ pub fn fail_if_zero_or_overflows<'blk, 'tcx>(
             _ => unreachable!(),
         };
         let minus_one = ICmp(bcx, llvm::IntEQ, rhs,
-                             C_integral(llty, -1, false), debug_loc);
+                             C_integral(llty, !0, false), debug_loc);
         with_cond(bcx, minus_one, |bcx| {
             let is_min = ICmp(bcx, llvm::IntEQ, lhs,
                               C_integral(llty, min, true), debug_loc);
@@ -1146,20 +1155,27 @@ pub fn memcpy_ty<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     }
 }
 
-pub fn zero_mem<'blk, 'tcx>(cx: Block<'blk, 'tcx>, llptr: ValueRef, t: Ty<'tcx>) {
+pub fn drop_done_fill_mem<'blk, 'tcx>(cx: Block<'blk, 'tcx>, llptr: ValueRef, t: Ty<'tcx>) {
     if cx.unreachable.get() { return; }
-    let _icx = push_ctxt("zero_mem");
+    let _icx = push_ctxt("drop_done_fill_mem");
     let bcx = cx;
-    memzero(&B(bcx), llptr, t);
+    memfill(&B(bcx), llptr, t, adt::DTOR_DONE);
 }
 
-// Always use this function instead of storing a zero constant to the memory
-// in question. If you store a zero constant, LLVM will drown in vreg
+pub fn init_zero_mem<'blk, 'tcx>(cx: Block<'blk, 'tcx>, llptr: ValueRef, t: Ty<'tcx>) {
+    if cx.unreachable.get() { return; }
+    let _icx = push_ctxt("init_zero_mem");
+    let bcx = cx;
+    memfill(&B(bcx), llptr, t, 0);
+}
+
+// Always use this function instead of storing a constant byte to the memory
+// in question. e.g. if you store a zero constant, LLVM will drown in vreg
 // allocation for large data structures, and the generated code will be
 // awful. (A telltale sign of this is large quantities of
 // `mov [byte ptr foo],0` in the generated code.)
-fn memzero<'a, 'tcx>(b: &Builder<'a, 'tcx>, llptr: ValueRef, ty: Ty<'tcx>) {
-    let _icx = push_ctxt("memzero");
+fn memfill<'a, 'tcx>(b: &Builder<'a, 'tcx>, llptr: ValueRef, ty: Ty<'tcx>, byte: u8) {
+    let _icx = push_ctxt("memfill");
     let ccx = b.ccx;
 
     let llty = type_of::type_of(ccx, ty);
@@ -1172,7 +1188,7 @@ fn memzero<'a, 'tcx>(b: &Builder<'a, 'tcx>, llptr: ValueRef, ty: Ty<'tcx>) {
 
     let llintrinsicfn = ccx.get_intrinsic(&intrinsic_key);
     let llptr = b.pointercast(llptr, Type::i8(ccx).ptr_to());
-    let llzeroval = C_u8(ccx, 0);
+    let llzeroval = C_u8(ccx, byte as usize);
     let size = machine::llsize_of(ccx, llty);
     let align = C_i32(ccx, type_of::align_of(ccx, ty) as i32);
     let volatile = C_bool(ccx, false);
@@ -1372,7 +1388,7 @@ pub fn new_fn_ctxt<'a, 'tcx>(ccx: &'a CrateContext<'a, 'tcx>,
     common::validate_substs(param_substs);
 
     debug!("new_fn_ctxt(path={}, id={}, param_substs={})",
-           if id == -1 {
+           if id == !0 {
                "".to_string()
            } else {
                ccx.tcx().map.path_to_string(id).to_string()
@@ -2096,7 +2112,7 @@ pub fn llvm_linkage_by_name(name: &str) -> Option<Linkage> {
 
 
 /// Enum describing the origin of an LLVM `Value`, for linkage purposes.
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum ValueOrigin {
     /// The LLVM `Value` is in this context because the corresponding item was
     /// assigned to the current compilation unit.
@@ -3028,6 +3044,12 @@ pub fn trans_crate<'tcx>(analysis: ty::CrateAnalysis<'tcx>)
         tcx.sess.opts.debug_assertions
     };
 
+    let check_dropflag = if let Some(v) = tcx.sess.opts.debugging_opts.force_dropflag_checks {
+        v
+    } else {
+        tcx.sess.opts.debug_assertions
+    };
+
     // Before we touch LLVM, make sure that multithreading is enabled.
     unsafe {
         use std::sync::{Once, ONCE_INIT};
@@ -3056,7 +3078,8 @@ pub fn trans_crate<'tcx>(analysis: ty::CrateAnalysis<'tcx>)
                                              Sha256::new(),
                                              link_meta.clone(),
                                              reachable,
-                                             check_overflow);
+                                             check_overflow,
+                                             check_dropflag);
 
     {
         let ccx = shared_ccx.get_ccx(0);

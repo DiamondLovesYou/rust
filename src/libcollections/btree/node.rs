@@ -280,9 +280,11 @@ impl<T> Drop for RawItems<T> {
 #[unsafe_destructor]
 impl<K, V> Drop for Node<K, V> {
     fn drop(&mut self) {
-        if self.keys.is_null() {
+        if self.keys.is_null() ||
+            (unsafe { self.keys.get() as *const K as usize == mem::POST_DROP_USIZE })
+        {
             // Since we have #[unsafe_no_drop_flag], we have to watch
-            // out for a null value being stored in self.keys. (Using
+            // out for the sentinel value being stored in self.keys. (Using
             // null is technically a violation of the `Unique`
             // requirements, though.)
             return;
@@ -524,7 +526,7 @@ impl<K: Clone, V: Clone> Clone for Node<K, V> {
 ///     println!("Uninitialized memory: {:?}", handle.into_kv());
 /// }
 /// ```
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct Handle<NodeRef, Type, NodeType> {
     node: NodeRef,
     index: usize,
@@ -1131,13 +1133,13 @@ impl<K, V> Node<K, V> {
     #[inline]
     unsafe fn insert_kv(&mut self, index: usize, key: K, val: V) -> &mut V {
         ptr::copy(
-            self.keys_mut().as_mut_ptr().offset(index as isize + 1),
             self.keys().as_ptr().offset(index as isize),
+            self.keys_mut().as_mut_ptr().offset(index as isize + 1),
             self.len() - index
         );
         ptr::copy(
-            self.vals_mut().as_mut_ptr().offset(index as isize + 1),
             self.vals().as_ptr().offset(index as isize),
+            self.vals_mut().as_mut_ptr().offset(index as isize + 1),
             self.len() - index
         );
 
@@ -1153,8 +1155,8 @@ impl<K, V> Node<K, V> {
     #[inline]
     unsafe fn insert_edge(&mut self, index: usize, edge: Node<K, V>) {
         ptr::copy(
-            self.edges_mut().as_mut_ptr().offset(index as isize + 1),
             self.edges().as_ptr().offset(index as isize),
+            self.edges_mut().as_mut_ptr().offset(index as isize + 1),
             self.len() - index
         );
         ptr::write(self.edges_mut().get_unchecked_mut(index), edge);
@@ -1186,13 +1188,13 @@ impl<K, V> Node<K, V> {
         let val = ptr::read(self.vals().get_unchecked(index));
 
         ptr::copy(
-            self.keys_mut().as_mut_ptr().offset(index as isize),
             self.keys().as_ptr().offset(index as isize + 1),
+            self.keys_mut().as_mut_ptr().offset(index as isize),
             self.len() - index - 1
         );
         ptr::copy(
-            self.vals_mut().as_mut_ptr().offset(index as isize),
             self.vals().as_ptr().offset(index as isize + 1),
+            self.vals_mut().as_mut_ptr().offset(index as isize),
             self.len() - index - 1
         );
 
@@ -1207,8 +1209,8 @@ impl<K, V> Node<K, V> {
         let edge = ptr::read(self.edges().get_unchecked(index));
 
         ptr::copy(
-            self.edges_mut().as_mut_ptr().offset(index as isize),
             self.edges().as_ptr().offset(index as isize + 1),
+            self.edges_mut().as_mut_ptr().offset(index as isize),
             // index can be == len+1, so do the +1 first to avoid underflow.
             (self.len() + 1) - index
         );
@@ -1235,19 +1237,19 @@ impl<K, V> Node<K, V> {
             right._len = self.len() / 2;
             let right_offset = self.len() - right.len();
             ptr::copy_nonoverlapping(
-                right.keys_mut().as_mut_ptr(),
                 self.keys().as_ptr().offset(right_offset as isize),
+                right.keys_mut().as_mut_ptr(),
                 right.len()
             );
             ptr::copy_nonoverlapping(
-                right.vals_mut().as_mut_ptr(),
                 self.vals().as_ptr().offset(right_offset as isize),
+                right.vals_mut().as_mut_ptr(),
                 right.len()
             );
             if !self.is_leaf() {
                 ptr::copy_nonoverlapping(
-                    right.edges_mut().as_mut_ptr(),
                     self.edges().as_ptr().offset(right_offset as isize),
+                    right.edges_mut().as_mut_ptr(),
                     right.len() + 1
                 );
             }
@@ -1276,19 +1278,19 @@ impl<K, V> Node<K, V> {
             ptr::write(self.vals_mut().get_unchecked_mut(old_len), val);
 
             ptr::copy_nonoverlapping(
-                self.keys_mut().as_mut_ptr().offset(old_len as isize + 1),
                 right.keys().as_ptr(),
+                self.keys_mut().as_mut_ptr().offset(old_len as isize + 1),
                 right.len()
             );
             ptr::copy_nonoverlapping(
-                self.vals_mut().as_mut_ptr().offset(old_len as isize + 1),
                 right.vals().as_ptr(),
+                self.vals_mut().as_mut_ptr().offset(old_len as isize + 1),
                 right.len()
             );
             if !self.is_leaf() {
                 ptr::copy_nonoverlapping(
-                    self.edges_mut().as_mut_ptr().offset(old_len as isize + 1),
                     right.edges().as_ptr(),
+                    self.edges_mut().as_mut_ptr().offset(old_len as isize + 1),
                     right.len() + 1
                 );
             }
@@ -1524,36 +1526,6 @@ macro_rules! node_slice_impl {
             }
 
             /// Returns a sub-slice with elements starting with `min_key`.
-            #[cfg(stage0)]
-            pub fn slice_from(self, min_key: &K) -> $NodeSlice<'a, K, V> {
-                //  _______________
-                // |_1_|_3_|_5_|_7_|
-                // |   |   |   |   |
-                // 0 0 1 1 2 2 3 3 4  index
-                // |   |   |   |   |
-                // \___|___|___|___/  slice_from(&0); pos = 0
-                //     \___|___|___/  slice_from(&2); pos = 1
-                //     |___|___|___/  slice_from(&3); pos = 1; result.head_is_edge = false
-                //         \___|___/  slice_from(&4); pos = 2
-                //             \___/  slice_from(&6); pos = 3
-                //                \|/ slice_from(&999); pos = 4
-                let (pos, pos_is_kv) = self.search_linear(min_key);
-                $NodeSlice {
-                    has_edges: self.has_edges,
-                    edges: if !self.has_edges {
-                        self.edges
-                    } else {
-                        self.edges.$index(&(pos ..))
-                    },
-                    keys: &self.keys[pos ..],
-                    vals: self.vals.$index(&(pos ..)),
-                    head_is_edge: !pos_is_kv,
-                    tail_is_edge: self.tail_is_edge,
-                }
-            }
-
-            /// Returns a sub-slice with elements starting with `min_key`.
-            #[cfg(not(stage0))]
             pub fn slice_from(self, min_key: &K) -> $NodeSlice<'a, K, V> {
                 //  _______________
                 // |_1_|_3_|_5_|_7_|
@@ -1582,37 +1554,6 @@ macro_rules! node_slice_impl {
             }
 
             /// Returns a sub-slice with elements up to and including `max_key`.
-            #[cfg(stage0)]
-            pub fn slice_to(self, max_key: &K) -> $NodeSlice<'a, K, V> {
-                //  _______________
-                // |_1_|_3_|_5_|_7_|
-                // |   |   |   |   |
-                // 0 0 1 1 2 2 3 3 4  index
-                // |   |   |   |   |
-                //\|/  |   |   |   |  slice_to(&0); pos = 0
-                // \___/   |   |   |  slice_to(&2); pos = 1
-                // \___|___|   |   |  slice_to(&3); pos = 1; result.tail_is_edge = false
-                // \___|___/   |   |  slice_to(&4); pos = 2
-                // \___|___|___/   |  slice_to(&6); pos = 3
-                // \___|___|___|___/  slice_to(&999); pos = 4
-                let (pos, pos_is_kv) = self.search_linear(max_key);
-                let pos = pos + if pos_is_kv { 1 } else { 0 };
-                $NodeSlice {
-                    has_edges: self.has_edges,
-                    edges: if !self.has_edges {
-                        self.edges
-                    } else {
-                        self.edges.$index(&(.. (pos + 1)))
-                    },
-                    keys: &self.keys[..pos],
-                    vals: self.vals.$index(&(.. pos)),
-                    head_is_edge: self.head_is_edge,
-                    tail_is_edge: !pos_is_kv,
-                }
-            }
-
-            /// Returns a sub-slice with elements up to and including `max_key`.
-            #[cfg(not(stage0))]
             pub fn slice_to(self, max_key: &K) -> $NodeSlice<'a, K, V> {
                 //  _______________
                 // |_1_|_3_|_5_|_7_|

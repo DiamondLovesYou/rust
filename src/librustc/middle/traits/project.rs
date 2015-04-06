@@ -81,7 +81,7 @@ pub fn poly_project_and_unify_type<'cx,'tcx>(
            obligation.repr(selcx.tcx()));
 
     let infcx = selcx.infcx();
-    infcx.try(|snapshot| {
+    infcx.commit_if_ok(|snapshot| {
         let (skol_predicate, skol_map) =
             infcx.skolemize_late_bound_regions(&obligation.predicate, snapshot);
 
@@ -197,7 +197,7 @@ pub fn normalize<'a,'b,'tcx,T>(selcx: &'a mut SelectionContext<'b,'tcx>,
 /// As `normalize`, but with a custom depth.
 pub fn normalize_with_depth<'a,'b,'tcx,T>(selcx: &'a mut SelectionContext<'b,'tcx>,
                                           cause: ObligationCause<'tcx>,
-                                          depth: uint,
+                                          depth: usize,
                                           value: &T)
                                           -> Normalized<'tcx, T>
     where T : TypeFoldable<'tcx> + HasProjectionTypes + Clone + Repr<'tcx>
@@ -214,13 +214,13 @@ struct AssociatedTypeNormalizer<'a,'b:'a,'tcx:'b> {
     selcx: &'a mut SelectionContext<'b,'tcx>,
     cause: ObligationCause<'tcx>,
     obligations: Vec<PredicateObligation<'tcx>>,
-    depth: uint,
+    depth: usize,
 }
 
 impl<'a,'b,'tcx> AssociatedTypeNormalizer<'a,'b,'tcx> {
     fn new(selcx: &'a mut SelectionContext<'b,'tcx>,
            cause: ObligationCause<'tcx>,
-           depth: uint)
+           depth: usize)
            -> AssociatedTypeNormalizer<'a,'b,'tcx>
     {
         AssociatedTypeNormalizer {
@@ -291,6 +291,7 @@ impl<'a,'b,'tcx> TypeFolder<'tcx> for AssociatedTypeNormalizer<'a,'b,'tcx> {
     }
 }
 
+#[derive(Clone)]
 pub struct Normalized<'tcx,T> {
     pub value: T,
     pub obligations: Vec<PredicateObligation<'tcx>>,
@@ -314,7 +315,7 @@ pub fn normalize_projection_type<'a,'b,'tcx>(
     selcx: &'a mut SelectionContext<'b,'tcx>,
     projection_ty: ty::ProjectionTy<'tcx>,
     cause: ObligationCause<'tcx>,
-    depth: uint)
+    depth: usize)
     -> NormalizedTy<'tcx>
 {
     opt_normalize_projection_type(selcx, projection_ty.clone(), cause.clone(), depth)
@@ -344,7 +345,7 @@ fn opt_normalize_projection_type<'a,'b,'tcx>(
     selcx: &'a mut SelectionContext<'b,'tcx>,
     projection_ty: ty::ProjectionTy<'tcx>,
     cause: ObligationCause<'tcx>,
-    depth: uint)
+    depth: usize)
     -> Option<NormalizedTy<'tcx>>
 {
     debug!("normalize_projection_type(\
@@ -412,7 +413,7 @@ fn opt_normalize_projection_type<'a,'b,'tcx>(
 fn normalize_to_error<'a,'tcx>(selcx: &mut SelectionContext<'a,'tcx>,
                                projection_ty: ty::ProjectionTy<'tcx>,
                                cause: ObligationCause<'tcx>,
-                               depth: uint)
+                               depth: usize)
                                -> NormalizedTy<'tcx>
 {
     let trait_ref = projection_ty.trait_ref.to_poly_trait_ref();
@@ -699,10 +700,10 @@ fn assemble_candidates_from_impls<'cx,'tcx>(
             // But wait, you say! What about an example like this:
             //
             // ```
-            // fn bar<T:SomeTrait<Foo=uint>>(...) { ... }
+            // fn bar<T:SomeTrait<Foo=usize>>(...) { ... }
             // ```
             //
-            // Doesn't the `T : Sometrait<Foo=uint>` predicate help
+            // Doesn't the `T : Sometrait<Foo=usize>` predicate help
             // resolve `T::Foo`? And of course it does, but in fact
             // that single predicate is desugared into two predicates
             // in the compiler: a trait predicate (`T : SomeTrait`) and a

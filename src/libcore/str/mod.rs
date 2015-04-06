@@ -22,14 +22,11 @@ use char::CharExt;
 use clone::Clone;
 use cmp::{self, Eq};
 use default::Default;
-use error::Error;
 use fmt;
 use iter::ExactSizeIterator;
-use iter::{Map, Iterator, IteratorExt, DoubleEndedIterator};
+use iter::{Map, Iterator, DoubleEndedIterator};
 use marker::Sized;
 use mem;
-#[allow(deprecated)]
-use num::Int;
 use ops::{Fn, FnMut, FnOnce};
 use option::Option::{self, None, Some};
 use raw::{Repr, Slice};
@@ -194,11 +191,6 @@ impl fmt::Display for ParseBoolError {
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
-impl Error for ParseBoolError {
-    fn description(&self) -> &str { "failed to parse bool" }
-}
-
 /*
 Section: Creating a string
 */
@@ -241,88 +233,6 @@ pub fn from_utf8(v: &[u8]) -> Result<&str, Utf8Error> {
 #[stable(feature = "rust1", since = "1.0.0")]
 pub unsafe fn from_utf8_unchecked<'a>(v: &'a [u8]) -> &'a str {
     mem::transmute(v)
-}
-
-/// Constructs a static string slice from a given raw pointer.
-///
-/// This function will read memory starting at `s` until it finds a 0, and then
-/// transmute the memory up to that point as a string slice, returning the
-/// corresponding `&'static str` value.
-///
-/// This function is unsafe because the caller must ensure the C string itself
-/// has the static lifetime and that the memory `s` is valid up to and including
-/// the first null byte.
-///
-/// # Panics
-///
-/// This function will panic if the string pointed to by `s` is not valid UTF-8.
-#[unstable(feature = "core")]
-#[deprecated(since = "1.0.0",
-             reason = "use std::ffi::c_str_to_bytes + str::from_utf8")]
-pub unsafe fn from_c_str(s: *const i8) -> &'static str {
-    let s = s as *const u8;
-    let mut len: usize = 0;
-    while *s.offset(len as isize) != 0 {
-        len += 1;
-    }
-    let v: &'static [u8] = ::mem::transmute(Slice { data: s, len: len });
-    from_utf8(v).ok().expect("from_c_str passed invalid utf-8 data")
-}
-
-/// Something that can be used to compare against a character
-#[unstable(feature = "core")]
-#[deprecated(since = "1.0.0",
-             reason = "use `Pattern` instead")]
-// NB: Rather than removing it, make it private and move it into self::pattern
-pub trait CharEq {
-    /// Determine if the splitter should split at the given character
-    fn matches(&mut self, char) -> bool;
-    /// Indicate if this is only concerned about ASCII characters,
-    /// which can allow for a faster implementation.
-    fn only_ascii(&self) -> bool;
-}
-
-#[allow(deprecated) /* for CharEq */ ]
-impl CharEq for char {
-    #[inline]
-    fn matches(&mut self, c: char) -> bool { *self == c }
-
-    #[inline]
-    fn only_ascii(&self) -> bool { (*self as u32) < 128 }
-}
-
-#[allow(deprecated) /* for CharEq */ ]
-impl<F> CharEq for F where F: FnMut(char) -> bool {
-    #[inline]
-    fn matches(&mut self, c: char) -> bool { (*self)(c) }
-
-    #[inline]
-    fn only_ascii(&self) -> bool { false }
-}
-
-#[allow(deprecated) /* for CharEq */ ]
-impl<'a> CharEq for &'a [char] {
-    #[inline]
-    #[allow(deprecated) /* for CharEq */ ]
-    fn matches(&mut self, c: char) -> bool {
-        self.iter().any(|&m| { let mut m = m; m.matches(c) })
-    }
-
-    #[inline]
-    #[allow(deprecated) /* for CharEq */ ]
-    fn only_ascii(&self) -> bool {
-        self.iter().all(|m| m.only_ascii())
-    }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
-impl Error for Utf8Error {
-    fn description(&self) -> &str {
-        match *self {
-            Utf8Error::TooShort => "invalid utf-8: not enough bytes",
-            Utf8Error::InvalidByte(..) => "invalid utf-8: corrupt contents",
-        }
-    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -479,8 +389,7 @@ impl<'a> DoubleEndedIterator for Chars<'a> {
     }
 }
 
-/// External iterator for a string's characters and their byte offsets.
-/// Use with the `std::iter` module.
+/// Iterator for a string's characters and their byte offsets.
 #[derive(Clone)]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct CharIndices<'a> {
@@ -541,17 +450,6 @@ delegate_iter!{exact u8 : Bytes<'a>}
 #[derive(Copy, Clone)]
 struct BytesDeref;
 
-#[cfg(stage0)]
-impl<'a> Fn<(&'a u8,)> for BytesDeref {
-    type Output = u8;
-
-    #[inline]
-    extern "rust-call" fn call(&self, (ptr,): (&'a u8,)) -> u8 {
-        *ptr
-    }
-}
-
-#[cfg(not(stage0))]
 impl<'a> Fn<(&'a u8,)> for BytesDeref {
     #[inline]
     extern "rust-call" fn call(&self, (ptr,): (&'a u8,)) -> u8 {
@@ -559,7 +457,6 @@ impl<'a> Fn<(&'a u8,)> for BytesDeref {
     }
 }
 
-#[cfg(not(stage0))]
 impl<'a> FnMut<(&'a u8,)> for BytesDeref {
     #[inline]
     extern "rust-call" fn call_mut(&mut self, (ptr,): (&'a u8,)) -> u8 {
@@ -567,7 +464,6 @@ impl<'a> FnMut<(&'a u8,)> for BytesDeref {
     }
 }
 
-#[cfg(not(stage0))]
 impl<'a> FnOnce<(&'a u8,)> for BytesDeref {
     type Output = u8;
 
@@ -592,7 +488,7 @@ struct CharSplits<'a, P: Pattern<'a>> {
 /// splitting at most `count` times.
 struct CharSplitsN<'a, P: Pattern<'a>> {
     iter: CharSplits<'a, P>,
-    /// The number of splits remaining
+    /// The number of items remaining
     count: usize,
 }
 
@@ -699,11 +595,10 @@ impl<'a, P: Pattern<'a>> Iterator for CharSplitsN<'a, P> {
 
     #[inline]
     fn next(&mut self) -> Option<&'a str> {
-        if self.count != 0 {
-            self.count -= 1;
-            self.iter.next()
-        } else {
-            self.iter.get_end()
+        match self.count {
+            0 => None,
+            1 => { self.count = 0; self.iter.get_end() }
+            _ => { self.count -= 1; self.iter.next() }
         }
     }
 }
@@ -753,11 +648,10 @@ impl<'a, P: Pattern<'a>> Iterator for RCharSplitsN<'a, P>
 
     #[inline]
     fn next(&mut self) -> Option<&'a str> {
-        if self.count != 0 {
-            self.count -= 1;
-            self.iter.next()
-        } else {
-            self.iter.get_remainder()
+        match self.count {
+            0 => None,
+            1 => { self.count -= 1; self.iter.get_remainder() }
+            _ => { self.count -= 1; self.iter.next() }
         }
     }
 }
@@ -958,9 +852,9 @@ impl TwoWaySearcher {
     // critical factorization (u, v) and p = period(v)
     #[inline]
     #[allow(dead_code)]
+    #[allow(deprecated)]
     fn maximal_suffix(arr: &[u8], reversed: bool) -> (usize, usize) {
-        use num::wrapping::WrappingOps;
-        let mut left = -1; // Corresponds to i in the paper
+        let mut left: usize = !0; // Corresponds to i in the paper
         let mut right = 0; // Corresponds to j in the paper
         let mut offset = 1; // Corresponds to k in the paper
         let mut period = 1; // Corresponds to p in the paper
@@ -1057,22 +951,6 @@ impl<'a, P: Pattern<'a>> Iterator for MatchIndices<'a, P> {
     #[inline]
     fn next(&mut self) -> Option<(usize, usize)> {
         self.0.next_match()
-    }
-}
-
-/// An iterator over the substrings of a string separated by a given
-/// search string
-#[unstable(feature = "core")]
-#[deprecated(since = "1.0.0", reason = "use `Split` with a `&str`")]
-pub struct SplitStr<'a, P: Pattern<'a>>(Split<'a, P>);
-#[allow(deprecated)]
-impl<'a, P: Pattern<'a>> Iterator for SplitStr<'a, P> {
-    type Item = &'a str;
-
-    #[inline]
-    #[allow(deprecated)]
-    fn next(&mut self) -> Option<&'a str> {
-        Iterator::next(&mut self.0)
     }
 }
 
@@ -1226,7 +1104,7 @@ static UTF8_CHAR_WIDTH: [u8; 256] = [
 /// Struct that contains a `char` and the index of the first byte of
 /// the next `char` in a string.  This can be used as a data structure
 /// for iterating over the UTF-8 bytes of a string.
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 #[unstable(feature = "str_char",
            reason = "existence of this struct is uncertain as it is frequently \
                      able to be replaced with char.len_utf8() and/or \
@@ -1250,7 +1128,7 @@ Section: Trait implementations
 mod traits {
     use cmp::{Ordering, Ord, PartialEq, PartialOrd, Eq};
     use cmp::Ordering::{Less, Equal, Greater};
-    use iter::IteratorExt;
+    use iter::Iterator;
     use option::Option;
     use option::Option::Some;
     use ops;
@@ -1319,50 +1197,6 @@ mod traits {
     /// // byte 100 is outside the string
     /// // &s[3 .. 100];
     /// ```
-    #[cfg(stage0)]
-    #[stable(feature = "rust1", since = "1.0.0")]
-    impl ops::Index<ops::Range<usize>> for str {
-        type Output = str;
-        #[inline]
-        fn index(&self, index: &ops::Range<usize>) -> &str {
-            // is_char_boundary checks that the index is in [0, .len()]
-            if index.start <= index.end &&
-               self.is_char_boundary(index.start) &&
-               self.is_char_boundary(index.end) {
-                unsafe { self.slice_unchecked(index.start, index.end) }
-            } else {
-                super::slice_error_fail(self, index.start, index.end)
-            }
-        }
-    }
-
-    /// Returns a slice of the given string from the byte range
-    /// [`begin`..`end`).
-    ///
-    /// This operation is `O(1)`.
-    ///
-    /// Panics when `begin` and `end` do not point to valid characters
-    /// or point beyond the last character of the string.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// let s = "Löwe 老虎 Léopard";
-    /// assert_eq!(&s[0 .. 1], "L");
-    ///
-    /// assert_eq!(&s[1 .. 9], "öwe 老");
-    ///
-    /// // these will panic:
-    /// // byte 2 lies within `ö`:
-    /// // &s[2 ..3];
-    ///
-    /// // byte 8 lies within `老`
-    /// // &s[1 .. 8];
-    ///
-    /// // byte 100 is outside the string
-    /// // &s[3 .. 100];
-    /// ```
-    #[cfg(not(stage0))]
     #[stable(feature = "rust1", since = "1.0.0")]
     impl ops::Index<ops::Range<usize>> for str {
         type Output = str;
@@ -1390,18 +1224,6 @@ mod traits {
     impl ops::Index<ops::RangeTo<usize>> for str {
         type Output = str;
 
-        #[cfg(stage0)]
-        #[inline]
-        fn index(&self, index: &ops::RangeTo<usize>) -> &str {
-            // is_char_boundary checks that the index is in [0, .len()]
-            if self.is_char_boundary(index.end) {
-                unsafe { self.slice_unchecked(0, index.end) }
-            } else {
-                super::slice_error_fail(self, 0, index.end)
-            }
-        }
-
-        #[cfg(not(stage0))]
         #[inline]
         fn index(&self, index: ops::RangeTo<usize>) -> &str {
             // is_char_boundary checks that the index is in [0, .len()]
@@ -1423,18 +1245,6 @@ mod traits {
     impl ops::Index<ops::RangeFrom<usize>> for str {
         type Output = str;
 
-        #[cfg(stage0)]
-        #[inline]
-        fn index(&self, index: &ops::RangeFrom<usize>) -> &str {
-            // is_char_boundary checks that the index is in [0, .len()]
-            if self.is_char_boundary(index.start) {
-                unsafe { self.slice_unchecked(index.start, self.len()) }
-            } else {
-                super::slice_error_fail(self, index.start, self.len())
-            }
-        }
-
-        #[cfg(not(stage0))]
         #[inline]
         fn index(&self, index: ops::RangeFrom<usize>) -> &str {
             // is_char_boundary checks that the index is in [0, .len()]
@@ -1450,13 +1260,6 @@ mod traits {
     impl ops::Index<ops::RangeFull> for str {
         type Output = str;
 
-        #[cfg(stage0)]
-        #[inline]
-        fn index(&self, _index: &ops::RangeFull) -> &str {
-            self
-        }
-
-        #[cfg(not(stage0))]
         #[inline]
         fn index(&self, _index: ops::RangeFull) -> &str {
             self
@@ -1532,8 +1335,6 @@ pub trait StrExt {
     fn rsplitn<'a, P: Pattern<'a>>(&'a self, count: usize, pat: P) -> RSplitN<'a, P>
         where P::Searcher: ReverseSearcher<'a>;
     fn match_indices<'a, P: Pattern<'a>>(&'a self, pat: P) -> MatchIndices<'a, P>;
-    #[allow(deprecated) /* for SplitStr */]
-    fn split_str<'a, P: Pattern<'a>>(&'a self, pat: P) -> SplitStr<'a, P>;
     fn lines<'a>(&'a self) -> Lines<'a>;
     fn lines_any<'a>(&'a self) -> LinesAny<'a>;
     fn char_len(&self) -> usize;
@@ -1654,12 +1455,6 @@ impl StrExt for str {
     }
 
     #[inline]
-    #[allow(deprecated) /* for SplitStr */ ]
-    fn split_str<'a, P: Pattern<'a>>(&'a self, pat: P) -> SplitStr<'a, P> {
-        SplitStr(self.split(pat))
-    }
-
-    #[inline]
     fn lines(&self) -> Lines {
         Lines { inner: self.split_terminator('\n').0 }
     }
@@ -1704,7 +1499,7 @@ impl StrExt for str {
     #[inline]
     unsafe fn slice_unchecked(&self, begin: usize, end: usize) -> &str {
         mem::transmute(Slice {
-            data: self.as_ptr().offset(begin as int),
+            data: self.as_ptr().offset(begin as isize),
             len: end - begin,
         })
     }

@@ -18,6 +18,7 @@
 //!
 //! Their definition should always match the ABI defined in `rustc::back::abi`.
 
+use clone::Clone;
 use marker::Copy;
 use mem;
 
@@ -63,18 +64,8 @@ pub struct Slice<T> {
 }
 
 impl<T> Copy for Slice<T> {}
-
-/// The representation of an old closure.
-#[repr(C)]
-#[derive(Copy)]
-#[unstable(feature = "core")]
-#[deprecated(reason = "unboxed new closures do not have a universal representation; \
-                       `&Fn` (etc) trait objects should use `TraitObject` instead",
-             since= "1.0.0")]
-#[allow(deprecated) /* for deriving Copy impl */]
-pub struct Closure {
-    pub code: *mut (),
-    pub env: *mut (),
+impl<T> Clone for Slice<T> {
+    fn clone(&self) -> Slice<T> { *self }
 }
 
 /// The representation of a trait object like `&SomeTrait`.
@@ -149,7 +140,7 @@ pub struct Closure {
 /// assert_eq!(synthesized.bar(), 457);
 /// ```
 #[repr(C)]
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct TraitObject {
     pub data: *mut (),
     pub vtable: *mut (),

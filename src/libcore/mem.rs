@@ -158,6 +158,27 @@ pub unsafe fn zeroed<T>() -> T {
     intrinsics::init()
 }
 
+/// Create a value initialized to an unspecified series of bytes.
+///
+/// The byte sequence usually indicates that the value at the memory
+/// in question has been dropped. Thus, *if* T carries a drop flag,
+/// any associated destructor will not be run when the value falls out
+/// of scope.
+///
+/// Some code at one time used the `zeroed` function above to
+/// accomplish this goal.
+///
+/// This function is expected to be deprecated with the transition
+/// to non-zeroing drop.
+#[inline]
+#[unstable(feature = "filling_drop")]
+pub unsafe fn dropped<T>() -> T {
+    #[inline(always)]
+    unsafe fn dropped_impl<T>() -> T { intrinsics::init_dropped() }
+
+    dropped_impl()
+}
+
 /// Create an uninitialized value.
 ///
 /// Care must be taken when using this function, if the type `T` has a destructor and the value
@@ -203,9 +224,9 @@ pub fn swap<T>(x: &mut T, y: &mut T) {
         let mut t: T = uninitialized();
 
         // Perform the swap, `&mut` pointers never alias
-        ptr::copy_nonoverlapping(&mut t, &*x, 1);
-        ptr::copy_nonoverlapping(x, &*y, 1);
-        ptr::copy_nonoverlapping(y, &t, 1);
+        ptr::copy_nonoverlapping(&*x, &mut t, 1);
+        ptr::copy_nonoverlapping(&*y, x, 1);
+        ptr::copy_nonoverlapping(&t, y, 1);
 
         // y and t now point to the same thing, but we need to completely forget `t`
         // because it's no longer relevant.
@@ -291,15 +312,52 @@ pub fn replace<T>(dest: &mut T, mut src: T) -> T {
 #[stable(feature = "rust1", since = "1.0.0")]
 pub fn drop<T>(_x: T) { }
 
-/// Interprets `src` as `&U`, and then reads `src` without moving the contained value.
+macro_rules! repeat_u8_as_u32 {
+    ($name:expr) => { (($name as u32) << 24 |
+                       ($name as u32) << 16 |
+                       ($name as u32) <<  8 |
+                       ($name as u32)) }
+}
+macro_rules! repeat_u8_as_u64 {
+    ($name:expr) => { ((repeat_u8_as_u32!($name) as u64) << 32 |
+                       (repeat_u8_as_u32!($name) as u64)) }
+}
+
+// NOTE: Keep synchronized with values used in librustc_trans::trans::adt.
+//
+// In particular, the POST_DROP_U8 marker must never equal the
+// DTOR_NEEDED_U8 marker.
+//
+// For a while pnkfelix was using 0xc1 here.
+// But having the sign bit set is a pain, so 0x1d is probably better.
+//
+// And of course, 0x00 brings back the old world of zero'ing on drop.
+#[unstable(feature = "filling_drop")]
+pub const POST_DROP_U8: u8 = 0x1d;
+#[unstable(feature = "filling_drop")]
+pub const POST_DROP_U32: u32 = repeat_u8_as_u32!(POST_DROP_U8);
+#[unstable(feature = "filling_drop")]
+pub const POST_DROP_U64: u64 = repeat_u8_as_u64!(POST_DROP_U8);
+
+#[cfg(target_pointer_width = "32")]
+#[unstable(feature = "filling_drop")]
+pub const POST_DROP_USIZE: usize = POST_DROP_U32 as usize;
+#[cfg(target_pointer_width = "64")]
+#[unstable(feature = "filling_drop")]
+pub const POST_DROP_USIZE: usize = POST_DROP_U64 as usize;
+
+/// Interprets `src` as `&U`, and then reads `src` without moving the contained
+/// value.
 ///
-/// This function will unsafely assume the pointer `src` is valid for `sizeof(U)` bytes by
-/// transmuting `&T` to `&U` and then reading the `&U`. It will also unsafely create a copy of the
-/// contained value instead of moving out of `src`.
+/// This function will unsafely assume the pointer `src` is valid for
+/// `sizeof(U)` bytes by transmuting `&T` to `&U` and then reading the `&U`. It
+/// will also unsafely create a copy of the contained value instead of moving
+/// out of `src`.
 ///
-/// It is not a compile-time error if `T` and `U` have different sizes, but it is highly encouraged
-/// to only invoke this function where `T` and `U` have the same size. This function triggers
-/// undefined behavior if `U` is larger than `T`.
+/// It is not a compile-time error if `T` and `U` have different sizes, but it
+/// is highly encouraged to only invoke this function where `T` and `U` have the
+/// same size. This function triggers undefined behavior if `U` is larger than
+/// `T`.
 ///
 /// # Examples
 ///

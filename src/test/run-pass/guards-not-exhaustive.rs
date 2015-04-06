@@ -10,10 +10,10 @@
 
 // pretty-expanded FIXME #23616
 
-#[derive(Copy)]
-enum Q { R(Option<uint>) }
+#[derive(Copy, Clone)]
+enum Q { R(Option<usize>) }
 
-fn xyzzy(q: Q) -> uint {
+fn xyzzy(q: Q) -> usize {
     match q {
         Q::R(S) if S.is_some() => { 0 }
         _ => 1

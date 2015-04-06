@@ -88,7 +88,6 @@ pub trait SliceExt {
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool { self.len() == 0 }
     fn get_mut<'a>(&'a mut self, index: usize) -> Option<&'a mut Self::Item>;
-    fn as_mut_slice<'a>(&'a mut self) -> &'a mut [Self::Item];
     fn iter_mut<'a>(&'a mut self) -> IterMut<'a, Self::Item>;
     fn first_mut<'a>(&'a mut self) -> Option<&'a mut Self::Item>;
     fn tail_mut<'a>(&'a mut self) -> &'a mut [Self::Item];
@@ -260,21 +259,6 @@ impl<T> SliceExt for [T] {
         if index < self.len() { Some(&mut self[index]) } else { None }
     }
 
-    #[inline]
-    fn as_mut_slice(&mut self) -> &mut [T] { self }
-
-    #[cfg(stage0)]
-    #[inline]
-    fn split_at_mut(&mut self, mid: usize) -> (&mut [T], &mut [T]) {
-        unsafe {
-            let self2: &mut [T] = mem::transmute_copy(&self);
-
-            (ops::IndexMut::index_mut(self, &ops::RangeTo { end: mid } ),
-             ops::IndexMut::index_mut(self2, &ops::RangeFrom { start: mid } ))
-        }
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn split_at_mut(&mut self, mid: usize) -> (&mut [T], &mut [T]) {
         unsafe {
@@ -507,14 +491,6 @@ impl<T> SliceExt for [T] {
 impl<T> ops::Index<usize> for [T] {
     type Output = T;
 
-    #[cfg(stage0)]
-    fn index(&self, &index: &usize) -> &T {
-        assert!(index < self.len());
-
-        unsafe { mem::transmute(self.repr().data.offset(index as isize)) }
-    }
-
-    #[cfg(not(stage0))]
     fn index(&self, index: usize) -> &T {
         assert!(index < self.len());
 
@@ -524,15 +500,6 @@ impl<T> ops::Index<usize> for [T] {
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> ops::IndexMut<usize> for [T] {
-    #[cfg(stage0)]
-    #[inline]
-    fn index_mut(&mut self, &index: &usize) -> &mut T {
-        assert!(index < self.len());
-
-        unsafe { mem::transmute(self.repr().data.offset(index as isize)) }
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index_mut(&mut self, index: usize) -> &mut T {
         assert!(index < self.len());
@@ -545,20 +512,6 @@ impl<T> ops::IndexMut<usize> for [T] {
 impl<T> ops::Index<ops::Range<usize>> for [T] {
     type Output = [T];
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, index: &ops::Range<usize>) -> &[T] {
-        assert!(index.start <= index.end);
-        assert!(index.end <= self.len());
-        unsafe {
-            from_raw_parts (
-                self.as_ptr().offset(index.start as isize),
-                index.end - index.start
-            )
-        }
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, index: ops::Range<usize>) -> &[T] {
         assert!(index.start <= index.end);
@@ -575,13 +528,6 @@ impl<T> ops::Index<ops::Range<usize>> for [T] {
 impl<T> ops::Index<ops::RangeTo<usize>> for [T] {
     type Output = [T];
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, index: &ops::RangeTo<usize>) -> &[T] {
-        self.index(&ops::Range{ start: 0, end: index.end })
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, index: ops::RangeTo<usize>) -> &[T] {
         self.index(ops::Range{ start: 0, end: index.end })
@@ -591,13 +537,6 @@ impl<T> ops::Index<ops::RangeTo<usize>> for [T] {
 impl<T> ops::Index<ops::RangeFrom<usize>> for [T] {
     type Output = [T];
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, index: &ops::RangeFrom<usize>) -> &[T] {
-        self.index(&ops::Range{ start: index.start, end: self.len() })
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, index: ops::RangeFrom<usize>) -> &[T] {
         self.index(ops::Range{ start: index.start, end: self.len() })
@@ -607,13 +546,6 @@ impl<T> ops::Index<ops::RangeFrom<usize>> for [T] {
 impl<T> ops::Index<RangeFull> for [T] {
     type Output = [T];
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, _index: &RangeFull) -> &[T] {
-        self
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, _index: RangeFull) -> &[T] {
         self
@@ -622,20 +554,6 @@ impl<T> ops::Index<RangeFull> for [T] {
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> ops::IndexMut<ops::Range<usize>> for [T] {
-    #[cfg(stage0)]
-    #[inline]
-    fn index_mut(&mut self, index: &ops::Range<usize>) -> &mut [T] {
-        assert!(index.start <= index.end);
-        assert!(index.end <= self.len());
-        unsafe {
-            from_raw_parts_mut(
-                self.as_mut_ptr().offset(index.start as isize),
-                index.end - index.start
-            )
-        }
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index_mut(&mut self, index: ops::Range<usize>) -> &mut [T] {
         assert!(index.start <= index.end);
@@ -650,13 +568,6 @@ impl<T> ops::IndexMut<ops::Range<usize>> for [T] {
 }
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> ops::IndexMut<ops::RangeTo<usize>> for [T] {
-    #[cfg(stage0)]
-    #[inline]
-    fn index_mut(&mut self, index: &ops::RangeTo<usize>) -> &mut [T] {
-        self.index_mut(&ops::Range{ start: 0, end: index.end })
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index_mut(&mut self, index: ops::RangeTo<usize>) -> &mut [T] {
         self.index_mut(ops::Range{ start: 0, end: index.end })
@@ -664,14 +575,6 @@ impl<T> ops::IndexMut<ops::RangeTo<usize>> for [T] {
 }
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> ops::IndexMut<ops::RangeFrom<usize>> for [T] {
-    #[cfg(stage0)]
-    #[inline]
-    fn index_mut(&mut self, index: &ops::RangeFrom<usize>) -> &mut [T] {
-        let len = self.len();
-        self.index_mut(&ops::Range{ start: index.start, end: len })
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index_mut(&mut self, index: ops::RangeFrom<usize>) -> &mut [T] {
         let len = self.len();
@@ -680,14 +583,6 @@ impl<T> ops::IndexMut<ops::RangeFrom<usize>> for [T] {
 }
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> ops::IndexMut<RangeFull> for [T] {
-
-    #[cfg(stage0)]
-    #[inline]
-    fn index_mut(&mut self, _index: &RangeFull) -> &mut [T] {
-        self
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index_mut(&mut self, _index: RangeFull) -> &mut [T] {
         self
@@ -875,13 +770,6 @@ unsafe impl<'a, T: Sync> Send for Iter<'a, T> {}
 impl<'a, T> ops::Index<ops::Range<usize>> for Iter<'a, T> {
     type Output = [T];
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, index: &ops::Range<usize>) -> &[T] {
-        self.as_slice().index(index)
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, index: ops::Range<usize>) -> &[T] {
         self.as_slice().index(index)
@@ -892,13 +780,6 @@ impl<'a, T> ops::Index<ops::Range<usize>> for Iter<'a, T> {
 impl<'a, T> ops::Index<ops::RangeTo<usize>> for Iter<'a, T> {
     type Output = [T];
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, index: &ops::RangeTo<usize>) -> &[T] {
-        self.as_slice().index(index)
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, index: ops::RangeTo<usize>) -> &[T] {
         self.as_slice().index(index)
@@ -909,13 +790,6 @@ impl<'a, T> ops::Index<ops::RangeTo<usize>> for Iter<'a, T> {
 impl<'a, T> ops::Index<ops::RangeFrom<usize>> for Iter<'a, T> {
     type Output = [T];
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, index: &ops::RangeFrom<usize>) -> &[T] {
-        self.as_slice().index(index)
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, index: ops::RangeFrom<usize>) -> &[T] {
         self.as_slice().index(index)
@@ -926,13 +800,6 @@ impl<'a, T> ops::Index<ops::RangeFrom<usize>> for Iter<'a, T> {
 impl<'a, T> ops::Index<RangeFull> for Iter<'a, T> {
     type Output = [T];
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, _index: &RangeFull) -> &[T] {
-        self.as_slice()
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, _index: RangeFull) -> &[T] {
         self.as_slice()
@@ -1000,13 +867,6 @@ unsafe impl<'a, T: Send> Send for IterMut<'a, T> {}
 impl<'a, T> ops::Index<ops::Range<usize>> for IterMut<'a, T> {
     type Output = [T];
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, index: &ops::Range<usize>) -> &[T] {
-        self.index(&RangeFull).index(index)
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, index: ops::Range<usize>) -> &[T] {
         self.index(RangeFull).index(index)
@@ -1016,13 +876,6 @@ impl<'a, T> ops::Index<ops::Range<usize>> for IterMut<'a, T> {
 impl<'a, T> ops::Index<ops::RangeTo<usize>> for IterMut<'a, T> {
     type Output = [T];
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, index: &ops::RangeTo<usize>) -> &[T] {
-        self.index(&RangeFull).index(index)
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, index: ops::RangeTo<usize>) -> &[T] {
         self.index(RangeFull).index(index)
@@ -1032,13 +885,6 @@ impl<'a, T> ops::Index<ops::RangeTo<usize>> for IterMut<'a, T> {
 impl<'a, T> ops::Index<ops::RangeFrom<usize>> for IterMut<'a, T> {
     type Output = [T];
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, index: &ops::RangeFrom<usize>) -> &[T] {
-        self.index(&RangeFull).index(index)
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, index: ops::RangeFrom<usize>) -> &[T] {
         self.index(RangeFull).index(index)
@@ -1048,13 +894,6 @@ impl<'a, T> ops::Index<ops::RangeFrom<usize>> for IterMut<'a, T> {
 impl<'a, T> ops::Index<RangeFull> for IterMut<'a, T> {
     type Output = [T];
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, _index: &RangeFull) -> &[T] {
-        make_slice!(T => &[T]: self.ptr, self.end)
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, _index: RangeFull) -> &[T] {
         make_slice!(T => &[T]: self.ptr, self.end)
@@ -1063,13 +902,6 @@ impl<'a, T> ops::Index<RangeFull> for IterMut<'a, T> {
 
 #[unstable(feature = "core")]
 impl<'a, T> ops::IndexMut<ops::Range<usize>> for IterMut<'a, T> {
-    #[cfg(stage0)]
-    #[inline]
-    fn index_mut(&mut self, index: &ops::Range<usize>) -> &mut [T] {
-        self.index_mut(&RangeFull).index_mut(index)
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index_mut(&mut self, index: ops::Range<usize>) -> &mut [T] {
         self.index_mut(RangeFull).index_mut(index)
@@ -1078,13 +910,6 @@ impl<'a, T> ops::IndexMut<ops::Range<usize>> for IterMut<'a, T> {
 #[unstable(feature = "core")]
 impl<'a, T> ops::IndexMut<ops::RangeTo<usize>> for IterMut<'a, T> {
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index_mut(&mut self, index: &ops::RangeTo<usize>) -> &mut [T] {
-        self.index_mut(&RangeFull).index_mut(index)
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index_mut(&mut self, index: ops::RangeTo<usize>) -> &mut [T] {
         self.index_mut(RangeFull).index_mut(index)
@@ -1093,13 +918,6 @@ impl<'a, T> ops::IndexMut<ops::RangeTo<usize>> for IterMut<'a, T> {
 #[unstable(feature = "core")]
 impl<'a, T> ops::IndexMut<ops::RangeFrom<usize>> for IterMut<'a, T> {
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index_mut(&mut self, index: &ops::RangeFrom<usize>) -> &mut [T] {
-        self.index_mut(&RangeFull).index_mut(index)
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index_mut(&mut self, index: ops::RangeFrom<usize>) -> &mut [T] {
         self.index_mut(RangeFull).index_mut(index)
@@ -1108,13 +926,6 @@ impl<'a, T> ops::IndexMut<ops::RangeFrom<usize>> for IterMut<'a, T> {
 #[unstable(feature = "core")]
 impl<'a, T> ops::IndexMut<RangeFull> for IterMut<'a, T> {
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index_mut(&mut self, _index: &RangeFull) -> &mut [T] {
-        make_mut_slice!(T => &mut [T]: self.ptr, self.end)
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index_mut(&mut self, _index: RangeFull) -> &mut [T] {
         make_mut_slice!(T => &mut [T]: self.ptr, self.end)
@@ -1315,18 +1126,20 @@ impl<T, I: SplitIter<Item=T>> Iterator for GenericSplitN<I> {
 
     #[inline]
     fn next(&mut self) -> Option<T> {
-        if self.count == 0 {
-            self.iter.finish()
-        } else {
-            self.count -= 1;
-            if self.invert { self.iter.next_back() } else { self.iter.next() }
+        match self.count {
+            0 => None,
+            1 => { self.count -= 1; self.iter.finish() }
+            _ => {
+                self.count -= 1;
+                if self.invert {self.iter.next_back()} else {self.iter.next()}
+            }
         }
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         let (lower, upper_opt) = self.iter.size_hint();
-        (lower, upper_opt.map(|upper| cmp::min(self.count + 1, upper)))
+        (lower, upper_opt.map(|upper| cmp::min(self.count, upper)))
     }
 }
 
@@ -1681,54 +1494,6 @@ pub unsafe fn from_raw_parts_mut<'a, T>(p: *mut T, len: usize) -> &'a mut [T] {
     transmute(RawSlice { data: p, len: len })
 }
 
-/// Forms a slice from a pointer and a length.
-///
-/// The pointer given is actually a reference to the base of the slice. This
-/// reference is used to give a concrete lifetime to tie the returned slice to.
-/// Typically this should indicate that the slice is valid for as long as the
-/// pointer itself is valid.
-///
-/// The `len` argument is the number of **elements**, not the number of bytes.
-///
-/// This function is unsafe as there is no guarantee that the given pointer is
-/// valid for `len` elements, nor whether the lifetime provided is a suitable
-/// lifetime for the returned slice.
-///
-/// # Examples
-///
-/// ```
-/// #![feature(core)]
-/// use std::slice;
-///
-/// // manifest a slice out of thin air!
-/// let ptr = 0x1234 as *const usize;
-/// let amt = 10;
-/// unsafe {
-///     let slice = slice::from_raw_buf(&ptr, amt);
-/// }
-/// ```
-#[inline]
-#[unstable(feature = "core")]
-#[deprecated(since = "1.0.0",
-             reason = "use from_raw_parts")]
-pub unsafe fn from_raw_buf<'a, T>(p: &'a *const T, len: usize) -> &'a [T] {
-    transmute(RawSlice { data: *p, len: len })
-}
-
-/// Performs the same functionality as `from_raw_buf`, except that a mutable
-/// slice is returned.
-///
-/// This function is unsafe for the same reasons as `from_raw_buf`, as well as
-/// not being able to provide a non-aliasing guarantee of the returned mutable
-/// slice.
-#[inline]
-#[unstable(feature = "core")]
-#[deprecated(since = "1.0.0",
-             reason = "use from_raw_parts_mut")]
-pub unsafe fn from_raw_mut_buf<'a, T>(p: &'a *mut T, len: usize) -> &'a mut [T] {
-    transmute(RawSlice { data: *p, len: len })
-}
-
 //
 // Submodules
 //
@@ -1756,14 +1521,14 @@ pub mod bytes {
     ///
     /// Panics if the length of `dst` is less than the length of `src`.
     #[inline]
-    pub fn copy_memory(dst: &mut [u8], src: &[u8]) {
+    pub fn copy_memory(src: &[u8], dst: &mut [u8]) {
         let len_src = src.len();
         assert!(dst.len() >= len_src);
         // `dst` is unaliasable, so we know statically it doesn't overlap
         // with `src`.
         unsafe {
-            ptr::copy_nonoverlapping(dst.as_mut_ptr(),
-                                     src.as_ptr(),
+            ptr::copy_nonoverlapping(src.as_ptr(),
+                                     dst.as_mut_ptr(),
                                      len_src);
         }
     }

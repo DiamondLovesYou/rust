@@ -18,10 +18,11 @@
 use prelude::v1::*;
 
 use io::{self, Error, ErrorKind};
+#[allow(deprecated)] // Int
 use num::Int;
 use sys_common::net2 as net_imp;
 
-pub use self::ip::{Ipv4Addr, Ipv6Addr, Ipv6MulticastScope};
+pub use self::ip::{IpAddr, Ipv4Addr, Ipv6Addr, Ipv6MulticastScope};
 pub use self::addr::{SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs};
 pub use self::tcp::{TcpStream, TcpListener};
 pub use self::udp::UdpSocket;
@@ -54,7 +55,9 @@ pub enum Shutdown {
     Both,
 }
 
+#[allow(deprecated)] // Int
 fn hton<I: Int>(i: I) -> I { i.to_be() }
+#[allow(deprecated)] // Int
 fn ntoh<I: Int>(i: I) -> I { Int::from_be(i) }
 
 fn each_addr<A: ToSocketAddrs, F, T>(addr: A, mut f: F) -> io::Result<T>
@@ -69,15 +72,19 @@ fn each_addr<A: ToSocketAddrs, F, T>(addr: A, mut f: F) -> io::Result<T>
     }
     Err(last_err.unwrap_or_else(|| {
         Error::new(ErrorKind::InvalidInput,
-                   "could not resolve to any addresses", None)
+                   "could not resolve to any addresses")
     }))
 }
 
 /// An iterator over `SocketAddr` values returned from a host lookup operation.
-#[stable(feature = "rust1", since = "1.0.0")]
+#[unstable(feature = "lookup_host", reason = "unsure about the returned \
+                                              iterator and returning socket \
+                                              addresses")]
 pub struct LookupHost(net_imp::LookupHost);
 
-#[stable(feature = "rust1", since = "1.0.0")]
+#[unstable(feature = "lookup_host", reason = "unsure about the returned \
+                                              iterator and returning socket \
+                                              addresses")]
 impl Iterator for LookupHost {
     type Item = io::Result<SocketAddr>;
     fn next(&mut self) -> Option<io::Result<SocketAddr>> { self.0.next() }
@@ -91,7 +98,7 @@ impl Iterator for LookupHost {
 /// # Examples
 ///
 /// ```no_run
-/// # #![feature(net)]
+/// # #![feature(lookup_host)]
 /// use std::net;
 ///
 /// # fn foo() -> std::io::Result<()> {
@@ -101,7 +108,19 @@ impl Iterator for LookupHost {
 /// # Ok(())
 /// # }
 /// ```
-#[stable(feature = "rust1", since = "1.0.0")]
+#[unstable(feature = "lookup_host", reason = "unsure about the returned \
+                                              iterator and returning socket \
+                                              addresses")]
 pub fn lookup_host(host: &str) -> io::Result<LookupHost> {
     net_imp::lookup_host(host).map(LookupHost)
+}
+
+/// Resolve the given address to a hostname.
+///
+/// This function may perform a DNS query to resolve `addr` and may also inspect
+/// system configuration to resolve the specified address. If the address
+/// cannot be resolved, it is returned in string format.
+#[unstable(feature = "lookup_addr", reason = "recent addition")]
+pub fn lookup_addr(addr: &IpAddr) -> io::Result<String> {
+    net_imp::lookup_addr(addr)
 }

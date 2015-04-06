@@ -8,23 +8,24 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![feature(negate_unsigned)]
 
 #[cfg(any(target_arch = "x86",
           target_arch = "arm",
           target_arch = "le32",
           all(target_arch = "x86_64", target_os = "nacl")))]
 fn target() {
-    assert_eq!(-1000 as uint >> 3_usize, 536870787_usize);
+    assert_eq!(-1000 as usize >> 3_usize, 536870787_usize);
 }
 
 #[cfg(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(target_os = "nacl")))]
 fn target() {
-    assert_eq!(-1000 as uint >> 3_usize, 2305843009213693827_usize);
+    assert_eq!(-1000 as usize >> 3_usize, 2305843009213693827_usize);
 }
 
 fn general() {
-    let mut a: int = 1;
-    let mut b: int = 2;
+    let mut a: isize = 1;
+    let mut b: isize = 2;
     a ^= b;
     b ^= a;
     a = a ^ b;

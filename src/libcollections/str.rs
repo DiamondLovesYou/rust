@@ -10,16 +10,12 @@
 //
 // ignore-lexer-test FIXME #15679
 
-//! Unicode string manipulation (the [`str`](../primitive.str.html) type).
+//! Unicode string manipulation (the `str` type).
 //!
-//! Rust's [`str`](../primitive.str.html) type is one of the core primitive
-//! types of the language. `&str` is the borrowed string type. This type of
-//! string can only be created from other strings, unless it is a `&'static str`
-//! (see below). It is not possible to move out of borrowed strings because they
-//! are owned elsewhere.
-//!
-//! Basic operations are implemented directly by the compiler, but more advanced
-//! operations are defined as methods on the `str` type.
+//! Rust's `str` type is one of the core primitive types of the language. `&str`
+//! is the borrowed string type. This type of string can only be created from
+//! other strings, unless it is a `&'static str` (see below). It is not possible
+//! to move out of borrowed strings because they are owned elsewhere.
 //!
 //! # Examples
 //!
@@ -58,7 +54,7 @@ use self::DecompositionType::*;
 
 use core::clone::Clone;
 use core::iter::AdditiveIterator;
-use core::iter::{Iterator, IteratorExt, Extend};
+use core::iter::{Iterator, Extend};
 use core::option::Option::{self, Some, None};
 use core::result::Result;
 use core::str as core_str;
@@ -73,11 +69,11 @@ use vec::Vec;
 use slice::SliceConcatExt;
 
 pub use core::str::{FromStr, Utf8Error, Str};
-pub use core::str::{Lines, LinesAny, MatchIndices, SplitStr, CharRange};
+pub use core::str::{Lines, LinesAny, MatchIndices, CharRange};
 pub use core::str::{Split, SplitTerminator, SplitN};
 pub use core::str::{RSplit, RSplitN};
-pub use core::str::{from_utf8, CharEq, Chars, CharIndices, Bytes};
-pub use core::str::{from_utf8_unchecked, from_c_str, ParseBoolError};
+pub use core::str::{from_utf8, Chars, CharIndices, Bytes};
+pub use core::str::{from_utf8_unchecked, ParseBoolError};
 pub use unicode::str::{Words, Graphemes, GraphemeIndices};
 pub use core::str::Pattern;
 pub use core::str::{Searcher, ReverseSearcher, DoubleEndedSearcher, SearchStep};
@@ -539,22 +535,6 @@ impl str {
         core_str::StrExt::contains(&self[..], pat)
     }
 
-    /// Returns `true` if `self` contains a `char`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # #![feature(collections)]
-    /// assert!("hello".contains_char('e'));
-    ///
-    /// assert!(!"hello".contains_char('z'));
-    /// ```
-    #[unstable(feature = "collections")]
-    #[deprecated(since = "1.0.0", reason = "use `contains()` with a char")]
-    pub fn contains_char<'a, P: Pattern<'a>>(&'a self, pat: P) -> bool {
-        core_str::StrExt::contains_char(&self[..], pat)
-    }
-
     /// An iterator over the codepoints of `self`.
     ///
     /// # Examples
@@ -630,11 +610,14 @@ impl str {
         core_str::StrExt::split(&self[..], pat)
     }
 
-    /// An iterator over substrings of `self`, separated by characters matched by a pattern,
-    /// restricted to splitting at most `count` times.
+    /// An iterator over substrings of `self`, separated by characters matched
+    /// by a pattern, returning most `count` items.
     ///
     /// The pattern can be a simple `&str`, or a closure that determines
     /// the split.
+    ///
+    /// The last element returned, if any, will contain the remainder of the
+    /// string.
     ///
     /// # Examples
     ///
@@ -642,12 +625,12 @@ impl str {
     ///
     /// ```
     /// let v: Vec<&str> = "Mary had a little lambda".splitn(2, ' ').collect();
-    /// assert_eq!(v, ["Mary", "had", "a little lambda"]);
+    /// assert_eq!(v, ["Mary", "had a little lambda"]);
     ///
     /// let v: Vec<&str> = "lionXXtigerXleopard".splitn(2, 'X').collect();
-    /// assert_eq!(v, ["lion", "", "tigerXleopard"]);
+    /// assert_eq!(v, ["lion", "XtigerXleopard"]);
     ///
-    /// let v: Vec<&str> = "abcXdef".splitn(0, 'X').collect();
+    /// let v: Vec<&str> = "abcXdef".splitn(1, 'X').collect();
     /// assert_eq!(v, ["abcXdef"]);
     ///
     /// let v: Vec<&str> = "".splitn(1, 'X').collect();
@@ -657,7 +640,7 @@ impl str {
     /// More complex patterns with a lambda:
     ///
     /// ```
-    /// let v: Vec<&str> = "abc1def2ghi".splitn(1, |c: char| c.is_numeric()).collect();
+    /// let v: Vec<&str> = "abc1def2ghi".splitn(2, |c: char| c.is_numeric()).collect();
     /// assert_eq!(v, ["abc", "def2ghi"]);
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
@@ -725,25 +708,28 @@ impl str {
     }
 
     /// An iterator over substrings of `self`, separated by a pattern,
-    /// starting from the end of the string, restricted to splitting
-    /// at most `count` times.
+    /// starting from the end of the string, restricted to returning
+    /// at most `count` items.
+    ///
+    /// The last element returned, if any, will contain the remainder of the
+    /// string.
     ///
     /// # Examples
     ///
     /// Simple patterns:
     ///
     /// ```
-    /// let v: Vec<&str> = "Mary had a little lamb".rsplitn(2, ' ').collect();
+    /// let v: Vec<&str> = "Mary had a little lamb".rsplitn(3, ' ').collect();
     /// assert_eq!(v, ["lamb", "little", "Mary had a"]);
     ///
-    /// let v: Vec<&str> = "lion::tiger::leopard".rsplitn(1, "::").collect();
+    /// let v: Vec<&str> = "lion::tiger::leopard".rsplitn(2, "::").collect();
     /// assert_eq!(v, ["leopard", "lion::tiger"]);
     /// ```
     ///
     /// More complex patterns with a lambda:
     ///
     /// ```
-    /// let v: Vec<&str> = "abc1def2ghi".rsplitn(1, |c: char| c.is_numeric()).collect();
+    /// let v: Vec<&str> = "abc1def2ghi".rsplitn(2, |c: char| c.is_numeric()).collect();
     /// assert_eq!(v, ["ghi", "abc1def"]);
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
@@ -779,25 +765,6 @@ impl str {
     // but it would be more consistent and useful to return `(usize, &str)`
     pub fn match_indices<'a, P: Pattern<'a>>(&'a self, pat: P) -> MatchIndices<'a, P> {
         core_str::StrExt::match_indices(&self[..], pat)
-    }
-
-    /// An iterator over the substrings of `self` separated by a `&str`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # #![feature(collections)]
-    /// let v: Vec<&str> = "abcXXXabcYYYabc".split_str("abc").collect();
-    /// assert_eq!(v, ["", "XXX", "YYY", ""]);
-    ///
-    /// let v: Vec<&str> = "1abcabc2".split_str("abc").collect();
-    /// assert_eq!(v, ["1", "", "2"]);
-    /// ```
-    #[unstable(feature = "collections")]
-    #[deprecated(since = "1.0.0", reason = "use `split()` with a `&str`")]
-    #[allow(deprecated) /* for SplitStr */]
-    pub fn split_str<'a, P: Pattern<'a>>(&'a self, pat: P) -> SplitStr<'a, P> {
-        core_str::StrExt::split_str(&self[..], pat)
     }
 
     /// An iterator over the lines of a string, separated by `\n`.
@@ -851,31 +818,6 @@ impl str {
     pub fn lines_any(&self) -> LinesAny {
         core_str::StrExt::lines_any(&self[..])
     }
-
-    /// Deprecated: use `s[a .. b]` instead.
-    #[unstable(feature = "collections",
-               reason = "use slice notation [a..b] instead")]
-    #[deprecated(since = "1.0.0", reason = "use slice notation [a..b] instead")]
-    pub fn slice(&self, begin: usize, end: usize) -> &str {
-        &self[begin..end]
-    }
-
-    /// Deprecated: use `s[a..]` instead.
-    #[unstable(feature = "collections",
-               reason = "use slice notation [a..b] instead")]
-    #[deprecated(since = "1.0.0", reason = "use slice notation [a..] instead")]
-    pub fn slice_from(&self, begin: usize) -> &str {
-        &self[begin..]
-    }
-
-    /// Deprecated: use `s[..a]` instead.
-    #[unstable(feature = "collections",
-               reason = "use slice notation [a..b] instead")]
-    #[deprecated(since = "1.0.0", reason = "use slice notation [..a] instead")]
-    pub fn slice_to(&self, end: usize) -> &str {
-        &self[..end]
-    }
-
     /// Returns a slice of the string from the character range [`begin`..`end`).
     ///
     /// That is, start at the `begin`-th code point of the string and continue
@@ -1309,27 +1251,6 @@ impl str {
         core_str::StrExt::rfind(&self[..], pat)
     }
 
-    /// Returns the byte index of the first matching substring if it exists.
-    ///
-    /// Returns `None` if it doesn't exist.
-    ///
-    /// The pattern can be a simple `&str`, or a closure that determines the split.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # #![feature(collections)]
-    /// let s = "Löwe 老虎 Léopard";
-    ///
-    /// assert_eq!(s.find_str("老虎 L"), Some(6));
-    /// assert_eq!(s.find_str("muffin man"), None);
-    /// ```
-    #[unstable(feature = "collections")]
-    #[deprecated(since = "1.0.0", reason = "use `find()` with a `&str`")]
-    pub fn find_str<'a, P: Pattern<'a>>(&'a self, needle: P) -> Option<usize> {
-        core_str::StrExt::find_str(&self[..], needle)
-    }
-
     /// Retrieves the first character from a `&str` and returns it.
     ///
     /// This does not allocate a new string; instead, it returns a slice that points one character
@@ -1473,12 +1394,12 @@ impl str {
     /// let gr1 = "a\u{310}e\u{301}o\u{308}\u{332}".graphemes(true).collect::<Vec<&str>>();
     /// let b: &[_] = &["a\u{310}", "e\u{301}", "o\u{308}\u{332}"];
     ///
-    /// assert_eq!(gr1.as_slice(), b);
+    /// assert_eq!(&gr1[..], b);
     ///
     /// let gr2 = "a\r\nb🇷🇺🇸🇹".graphemes(true).collect::<Vec<&str>>();
     /// let b: &[_] = &["a", "\r\n", "b", "🇷🇺🇸🇹"];
     ///
-    /// assert_eq!(gr2.as_slice(), b);
+    /// assert_eq!(&gr2[..], b);
     /// ```
     #[unstable(feature = "unicode",
                reason = "this functionality may only be provided by libunicode")]
@@ -1496,7 +1417,7 @@ impl str {
     /// let gr_inds = "a̐éö̲\r\n".grapheme_indices(true).collect::<Vec<(usize, &str)>>();
     /// let b: &[_] = &[(0, "a̐"), (3, "é"), (6, "ö̲"), (11, "\r\n")];
     ///
-    /// assert_eq!(gr_inds.as_slice(), b);
+    /// assert_eq!(&gr_inds[..], b);
     /// ```
     #[unstable(feature = "unicode",
                reason = "this functionality may only be provided by libunicode")]

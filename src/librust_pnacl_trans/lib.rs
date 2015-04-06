@@ -19,7 +19,7 @@
 
 extern crate getopts;
 extern crate libc;
-extern crate "rustc_llvm" as llvm;
+extern crate rustc_llvm as llvm;
 
 #[macro_use]
 extern crate log;

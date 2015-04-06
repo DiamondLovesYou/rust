@@ -14,17 +14,15 @@
 
 #![stable(feature = "rust1", since = "1.0.0")]
 #![allow(missing_docs)]
-#![allow(trivial_numeric_casts)]
 
 use self::wrapping::{OverflowingOps, WrappingOps};
 
 use char::CharExt;
 use clone::Clone;
 use cmp::{PartialEq, Eq, PartialOrd, Ord};
-use error::Error;
 use fmt;
 use intrinsics;
-use iter::IteratorExt;
+use iter::Iterator;
 use marker::Copy;
 use mem::size_of;
 use ops::{Add, Sub, Mul, Div, Rem, Neg};
@@ -33,11 +31,66 @@ use option::Option::{self, Some, None};
 use result::Result::{self, Ok, Err};
 use str::{FromStr, StrExt};
 
+/// Provides intentionally-wrapped arithmetic on `T`.
+///
+/// Operations like `+` on `u32` values is intended to never overflow,
+/// and in some debug configurations overflow is detected and results
+/// in a panic. While most arithmetic falls into this category, some
+/// code explicitly expects and relies upon modular arithmetic (e.g.,
+/// hashing).
+///
+/// Wrapping arithmetic can be achieved either through methods like
+/// `wrapping_add`, or through the `Wrapping<T>` type, which says that
+/// all standard arithmetic operations on the underlying value are
+/// intended to have wrapping semantics.
+#[stable(feature = "rust1", since = "1.0.0")]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
+pub struct Wrapping<T>(#[stable(feature = "rust1", since = "1.0.0")] pub T);
+
 #[unstable(feature = "core", reason = "may be removed or relocated")]
 pub mod wrapping;
 
+/// Types that have a "zero" value.
+///
+/// This trait is intended for use in conjunction with `Add`, as an identity:
+/// `x + T::zero() == x`.
+#[unstable(feature = "zero_one",
+           reason = "unsure of placement, wants to use associated constants")]
+pub trait Zero {
+    /// The "zero" (usually, additive identity) for this type.
+    fn zero() -> Self;
+}
+
+/// Types that have a "one" value.
+///
+/// This trait is intended for use in conjunction with `Mul`, as an identity:
+/// `x * T::one() == x`.
+#[unstable(feature = "zero_one",
+           reason = "unsure of placement, wants to use associated constants")]
+pub trait One {
+    /// The "one" (usually, multiplicative identity) for this type.
+    fn one() -> Self;
+}
+
+macro_rules! zero_one_impl {
+    ($($t:ty)*) => ($(
+        impl Zero for $t {
+            #[inline]
+            fn zero() -> $t { 0 }
+        }
+        impl One for $t {
+            #[inline]
+            fn one() -> $t { 1 }
+        }
+    )*)
+}
+zero_one_impl! { u8 u16 u32 u64 usize i8 i16 i32 i64 isize }
+
 /// A built-in signed or unsigned integer.
 #[stable(feature = "rust1", since = "1.0.0")]
+#[deprecated(since = "1.0.0",
+             reason = "replaced by inherent methods; for generics, use rust-lang/num")]
+#[allow(deprecated)]
 pub trait Int
     : Copy + Clone
     + NumCast
@@ -52,8 +105,8 @@ pub trait Int
     + BitAnd<Output=Self>
     + BitOr<Output=Self>
     + BitXor<Output=Self>
-    + Shl<uint, Output=Self>
-    + Shr<uint, Output=Self>
+    + Shl<usize, Output=Self>
+    + Shr<usize, Output=Self>
     + WrappingOps
     + OverflowingOps
 {
@@ -451,6 +504,7 @@ macro_rules! uint_impl {
      $sub_with_overflow:path,
      $mul_with_overflow:path) => {
         #[stable(feature = "rust1", since = "1.0.0")]
+        #[allow(deprecated)]
         impl Int for $T {
             #[inline]
             fn zero() -> $T { 0 }
@@ -462,7 +516,7 @@ macro_rules! uint_impl {
             fn min_value() -> $T { 0 }
 
             #[inline]
-            fn max_value() -> $T { -1 }
+            fn max_value() -> $T { !0 }
 
             #[inline]
             fn count_ones(self) -> u32 {
@@ -565,7 +619,7 @@ uint_impl! { u64 = u64, 64,
     intrinsics::u64_mul_with_overflow }
 
 #[cfg(target_pointer_width = "32")]
-uint_impl! { uint = u32, 32,
+uint_impl! { usize = u32, 32,
     intrinsics::ctpop32,
     intrinsics::ctlz32,
     intrinsics::cttz32,
@@ -575,7 +629,7 @@ uint_impl! { uint = u32, 32,
     intrinsics::u32_mul_with_overflow }
 
 #[cfg(target_pointer_width = "64")]
-uint_impl! { uint = u64, 64,
+uint_impl! { usize = u64, 64,
     intrinsics::ctpop64,
     intrinsics::ctlz64,
     intrinsics::cttz64,
@@ -590,6 +644,7 @@ macro_rules! int_impl {
      $sub_with_overflow:path,
      $mul_with_overflow:path) => {
         #[stable(feature = "rust1", since = "1.0.0")]
+        #[allow(deprecated)]
         impl Int for $T {
             #[inline]
             fn zero() -> $T { 0 }
@@ -680,19 +735,22 @@ int_impl! { i64 = i64, u64, 64,
     intrinsics::i64_mul_with_overflow }
 
 #[cfg(target_pointer_width = "32")]
-int_impl! { int = i32, u32, 32,
+int_impl! { isize = i32, u32, 32,
     intrinsics::i32_add_with_overflow,
     intrinsics::i32_sub_with_overflow,
     intrinsics::i32_mul_with_overflow }
 
 #[cfg(target_pointer_width = "64")]
-int_impl! { int = i64, u64, 64,
+int_impl! { isize = i64, u64, 64,
     intrinsics::i64_add_with_overflow,
     intrinsics::i64_sub_with_overflow,
     intrinsics::i64_mul_with_overflow }
 
 /// A built-in two's complement integer.
 #[stable(feature = "rust1", since = "1.0.0")]
+#[deprecated(since = "1.0.0",
+             reason = "replaced by inherent methods; for generics, use rust-lang/num")]
+#[allow(deprecated)]
 pub trait SignedInt
     : Int
     + Neg<Output=Self>
@@ -724,6 +782,7 @@ pub trait SignedInt
 macro_rules! signed_int_impl {
     ($T:ty) => {
         #[stable(feature = "rust1", since = "1.0.0")]
+        #[allow(deprecated)]
         impl SignedInt for $T {
             #[inline]
             fn abs(self) -> $T {
@@ -752,7 +811,7 @@ signed_int_impl! { i8 }
 signed_int_impl! { i16 }
 signed_int_impl! { i32 }
 signed_int_impl! { i64 }
-signed_int_impl! { int }
+signed_int_impl! { isize }
 
 // `Int` + `SignedInt` implemented for signed integers
 macro_rules! int_impl {
@@ -760,35 +819,37 @@ macro_rules! int_impl {
      $add_with_overflow:path,
      $sub_with_overflow:path,
      $mul_with_overflow:path) => {
-        /// Returns the `0` value of this integer type.
-        // FIXME (#5527): Should be an associated constant
-        #[unstable(feature = "core",
-                   reason = "unsure about its place in the world")]
-        #[inline]
-        pub fn zero() -> $T { 0 }
+        /// Returns the smallest value that can be represented by this integer type.
+        #[stable(feature = "rust1", since = "1.0.0")]
+        pub fn min_value() -> $T {
+            (-1 as $T) << ($BITS - 1)
+        }
 
-        /// Returns the `1` value of this integer type.
-        // FIXME (#5527): Should be an associated constant
-        #[unstable(feature = "core",
-                   reason = "unsure about its place in the world")]
-        #[inline]
-        pub fn one() -> $T { 1 }
+        /// Returns the largest value that can be represented by this integer type.
+        #[stable(feature = "rust1", since = "1.0.0")]
+        pub fn max_value() -> $T {
+            let min: $T = Int::min_value(); !min
+        }
 
-        /// Returns the smallest value that can be represented by this integer
-        /// type.
-        // FIXME (#5527): Should be and associated constant
-        #[unstable(feature = "core",
-                   reason = "unsure about its place in the world")]
-        #[inline]
-        pub fn min_value() -> $T { (-1 as $T) << ($BITS - 1) }
-
-        /// Returns the largest value that can be represented by this integer
-        /// type.
-        // FIXME (#5527): Should be and associated constant
-        #[unstable(feature = "core",
-                   reason = "unsure about its place in the world")]
-        #[inline]
-        pub fn max_value() -> $T { let min: $T = <$T>::min_value(); !min }
+        /// Convert a string slice in a given base to an integer.
+        ///
+        /// Leading and trailing whitespace represent an error.
+        ///
+        /// # Arguments
+        ///
+        /// * src - A string slice
+        /// * radix - The base to use. Must lie in the range [2 .. 36]
+        ///
+        /// # Return value
+        ///
+        /// `None` if the string did not represent a valid number.
+        /// Otherwise, `Some(n)` where `n` is the integer represented
+        /// by `src`.
+        #[stable(feature = "rust1", since = "1.0.0")]
+        #[allow(deprecated)]
+        pub fn from_str_radix(src: &str, radix: u32) -> Result<$T, ParseIntError> {
+            <Self as FromStrRadix>::from_str_radix(src, radix)
+        }
 
         /// Returns the number of ones in the binary representation of `self`.
         ///
@@ -802,8 +863,7 @@ macro_rules! int_impl {
         ///
         /// assert_eq!(n.count_ones(), 3);
         /// ```
-        #[unstable(feature = "core",
-                   reason = "pending integer conventions")]
+        #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
         pub fn count_ones(self) -> u32 { (self as $UnsignedT).count_ones() }
 
@@ -819,8 +879,7 @@ macro_rules! int_impl {
         ///
         /// assert_eq!(n.count_zeros(), 5);
         /// ```
-        #[unstable(feature = "core",
-                   reason = "pending integer conventions")]
+        #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
         pub fn count_zeros(self) -> u32 {
             (!self).count_ones()
@@ -839,8 +898,7 @@ macro_rules! int_impl {
         ///
         /// assert_eq!(n.leading_zeros(), 10);
         /// ```
-        #[unstable(feature = "core",
-                   reason = "pending integer conventions")]
+        #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
         pub fn leading_zeros(self) -> u32 {
             (self as $UnsignedT).leading_zeros()
@@ -859,8 +917,7 @@ macro_rules! int_impl {
         ///
         /// assert_eq!(n.trailing_zeros(), 3);
         /// ```
-        #[unstable(feature = "core",
-                   reason = "pending integer conventions")]
+        #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
         pub fn trailing_zeros(self) -> u32 {
             (self as $UnsignedT).trailing_zeros()
@@ -880,8 +937,7 @@ macro_rules! int_impl {
         ///
         /// assert_eq!(n.rotate_left(12), m);
         /// ```
-        #[unstable(feature = "core",
-                   reason = "pending integer conventions")]
+        #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
         pub fn rotate_left(self, n: u32) -> $T {
             (self as $UnsignedT).rotate_left(n) as $T
@@ -902,8 +958,7 @@ macro_rules! int_impl {
         ///
         /// assert_eq!(n.rotate_right(12), m);
         /// ```
-        #[unstable(feature = "core",
-                   reason = "pending integer conventions")]
+        #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
         pub fn rotate_right(self, n: u32) -> $T {
             (self as $UnsignedT).rotate_right(n) as $T
@@ -1104,8 +1159,8 @@ macro_rules! int_impl {
         pub fn saturating_add(self, other: $T) -> $T {
             match self.checked_add(other) {
                 Some(x)                       => x,
-                None if other >= <$T>::zero() => <$T>::max_value(),
-                None                          => <$T>::min_value(),
+                None if other >= <$T as Zero>::zero() => <$T>::max_value(),
+                None => <$T>::min_value(),
             }
         }
 
@@ -1116,8 +1171,38 @@ macro_rules! int_impl {
         pub fn saturating_sub(self, other: $T) -> $T {
             match self.checked_sub(other) {
                 Some(x)                      => x,
-                None if other >= <$T>::zero() => <$T>::min_value(),
-                None                          => <$T>::max_value(),
+                None if other >= <$T as Zero>::zero() => <$T>::min_value(),
+                None => <$T>::max_value(),
+            }
+        }
+
+        /// Wrapping (modular) addition. Computes `self + other`,
+        /// wrapping around at the boundary of the type.
+        #[stable(feature = "rust1", since = "1.0.0")]
+        #[inline]
+        pub fn wrapping_add(self, rhs: $T) -> $T {
+            unsafe {
+                intrinsics::overflowing_add(self, rhs)
+            }
+        }
+
+        /// Wrapping (modular) subtraction. Computes `self - other`,
+        /// wrapping around at the boundary of the type.
+        #[stable(feature = "rust1", since = "1.0.0")]
+        #[inline]
+        pub fn wrapping_sub(self, rhs: $T) -> $T {
+            unsafe {
+                intrinsics::overflowing_sub(self, rhs)
+            }
+        }
+
+        /// Wrapping (modular) multiplication. Computes `self *
+        /// other`, wrapping around at the boundary of the type.
+        #[stable(feature = "rust1", since = "1.0.0")]
+        #[inline]
+        pub fn wrapping_mul(self, rhs: $T) -> $T {
+            unsafe {
+                intrinsics::overflowing_mul(self, rhs)
             }
         }
 
@@ -1131,12 +1216,11 @@ macro_rules! int_impl {
         ///
         /// assert_eq!(2.pow(4), 16);
         /// ```
-        #[unstable(feature = "core",
-                   reason = "pending integer conventions")]
+        #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
         pub fn pow(self, mut exp: u32) -> $T {
             let mut base = self;
-            let mut acc = <$T>::one();
+            let mut acc = <$T as One>::one();
 
             let mut prev_base = self;
             let mut base_oflo = false;
@@ -1162,7 +1246,7 @@ macro_rules! int_impl {
 
         /// Computes the absolute value of `self`. `Int::min_value()` will be
         /// returned if the number is `Int::min_value()`.
-        #[unstable(feature = "core", reason = "overflow in debug builds?")]
+        #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
         pub fn abs(self) -> $T {
             if self.is_negative() { -self } else { self }
@@ -1232,7 +1316,7 @@ impl i64 {
 #[cfg(target_pointer_width = "32")]
 #[lang = "isize"]
 impl isize {
-    int_impl! { int = i32, u32, 32,
+    int_impl! { isize = i32, u32, 32,
         intrinsics::i32_add_with_overflow,
         intrinsics::i32_sub_with_overflow,
         intrinsics::i32_mul_with_overflow }
@@ -1241,7 +1325,7 @@ impl isize {
 #[cfg(target_pointer_width = "64")]
 #[lang = "isize"]
 impl isize {
-    int_impl! { int = i64, u64, 64,
+    int_impl! { isize = i64, u64, 64,
         intrinsics::i64_add_with_overflow,
         intrinsics::i64_sub_with_overflow,
         intrinsics::i64_mul_with_overflow }
@@ -1257,35 +1341,33 @@ macro_rules! uint_impl {
      $add_with_overflow:path,
      $sub_with_overflow:path,
      $mul_with_overflow:path) => {
-        /// Returns the `0` value of this integer type.
-        // FIXME (#5527): Should be an associated constant
-        #[unstable(feature = "core",
-                   reason = "unsure about its place in the world")]
-        #[inline]
-        pub fn zero() -> $T { 0 }
-
-        /// Returns the `1` value of this integer type.
-        // FIXME (#5527): Should be an associated constant
-        #[unstable(feature = "core",
-                   reason = "unsure about its place in the world")]
-        #[inline]
-        pub fn one() -> $T { 1 }
-
-        /// Returns the smallest value that can be represented by this integer
-        /// type.
-        // FIXME (#5527): Should be and associated constant
-        #[unstable(feature = "core",
-                   reason = "unsure about its place in the world")]
-        #[inline]
+        /// Returns the smallest value that can be represented by this integer type.
+        #[stable(feature = "rust1", since = "1.0.0")]
         pub fn min_value() -> $T { 0 }
 
-        /// Returns the largest value that can be represented by this integer
-        /// type.
-        // FIXME (#5527): Should be and associated constant
-        #[unstable(feature = "core",
-                   reason = "unsure about its place in the world")]
-        #[inline]
-        pub fn max_value() -> $T { -1 }
+        /// Returns the largest value that can be represented by this integer type.
+        #[stable(feature = "rust1", since = "1.0.0")]
+        pub fn max_value() -> $T { !0 }
+
+        /// Convert a string slice in a given base to an integer.
+        ///
+        /// Leading and trailing whitespace represent an error.
+        ///
+        /// # Arguments
+        ///
+        /// * src - A string slice
+        /// * radix - The base to use. Must lie in the range [2 .. 36]
+        ///
+        /// # Return value
+        ///
+        /// `None` if the string did not represent a valid number.
+        /// Otherwise, `Some(n)` where `n` is the integer represented
+        /// by `src`.
+        #[stable(feature = "rust1", since = "1.0.0")]
+        #[allow(deprecated)]
+        pub fn from_str_radix(src: &str, radix: u32) -> Result<$T, ParseIntError> {
+            <Self as FromStrRadix>::from_str_radix(src, radix)
+        }
 
         /// Returns the number of ones in the binary representation of `self`.
         ///
@@ -1299,8 +1381,7 @@ macro_rules! uint_impl {
         ///
         /// assert_eq!(n.count_ones(), 3);
         /// ```
-        #[unstable(feature = "core",
-                   reason = "pending integer conventions")]
+        #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
         pub fn count_ones(self) -> u32 {
             unsafe { $ctpop(self as $ActualT) as u32 }
@@ -1318,8 +1399,7 @@ macro_rules! uint_impl {
         ///
         /// assert_eq!(n.count_zeros(), 5);
         /// ```
-        #[unstable(feature = "core",
-                   reason = "pending integer conventions")]
+        #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
         pub fn count_zeros(self) -> u32 {
             (!self).count_ones()
@@ -1338,8 +1418,7 @@ macro_rules! uint_impl {
         ///
         /// assert_eq!(n.leading_zeros(), 10);
         /// ```
-        #[unstable(feature = "core",
-                   reason = "pending integer conventions")]
+        #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
         pub fn leading_zeros(self) -> u32 {
             unsafe { $ctlz(self as $ActualT) as u32 }
@@ -1358,8 +1437,7 @@ macro_rules! uint_impl {
         ///
         /// assert_eq!(n.trailing_zeros(), 3);
         /// ```
-        #[unstable(feature = "core",
-                   reason = "pending integer conventions")]
+        #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
         pub fn trailing_zeros(self) -> u32 {
             unsafe { $cttz(self as $ActualT) as u32 }
@@ -1379,8 +1457,7 @@ macro_rules! uint_impl {
         ///
         /// assert_eq!(n.rotate_left(12), m);
         /// ```
-        #[unstable(feature = "core",
-                   reason = "pending integer conventions")]
+        #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
         pub fn rotate_left(self, n: u32) -> $T {
             // Protect against undefined behaviour for over-long bit shifts
@@ -1403,8 +1480,7 @@ macro_rules! uint_impl {
         ///
         /// assert_eq!(n.rotate_right(12), m);
         /// ```
-        #[unstable(feature = "core",
-                   reason = "pending integer conventions")]
+        #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
         pub fn rotate_right(self, n: u32) -> $T {
             // Protect against undefined behaviour for over-long bit shifts
@@ -1605,8 +1681,8 @@ macro_rules! uint_impl {
         pub fn saturating_add(self, other: $T) -> $T {
             match self.checked_add(other) {
                 Some(x)                       => x,
-                None if other >= <$T>::zero() => <$T>::max_value(),
-                None                          => <$T>::min_value(),
+                None if other >= <$T as Zero>::zero() => <$T>::max_value(),
+                None => <$T>::min_value(),
             }
         }
 
@@ -1617,8 +1693,38 @@ macro_rules! uint_impl {
         pub fn saturating_sub(self, other: $T) -> $T {
             match self.checked_sub(other) {
                 Some(x)                       => x,
-                None if other >= <$T>::zero() => <$T>::min_value(),
-                None                          => <$T>::max_value(),
+                None if other >= <$T as Zero>::zero() => <$T>::min_value(),
+                None => <$T>::max_value(),
+            }
+        }
+
+        /// Wrapping (modular) addition. Computes `self + other`,
+        /// wrapping around at the boundary of the type.
+        #[stable(feature = "rust1", since = "1.0.0")]
+        #[inline]
+        pub fn wrapping_add(self, rhs: $T) -> $T {
+            unsafe {
+                intrinsics::overflowing_add(self, rhs)
+            }
+        }
+
+        /// Wrapping (modular) subtraction. Computes `self - other`,
+        /// wrapping around at the boundary of the type.
+        #[stable(feature = "rust1", since = "1.0.0")]
+        #[inline]
+        pub fn wrapping_sub(self, rhs: $T) -> $T {
+            unsafe {
+                intrinsics::overflowing_sub(self, rhs)
+            }
+        }
+
+        /// Wrapping (modular) multiplication. Computes `self *
+        /// other`, wrapping around at the boundary of the type.
+        #[stable(feature = "rust1", since = "1.0.0")]
+        #[inline]
+        pub fn wrapping_mul(self, rhs: $T) -> $T {
+            unsafe {
+                intrinsics::overflowing_mul(self, rhs)
             }
         }
 
@@ -1632,12 +1738,11 @@ macro_rules! uint_impl {
         ///
         /// assert_eq!(2.pow(4), 16);
         /// ```
-        #[unstable(feature = "core",
-                   reason = "pending integer conventions")]
+        #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
         pub fn pow(self, mut exp: u32) -> $T {
             let mut base = self;
-            let mut acc = <$T>::one();
+            let mut acc = <$T as One>::one();
 
             let mut prev_base = self;
             let mut base_oflo = false;
@@ -1665,8 +1770,8 @@ macro_rules! uint_impl {
         #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
         pub fn is_power_of_two(self) -> bool {
-            (self.wrapping_sub(<$T>::one())) & self == <$T>::zero() &&
-                !(self == <$T>::zero())
+            (self.wrapping_sub(<$T as One>::one())) & self == <$T as Zero>::zero() &&
+                !(self == <$T as Zero>::zero())
         }
 
         /// Returns the smallest power of two greater than or equal to `self`.
@@ -1675,7 +1780,7 @@ macro_rules! uint_impl {
         #[inline]
         pub fn next_power_of_two(self) -> $T {
             let bits = size_of::<$T>() * 8;
-            let one: $T = <$T>::one();
+            let one: $T = <$T as One>::one();
             one << ((bits - self.wrapping_sub(one).leading_zeros() as usize) % bits)
         }
 
@@ -1746,7 +1851,7 @@ impl u64 {
 #[cfg(target_pointer_width = "32")]
 #[lang = "usize"]
 impl usize {
-    uint_impl! { uint = u32, 32,
+    uint_impl! { usize = u32, 32,
         intrinsics::ctpop32,
         intrinsics::ctlz32,
         intrinsics::cttz32,
@@ -1759,7 +1864,7 @@ impl usize {
 #[cfg(target_pointer_width = "64")]
 #[lang = "usize"]
 impl usize {
-    uint_impl! { uint = u64, 64,
+    uint_impl! { usize = u64, 64,
         intrinsics::ctpop64,
         intrinsics::ctlz64,
         intrinsics::cttz64,
@@ -1772,11 +1877,11 @@ impl usize {
 /// A generic trait for converting a value to a number.
 #[unstable(feature = "core", reason = "trait is likely to be removed")]
 pub trait ToPrimitive {
-    /// Converts the value of `self` to an `int`.
+    /// Converts the value of `self` to an `isize`.
     #[inline]
     #[unstable(feature = "core")]
     #[deprecated(since = "1.0.0", reason = "use to_isize")]
-    fn to_int(&self) -> Option<int> {
+    fn to_int(&self) -> Option<isize> {
         self.to_i64().and_then(|x| x.to_isize())
     }
 
@@ -1807,11 +1912,11 @@ pub trait ToPrimitive {
     /// Converts the value of `self` to an `i64`.
     fn to_i64(&self) -> Option<i64>;
 
-    /// Converts the value of `self` to an `uint`.
+    /// Converts the value of `self` to an `usize`.
     #[inline]
     #[unstable(feature = "core")]
     #[deprecated(since = "1.0.0", reason = "use to_usize")]
-    fn to_uint(&self) -> Option<uint> {
+    fn to_uint(&self) -> Option<usize> {
         self.to_u64().and_then(|x| x.to_usize())
     }
 
@@ -1893,7 +1998,7 @@ macro_rules! impl_to_primitive_int {
     ($T:ty) => (
         impl ToPrimitive for $T {
             #[inline]
-            fn to_int(&self) -> Option<int> { impl_to_primitive_int_to_int!($T, int, *self) }
+            fn to_int(&self) -> Option<isize> { impl_to_primitive_int_to_int!($T, isize, *self) }
             #[inline]
             fn to_isize(&self) -> Option<isize> { impl_to_primitive_int_to_int!($T, isize, *self) }
             #[inline]
@@ -1906,7 +2011,7 @@ macro_rules! impl_to_primitive_int {
             fn to_i64(&self) -> Option<i64> { impl_to_primitive_int_to_int!($T, i64, *self) }
 
             #[inline]
-            fn to_uint(&self) -> Option<uint> { impl_to_primitive_int_to_uint!($T, uint, *self) }
+            fn to_uint(&self) -> Option<usize> { impl_to_primitive_int_to_uint!($T, usize, *self) }
             #[inline]
             fn to_usize(&self) -> Option<usize> { impl_to_primitive_int_to_uint!($T, usize, *self) }
             #[inline]
@@ -1967,9 +2072,9 @@ macro_rules! impl_to_primitive_uint {
     ($T:ty) => (
         impl ToPrimitive for $T {
             #[inline]
-            fn to_int(&self) -> Option<int> { impl_to_primitive_uint_to_int!(int, *self) }
+            fn to_int(&self) -> Option<isize> { impl_to_primitive_uint_to_int!(isize, *self) }
             #[inline]
-            fn to_isize(&self) -> Option<int> { impl_to_primitive_uint_to_int!(isize, *self) }
+            fn to_isize(&self) -> Option<isize> { impl_to_primitive_uint_to_int!(isize, *self) }
             #[inline]
             fn to_i8(&self) -> Option<i8> { impl_to_primitive_uint_to_int!(i8, *self) }
             #[inline]
@@ -1980,9 +2085,11 @@ macro_rules! impl_to_primitive_uint {
             fn to_i64(&self) -> Option<i64> { impl_to_primitive_uint_to_int!(i64, *self) }
 
             #[inline]
-            fn to_uint(&self) -> Option<uint> { impl_to_primitive_uint_to_uint!($T, uint, *self) }
+            fn to_uint(&self) -> Option<usize> { impl_to_primitive_uint_to_uint!($T, usize, *self) }
             #[inline]
-            fn to_usize(&self) -> Option<uint> { impl_to_primitive_uint_to_uint!($T, usize, *self) }
+            fn to_usize(&self) -> Option<usize> {
+                impl_to_primitive_uint_to_uint!($T, usize, *self)
+            }
             #[inline]
             fn to_u8(&self) -> Option<u8> { impl_to_primitive_uint_to_uint!($T, u8, *self) }
             #[inline]
@@ -2026,9 +2133,9 @@ macro_rules! impl_to_primitive_float {
     ($T:ident) => (
         impl ToPrimitive for $T {
             #[inline]
-            fn to_int(&self) -> Option<int> { Some(*self as int) }
+            fn to_int(&self) -> Option<isize> { Some(*self as isize) }
             #[inline]
-            fn to_isize(&self) -> Option<int> { Some(*self as isize) }
+            fn to_isize(&self) -> Option<isize> { Some(*self as isize) }
             #[inline]
             fn to_i8(&self) -> Option<i8> { Some(*self as i8) }
             #[inline]
@@ -2039,9 +2146,9 @@ macro_rules! impl_to_primitive_float {
             fn to_i64(&self) -> Option<i64> { Some(*self as i64) }
 
             #[inline]
-            fn to_uint(&self) -> Option<uint> { Some(*self as uint) }
+            fn to_uint(&self) -> Option<usize> { Some(*self as usize) }
             #[inline]
-            fn to_usize(&self) -> Option<uint> { Some(*self as usize) }
+            fn to_usize(&self) -> Option<usize> { Some(*self as usize) }
             #[inline]
             fn to_u8(&self) -> Option<u8> { Some(*self as u8) }
             #[inline]
@@ -2065,12 +2172,12 @@ impl_to_primitive_float! { f64 }
 /// A generic trait for converting a number to a value.
 #[unstable(feature = "core", reason = "trait is likely to be removed")]
 pub trait FromPrimitive : ::marker::Sized {
-    /// Convert an `int` to return an optional value of this type. If the
+    /// Convert an `isize` to return an optional value of this type. If the
     /// value cannot be represented by this value, the `None` is returned.
     #[inline]
     #[unstable(feature = "core")]
     #[deprecated(since = "1.0.0", reason = "use from_isize")]
-    fn from_int(n: int) -> Option<Self> {
+    fn from_int(n: isize) -> Option<Self> {
         FromPrimitive::from_i64(n as i64)
     }
 
@@ -2106,12 +2213,12 @@ pub trait FromPrimitive : ::marker::Sized {
     /// type cannot be represented by this value, the `None` is returned.
     fn from_i64(n: i64) -> Option<Self>;
 
-    /// Convert an `uint` to return an optional value of this type. If the
+    /// Convert an `usize` to return an optional value of this type. If the
     /// type cannot be represented by this value, the `None` is returned.
     #[inline]
     #[unstable(feature = "core")]
     #[deprecated(since = "1.0.0", reason = "use from_usize")]
-    fn from_uint(n: uint) -> Option<Self> {
+    fn from_uint(n: usize) -> Option<Self> {
         FromPrimitive::from_u64(n as u64)
     }
 
@@ -2165,7 +2272,7 @@ pub trait FromPrimitive : ::marker::Sized {
 /// A utility function that just calls `FromPrimitive::from_int`.
 #[unstable(feature = "core", reason = "likely to be removed")]
 #[deprecated(since = "1.0.0", reason = "use from_isize")]
-pub fn from_int<A: FromPrimitive>(n: int) -> Option<A> {
+pub fn from_int<A: FromPrimitive>(n: isize) -> Option<A> {
     FromPrimitive::from_isize(n)
 }
 
@@ -2202,7 +2309,7 @@ pub fn from_i64<A: FromPrimitive>(n: i64) -> Option<A> {
 /// A utility function that just calls `FromPrimitive::from_uint`.
 #[unstable(feature = "core", reason = "likely to be removed")]
 #[deprecated(since = "1.0.0", reason = "use from_uint")]
-pub fn from_uint<A: FromPrimitive>(n: uint) -> Option<A> {
+pub fn from_uint<A: FromPrimitive>(n: usize) -> Option<A> {
     FromPrimitive::from_usize(n)
 }
 
@@ -2252,13 +2359,13 @@ macro_rules! impl_from_primitive {
     ($T:ty, $to_ty:ident) => (
         #[allow(deprecated)]
         impl FromPrimitive for $T {
-            #[inline] fn from_int(n: int) -> Option<$T> { n.$to_ty() }
+            #[inline] fn from_int(n: isize) -> Option<$T> { n.$to_ty() }
             #[inline] fn from_i8(n: i8) -> Option<$T> { n.$to_ty() }
             #[inline] fn from_i16(n: i16) -> Option<$T> { n.$to_ty() }
             #[inline] fn from_i32(n: i32) -> Option<$T> { n.$to_ty() }
             #[inline] fn from_i64(n: i64) -> Option<$T> { n.$to_ty() }
 
-            #[inline] fn from_uint(n: uint) -> Option<$T> { n.$to_ty() }
+            #[inline] fn from_uint(n: usize) -> Option<$T> { n.$to_ty() }
             #[inline] fn from_u8(n: u8) -> Option<$T> { n.$to_ty() }
             #[inline] fn from_u16(n: u16) -> Option<$T> { n.$to_ty() }
             #[inline] fn from_u32(n: u32) -> Option<$T> { n.$to_ty() }
@@ -2270,12 +2377,12 @@ macro_rules! impl_from_primitive {
     )
 }
 
-impl_from_primitive! { int, to_int }
+impl_from_primitive! { isize, to_int }
 impl_from_primitive! { i8, to_i8 }
 impl_from_primitive! { i16, to_i16 }
 impl_from_primitive! { i32, to_i32 }
 impl_from_primitive! { i64, to_i64 }
-impl_from_primitive! { uint, to_uint }
+impl_from_primitive! { usize, to_uint }
 impl_from_primitive! { u8, to_u8 }
 impl_from_primitive! { u16, to_u16 }
 impl_from_primitive! { u32, to_u32 }
@@ -2327,28 +2434,37 @@ impl_num_cast! { u8,    to_u8 }
 impl_num_cast! { u16,   to_u16 }
 impl_num_cast! { u32,   to_u32 }
 impl_num_cast! { u64,   to_u64 }
-impl_num_cast! { uint,  to_uint }
+impl_num_cast! { usize,  to_uint }
 impl_num_cast! { i8,    to_i8 }
 impl_num_cast! { i16,   to_i16 }
 impl_num_cast! { i32,   to_i32 }
 impl_num_cast! { i64,   to_i64 }
-impl_num_cast! { int,   to_int }
+impl_num_cast! { isize,   to_int }
 impl_num_cast! { f32,   to_f32 }
 impl_num_cast! { f64,   to_f64 }
 
 /// Used for representing the classification of floating point numbers
-#[derive(Copy, PartialEq, Debug)]
-#[unstable(feature = "core", reason = "may be renamed")]
+#[derive(Copy, Clone, PartialEq, Debug)]
+#[stable(feature = "rust1", since = "1.0.0")]
 pub enum FpCategory {
     /// "Not a Number", often obtained by dividing by zero
+    #[stable(feature = "rust1", since = "1.0.0")]
     Nan,
+
     /// Positive or negative infinity
+    #[stable(feature = "rust1", since = "1.0.0")]
     Infinite ,
+
     /// Positive or negative zero
+    #[stable(feature = "rust1", since = "1.0.0")]
     Zero,
+
     /// De-normalized floating point representation (less precise than `Normal`)
+    #[stable(feature = "rust1", since = "1.0.0")]
     Subnormal,
+
     /// A regular floating point number
+    #[stable(feature = "rust1", since = "1.0.0")]
     Normal,
 }
 
@@ -2392,12 +2508,12 @@ pub trait Float
     #[deprecated(since = "1.0.0",
                  reason = "use `std::f32::MANTISSA_DIGITS` or \
                            `std::f64::MANTISSA_DIGITS` as appropriate")]
-    fn mantissa_digits(unused_self: Option<Self>) -> uint;
+    fn mantissa_digits(unused_self: Option<Self>) -> usize;
     /// Returns the number of base-10 digits of precision that this type supports.
     #[unstable(feature = "core")]
     #[deprecated(since = "1.0.0",
                  reason = "use `std::f32::DIGITS` or `std::f64::DIGITS` as appropriate")]
-    fn digits(unused_self: Option<Self>) -> uint;
+    fn digits(unused_self: Option<Self>) -> usize;
     /// Returns the difference between 1.0 and the smallest representable number larger than 1.0.
     #[unstable(feature = "core")]
     #[deprecated(since = "1.0.0",
@@ -2407,22 +2523,22 @@ pub trait Float
     #[unstable(feature = "core")]
     #[deprecated(since = "1.0.0",
                  reason = "use `std::f32::MIN_EXP` or `std::f64::MIN_EXP` as appropriate")]
-    fn min_exp(unused_self: Option<Self>) -> int;
+    fn min_exp(unused_self: Option<Self>) -> isize;
     /// Returns the maximum binary exponent that this type can represent.
     #[unstable(feature = "core")]
     #[deprecated(since = "1.0.0",
                  reason = "use `std::f32::MAX_EXP` or `std::f64::MAX_EXP` as appropriate")]
-    fn max_exp(unused_self: Option<Self>) -> int;
+    fn max_exp(unused_self: Option<Self>) -> isize;
     /// Returns the minimum base-10 exponent that this type can represent.
     #[unstable(feature = "core")]
     #[deprecated(since = "1.0.0",
                  reason = "use `std::f32::MIN_10_EXP` or `std::f64::MIN_10_EXP` as appropriate")]
-    fn min_10_exp(unused_self: Option<Self>) -> int;
+    fn min_10_exp(unused_self: Option<Self>) -> isize;
     /// Returns the maximum base-10 exponent that this type can represent.
     #[unstable(feature = "core")]
     #[deprecated(since = "1.0.0",
                  reason = "use `std::f32::MAX_10_EXP` or `std::f64::MAX_10_EXP` as appropriate")]
-    fn max_10_exp(unused_self: Option<Self>) -> int;
+    fn max_10_exp(unused_self: Option<Self>) -> isize;
     /// Returns the smallest finite value that this type can represent.
     #[unstable(feature = "core")]
     #[deprecated(since = "1.0.0",
@@ -2525,13 +2641,24 @@ pub trait Float
 
 /// A generic trait for converting a string with a radix (base) to a value
 #[unstable(feature = "core", reason = "needs reevaluation")]
+#[deprecated(since = "1.0.0",
+             reason = "moved to inherent methods; use e.g. i32::from_str_radix")]
 pub trait FromStrRadix {
+    #[unstable(feature = "core", reason = "needs reevaluation")]
+    #[deprecated(since = "1.0.0", reason = "moved to inherent methods")]
     type Err;
+
+    #[unstable(feature = "core", reason = "needs reevaluation")]
+    #[deprecated(since = "1.0.0",
+                 reason = "moved to inherent methods; use e.g. i32::from_str_radix")]
+    #[allow(deprecated)]
     fn from_str_radix(str: &str, radix: u32) -> Result<Self, Self::Err>;
 }
 
 /// A utility function that just calls `FromStrRadix::from_str_radix`.
 #[unstable(feature = "core", reason = "needs reevaluation")]
+#[deprecated(since = "1.0.0", reason = "use e.g. i32::from_str_radix")]
+#[allow(deprecated)]
 pub fn from_str_radix<T: FromStrRadix>(str: &str, radix: u32)
                                        -> Result<T, T::Err> {
     FromStrRadix::from_str_radix(str, radix)
@@ -2569,12 +2696,14 @@ macro_rules! from_str_radix_float_impl {
             /// `None` if the string did not represent a valid number.  Otherwise,
             /// `Some(n)` where `n` is the floating-point number represented by `src`.
             #[inline]
+            #[allow(deprecated)]
             fn from_str(src: &str) -> Result<$T, ParseFloatError> {
                 from_str_radix(src, 10)
             }
         }
 
         #[stable(feature = "rust1", since = "1.0.0")]
+        #[allow(deprecated)]
         impl FromStrRadix for $T {
             type Err = ParseFloatError;
 
@@ -2625,7 +2754,7 @@ macro_rules! from_str_radix_float_impl {
                 let mut prev_sig = sig;
                 let mut cs = src.chars().enumerate();
                 // Exponent prefix and exponent index offset
-                let mut exp_info = None::<(char, uint)>;
+                let mut exp_info = None::<(char, usize)>;
 
                 // Parse the integer part of the significand
                 for (i, c) in cs.by_ref() {
@@ -2636,9 +2765,9 @@ macro_rules! from_str_radix_float_impl {
 
                             // add/subtract current digit depending on sign
                             if is_positive {
-                                sig = sig + ((digit as int) as $T);
+                                sig = sig + ((digit as isize) as $T);
                             } else {
-                                sig = sig - ((digit as int) as $T);
+                                sig = sig - ((digit as isize) as $T);
                             }
 
                             // Detect overflow by comparing to last value, except
@@ -2719,9 +2848,9 @@ macro_rules! from_str_radix_float_impl {
                         // Parse the exponent as decimal integer
                         let src = &src[offset..];
                         let (is_positive, exp) = match src.slice_shift_char() {
-                            Some(('-', src)) => (false, src.parse::<uint>()),
-                            Some(('+', src)) => (true,  src.parse::<uint>()),
-                            Some((_, _))     => (true,  src.parse::<uint>()),
+                            Some(('-', src)) => (false, src.parse::<usize>()),
+                            Some(('+', src)) => (true,  src.parse::<usize>()),
+                            Some((_, _))     => (true,  src.parse::<usize>()),
                             None             => return Err(PFE { kind: Invalid }),
                         };
 
@@ -2745,6 +2874,7 @@ from_str_radix_float_impl! { f64 }
 macro_rules! from_str_radix_int_impl {
     ($T:ty) => {
         #[stable(feature = "rust1", since = "1.0.0")]
+        #[allow(deprecated)]
         impl FromStr for $T {
             type Err = ParseIntError;
             #[inline]
@@ -2754,6 +2884,7 @@ macro_rules! from_str_radix_int_impl {
         }
 
         #[stable(feature = "rust1", since = "1.0.0")]
+        #[allow(deprecated)]
         impl FromStrRadix for $T {
             type Err = ParseIntError;
             fn from_str_radix(src: &str, radix: u32)
@@ -2836,22 +2967,22 @@ enum IntErrorKind {
     Underflow,
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
-impl fmt::Display for ParseIntError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.description().fmt(f)
-    }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
-impl Error for ParseIntError {
-    fn description(&self) -> &str {
+impl ParseIntError {
+    #[unstable(feature = "core", reason = "available through Error trait")]
+    pub fn description(&self) -> &str {
         match self.kind {
             IntErrorKind::Empty => "cannot parse integer from empty string",
             IntErrorKind::InvalidDigit => "invalid digit found in string",
             IntErrorKind::Overflow => "number too large to fit in target type",
             IntErrorKind::Underflow => "number too small to fit in target type",
         }
+    }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+impl fmt::Display for ParseIntError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.description().fmt(f)
     }
 }
 
@@ -2866,19 +2997,19 @@ enum FloatErrorKind {
     Invalid,
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
-impl fmt::Display for ParseFloatError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.description().fmt(f)
-    }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
-impl Error for ParseFloatError {
-    fn description(&self) -> &str {
+impl ParseFloatError {
+    #[unstable(feature = "core", reason = "available through Error trait")]
+    pub fn description(&self) -> &str {
         match self.kind {
             FloatErrorKind::Empty => "cannot parse float from empty string",
             FloatErrorKind::Invalid => "invalid float literal",
         }
+    }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+impl fmt::Display for ParseFloatError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.description().fmt(f)
     }
 }

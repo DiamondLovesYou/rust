@@ -335,7 +335,7 @@ impl<'a, 'tcx> CheckLoanCtxt<'a, 'tcx> {
         return true;
     }
 
-    pub fn loans_generated_by(&self, scope: region::CodeExtent) -> Vec<uint> {
+    pub fn loans_generated_by(&self, scope: region::CodeExtent) -> Vec<usize> {
         //! Returns a vector of the loans that are generated as
         //! we enter `scope`.
 
@@ -727,7 +727,7 @@ impl<'a, 'tcx> CheckLoanCtxt<'a, 'tcx> {
     /// let a: int;
     /// a = 10; // ok, even though a is uninitialized
     ///
-    /// struct Point { x: uint, y: uint }
+    /// struct Point { x: usize, y: usize }
     /// let p: Point;
     /// p.x = 22; // ok, even though `p` is uninitialized
     ///
@@ -943,13 +943,20 @@ impl<'a, 'tcx> CheckLoanCtxt<'a, 'tcx> {
                                                       cmt: mc::cmt<'tcx>)
                                                       -> bool {
             match cmt.freely_aliasable(this.tcx()) {
-                None => {
+                mc::Aliasability::NonAliasable => {
                     return true;
                 }
-                Some(mc::AliasableStaticMut(..)) => {
+                mc::Aliasability::FreelyAliasable(mc::AliasableStaticMut(..)) => {
                     return true;
                 }
-                Some(cause) => {
+                mc::Aliasability::ImmutableUnique(_) => {
+                    this.bccx.report_aliasability_violation(
+                        span,
+                        MutabilityViolation,
+                        mc::AliasableReason::UnaliasableImmutable);
+                    return false;
+                }
+                mc::Aliasability::FreelyAliasable(cause) => {
                     this.bccx.report_aliasability_violation(
                         span,
                         MutabilityViolation,

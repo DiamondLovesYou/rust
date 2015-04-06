@@ -23,7 +23,7 @@ pub fn check_crate(sess: &Session, krate: &ast::Crate) {
     visit::walk_crate(&mut CheckNoAsm { sess: sess, }, krate);
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 struct CheckNoAsm<'a> {
     sess: &'a Session,
 }

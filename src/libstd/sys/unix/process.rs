@@ -19,8 +19,9 @@ use hash::Hash;
 use old_io::process::{ProcessExit, ExitStatus, ExitSignal};
 use old_io::{IoResult, EndOfFile};
 use libc::{self, pid_t, c_void, c_int};
+use io;
 use mem;
-use os;
+use sys::os;
 use old_path::BytesContainer;
 use ptr;
 use sync::mpsc::{channel, Sender, Receiver};
@@ -60,15 +61,15 @@ impl Process {
     }
 
     #[cfg(target_os = "nacl")]
-    pub unsafe fn kill(&self, _signal: int) -> IoResult<()> {
+    pub unsafe fn kill(&self, _signal: isize) -> IoResult<()> {
         Err(permission_denied())
     }
     #[cfg(not(target_os = "nacl"))]
-    pub unsafe fn kill(&self, signal: int) -> IoResult<()> {
+    pub unsafe fn kill(&self, signal: isize) -> IoResult<()> {
         Process::killpid(self.pid, signal)
     }
 
-    pub unsafe fn killpid(pid: pid_t, signal: int) -> IoResult<()> {
+    pub unsafe fn killpid(pid: pid_t, signal: isize) -> IoResult<()> {
         let r = libc::funcs::posix88::signal::kill(pid, signal as c_int);
         mkerr_libc(r)
     }
@@ -485,7 +486,7 @@ impl Process {
                 // with process timeouts, but libgreen should get there first
                 // (currently libuv doesn't handle old signal handlers).
                 if drain(read_fd) {
-                    let i: uint = unsafe { mem::transmute(old.sa_handler) };
+                    let i: usize = unsafe { mem::transmute(old.sa_handler) };
                     if i != 0 {
                         assert!(old.sa_flags & c::SA_SIGINFO == 0);
                         (old.sa_handler)(c::SIGCHLD);
@@ -527,7 +528,8 @@ impl Process {
                     n if n > 0 => { ret = true; }
                     0 => return true,
                     -1 if wouldblock() => return ret,
-                    n => panic!("bad read {:?} ({:?})", os::last_os_error(), n),
+                    n => panic!("bad read {} ({})",
+                                io::Error::last_os_error(), n),
                 }
             }
         }
@@ -655,8 +657,8 @@ fn translate_status(status: c_int) -> ProcessExit {
     }
 
     if imp::WIFEXITED(status) {
-        ExitStatus(imp::WEXITSTATUS(status) as int)
+        ExitStatus(imp::WEXITSTATUS(status) as isize)
     } else {
-        ExitSignal(imp::WTERMSIG(status) as int)
+        ExitSignal(imp::WTERMSIG(status) as isize)
     }
 }

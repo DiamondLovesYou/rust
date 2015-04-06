@@ -38,7 +38,7 @@ pub struct SCTable {
     rename_memo: RefCell<HashMap<(SyntaxContext,Ident,Name),SyntaxContext>>,
 }
 
-#[derive(PartialEq, RustcEncodable, RustcDecodable, Hash, Debug, Copy)]
+#[derive(PartialEq, RustcEncodable, RustcDecodable, Hash, Debug, Copy, Clone)]
 pub enum SyntaxContext_ {
     EmptyCtxt,
     Mark (Mrk,SyntaxContext),
@@ -66,9 +66,8 @@ pub fn apply_mark(m: Mrk, ctxt: SyntaxContext) -> SyntaxContext {
 /// Extend a syntax context with a given mark and sctable (explicit memoization)
 fn apply_mark_internal(m: Mrk, ctxt: SyntaxContext, table: &SCTable) -> SyntaxContext {
     let key = (ctxt, m);
-    * table.mark_memo.borrow_mut().entry(key).get().unwrap_or_else(
-          |vacant_entry|
-              vacant_entry.insert(idx_push(&mut *table.table.borrow_mut(), Mark(m, ctxt))))
+    * table.mark_memo.borrow_mut().entry(key)
+        .or_insert_with(|| idx_push(&mut *table.table.borrow_mut(), Mark(m, ctxt)))
 }
 
 /// Extend a syntax context with a given rename
@@ -84,9 +83,8 @@ fn apply_rename_internal(id: Ident,
                        table: &SCTable) -> SyntaxContext {
     let key = (ctxt, id, to);
 
-    * table.rename_memo.borrow_mut().entry(key).get().unwrap_or_else(
-          |vacant_entry|
-              vacant_entry.insert(idx_push(&mut *table.table.borrow_mut(), Rename(id, to, ctxt))))
+    * table.rename_memo.borrow_mut().entry(key)
+        .or_insert_with(|| idx_push(&mut *table.table.borrow_mut(), Rename(id, to, ctxt)))
 }
 
 /// Apply a list of renamings to a context

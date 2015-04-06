@@ -13,10 +13,9 @@
 // FIXME: #6220 Implement floating point formatting
 
 #![allow(unsigned_negation)]
-#![allow(trivial_numeric_casts)]
 
 use fmt;
-use iter::IteratorExt;
+use iter::Iterator;
 use num::{Int, cast};
 use slice::SliceExt;
 use str;
@@ -34,6 +33,7 @@ trait GenericRadix {
     fn digit(&self, x: u8) -> u8;
 
     /// Format an integer using the radix using a formatter.
+    #[allow(deprecated)] // Int
     fn fmt_int<T: Int>(&self, mut x: T, f: &mut fmt::Formatter) -> fmt::Result {
         // The radix can be as low as 2, so we need a buffer of at least 64
         // characters for a base 2 number.
@@ -139,7 +139,7 @@ impl GenericRadix for Radix {
 /// A helper type for formatting radixes.
 #[unstable(feature = "core",
            reason = "may be renamed or move to a different module")]
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct RadixFmt<T, R>(T, R);
 
 /// Constructs a radix formatter in the range of `2..36`.

@@ -190,7 +190,6 @@ mod imp {
     use core::option::Option;
     use core::option::Option::None;
     use core::ptr::{null_mut, null};
-    use core::num::Int;
     use libc::{c_char, c_int, c_void, size_t};
     use super::MIN_ALIGN;
 
@@ -302,7 +301,7 @@ mod imp {
             libc::realloc(ptr as *mut libc::c_void, size as libc::size_t) as *mut u8
         } else {
             let new_ptr = allocate(size, align);
-            ptr::copy(new_ptr, ptr, cmp::min(size, old_size));
+            ptr::copy(ptr, new_ptr, cmp::min(size, old_size));
             deallocate(ptr, old_size, align);
             new_ptr
         }

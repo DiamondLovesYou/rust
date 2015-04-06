@@ -51,13 +51,12 @@ use core::prelude::*;
 use core::any::Any;
 use core::cmp::Ordering;
 use core::default::Default;
-use core::error::{Error, FromError};
 use core::fmt;
 use core::hash::{self, Hash};
 use core::mem;
 use core::ops::{Deref, DerefMut};
-use core::ptr::Unique;
-use core::raw::TraitObject;
+use core::ptr::{Unique};
+use core::raw::{TraitObject};
 
 /// A value that represents the heap. This is the default place that the `box`
 /// keyword allocates into when no place is supplied.
@@ -84,6 +83,7 @@ pub static HEAP: () = ();
 /// See the [module-level documentation](../../std/boxed/index.html) for more.
 #[lang = "owned_box"]
 #[stable(feature = "rust1", since = "1.0.0")]
+#[fundamental]
 pub struct Box<T>(Unique<T>);
 
 impl<T> Box<T> {
@@ -233,24 +233,10 @@ impl<T: ?Sized + Hash> Hash for Box<T> {
     }
 }
 
-/// Extension methods for an owning `Any` trait object.
-#[unstable(feature = "alloc",
-           reason = "this trait will likely disappear once compiler bugs blocking \
-                     a direct impl on `Box<Any>` have been fixed ")]
-// FIXME(#18737): this should be a direct impl on `Box<Any>`. If you're
-//                removing this please make sure that you can downcase on
-//                `Box<Any + Send>` as well as `Box<Any>`
-pub trait BoxAny {
-    /// Returns the boxed value if it is of type `T`, or
-    /// `Err(Self)` if it isn't.
-    #[stable(feature = "rust1", since = "1.0.0")]
-    fn downcast<T: 'static>(self) -> Result<Box<T>, Box<Any>>;
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
-impl BoxAny for Box<Any> {
+impl Box<Any> {
     #[inline]
-    fn downcast<T: 'static>(self) -> Result<Box<T>, Box<Any>> {
+    #[stable(feature = "rust1", since = "1.0.0")]
+    pub fn downcast<T: Any>(self) -> Result<Box<T>, Box<Any>> {
         if self.is::<T>() {
             unsafe {
                 // Get the raw representation of the trait object
@@ -267,10 +253,10 @@ impl BoxAny for Box<Any> {
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
-impl BoxAny for Box<Any+Send> {
+impl Box<Any+Send> {
     #[inline]
-    fn downcast<T: 'static>(self) -> Result<Box<T>, Box<Any>> {
+    #[stable(feature = "rust1", since = "1.0.0")]
+    pub fn downcast<T: Any>(self) -> Result<Box<T>, Box<Any>> {
         <Box<Any>>::downcast(self)
     }
 }
@@ -286,13 +272,6 @@ impl<T: fmt::Display + ?Sized> fmt::Display for Box<T> {
 impl<T: fmt::Debug + ?Sized> fmt::Debug for Box<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
-    }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
-impl fmt::Debug for Box<Any> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.pad("Box<Any>")
     }
 }
 
@@ -321,9 +300,74 @@ impl<I: DoubleEndedIterator + ?Sized> DoubleEndedIterator for Box<I> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<I: ExactSizeIterator + ?Sized> ExactSizeIterator for Box<I> {}
 
-#[stable(feature = "rust1", since = "1.0.0")]
-impl<'a, E: Error + 'a> FromError<E> for Box<Error + 'a> {
-    fn from_error(err: E) -> Box<Error + 'a> {
-        Box::new(err)
+
+/// `FnBox` is a version of the `FnOnce` intended for use with boxed
+/// closure objects. The idea is that where one would normally store a
+/// `Box<FnOnce()>` in a data structure, you should use
+/// `Box<FnBox()>`. The two traits behave essentially the same, except
+/// that a `FnBox` closure can only be called if it is boxed. (Note
+/// that `FnBox` may be deprecated in the future if `Box<FnOnce()>`
+/// closures become directly usable.)
+///
+/// ### Example
+///
+/// Here is a snippet of code which creates a hashmap full of boxed
+/// once closures and then removes them one by one, calling each
+/// closure as it is removed. Note that the type of the closures
+/// stored in the map is `Box<FnBox() -> i32>` and not `Box<FnOnce()
+/// -> i32>`.
+///
+/// ```
+/// #![feature(core)]
+///
+/// use std::boxed::FnBox;
+/// use std::collections::HashMap;
+///
+/// fn make_map() -> HashMap<i32, Box<FnBox() -> i32>> {
+///     let mut map: HashMap<i32, Box<FnBox() -> i32>> = HashMap::new();
+///     map.insert(1, Box::new(|| 22));
+///     map.insert(2, Box::new(|| 44));
+///     map
+/// }
+///
+/// fn main() {
+///     let mut map = make_map();
+///     for i in &[1, 2] {
+///         let f = map.remove(&i).unwrap();
+///         assert_eq!(f(), i * 22);
+///     }
+/// }
+/// ```
+#[rustc_paren_sugar]
+#[unstable(feature = "core", reason = "Newly introduced")]
+pub trait FnBox<A> {
+    type Output;
+
+    fn call_box(self: Box<Self>, args: A) -> Self::Output;
+}
+
+impl<A,F> FnBox<A> for F
+    where F: FnOnce<A>
+{
+    type Output = F::Output;
+
+    fn call_box(self: Box<F>, args: A) -> F::Output {
+        self.call_once(args)
+    }
+}
+
+impl<'a,A,R> FnOnce<A> for Box<FnBox<A,Output=R>+'a> {
+    type Output = R;
+
+    extern "rust-call" fn call_once(self, args: A) -> R {
+        self.call_box(args)
+    }
+}
+
+impl<'a,A,R> FnOnce<A> for Box<FnBox<A,Output=R>+Send+'a> {
+    type Output = R;
+
+    extern "rust-call" fn call_once(self, args: A) -> R {
+        self.call_box(args)
     }
 }

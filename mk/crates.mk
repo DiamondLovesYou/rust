@@ -125,17 +125,34 @@ ONLY_RLIB_rustc_bitflags := 1
 # You should not need to edit below this line
 ################################################################################
 
+# On channels where the only usable crate is std, only build documentation for
+# std. This keeps distributions small and doesn't clutter up the API docs with
+# confusing internal details from the crates behind the facade.
+#
+# (Disabled while cmr figures out how to change rustdoc to make reexports work
+# slightly nicer. Otherwise, all cross-crate links to Vec will go to
+# libcollections, breaking them, and [src] links for anything reexported will
+# not work.)
+
+#ifeq ($(CFG_RELEASE_CHANNEL),stable)
+#DOC_CRATES := std
+#else
+#ifeq ($(CFG_RELEASE_CHANNEL),beta)
+#DOC_CRATES := std
+#else
 DOC_CRATES := $(filter-out rustc, \
-              $(filter-out rustc_trans, \
-              $(filter-out rustc_typeck, \
-              $(filter-out rustc_borrowck, \
-              $(filter-out rustc_resolve, \
-              $(filter-out rustc_driver, \
-              $(filter-out rustc_privacy, \
-              $(filter-out rustc_lint, \
-              $(filter-out log, \
-              $(filter-out getopts, \
-              $(filter-out syntax, $(CRATES))))))))))))
+	   $(filter-out rustc_trans, \
+	   $(filter-out rustc_typeck, \
+	   $(filter-out rustc_borrowck, \
+	   $(filter-out rustc_resolve, \
+	   $(filter-out rustc_driver, \
+	   $(filter-out rustc_privacy, \
+	   $(filter-out rustc_lint, \
+	   $(filter-out log, \
+	   $(filter-out getopts, \
+	   $(filter-out syntax, $(CRATES))))))))))))
+#endif
+#endif
 COMPILER_DOC_CRATES := rustc rustc_trans rustc_borrowck rustc_resolve \
                        rustc_typeck rustc_driver syntax rustc_privacy \
                        rustc_lint

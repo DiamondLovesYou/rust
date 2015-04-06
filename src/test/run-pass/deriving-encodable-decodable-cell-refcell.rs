@@ -13,7 +13,7 @@
 
 // pretty-expanded FIXME #23616
 
-#![feature(old_orphan_check, rustc_private)]
+#![feature(rustc_private)]
 
 extern crate serialize;
 
@@ -23,7 +23,7 @@ use serialize::json;
 
 #[derive(Encodable, Decodable)]
 struct A {
-    baz: int
+    baz: isize
 }
 
 #[derive(Encodable, Decodable)]

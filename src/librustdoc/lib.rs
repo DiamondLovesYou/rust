@@ -16,19 +16,16 @@
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
-       html_root_url = "http://doc.rust-lang.org/nightly/",
-       html_playground_url = "http://play.rust-lang.org/")]
+   html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+   html_root_url = "http://doc.rust-lang.org/nightly/",
+   html_playground_url = "http://play.rust-lang.org/")]
 
 #![feature(box_patterns)]
 #![feature(box_syntax)]
 #![feature(collections)]
-#![feature(core)]
 #![feature(exit_status)]
-#![feature(int_uint)]
 #![feature(set_stdio)]
 #![feature(libc)]
-#![feature(old_path)]
 #![feature(rustc_private)]
 #![feature(staged_api)]
 #![feature(std_misc)]
@@ -38,7 +35,7 @@
 #![feature(file_path)]
 #![feature(path_ext)]
 #![feature(path_relative_from)]
-#![feature(convert)]
+#![feature(slice_patterns)]
 
 extern crate arena;
 extern crate getopts;
@@ -51,11 +48,11 @@ extern crate rustc_lint;
 extern crate rustc_back;
 extern crate serialize;
 extern crate syntax;
-extern crate "test" as testing;
+extern crate test as testing;
 extern crate unicode;
 #[macro_use] extern crate log;
 
-extern crate "serialize" as rustc_serialize; // used by deriving
+extern crate serialize as rustc_serialize; // used by deriving
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -65,8 +62,6 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::channel;
-
-#[allow(deprecated)] use std::old_path::Path;
 
 use externalfiles::ExternalHtml;
 use serialize::Decodable;
@@ -195,7 +190,7 @@ pub fn usage(argv0: &str) {
                             &opts()));
 }
 
-pub fn main_args(args: &[String]) -> int {
+pub fn main_args(args: &[String]) -> isize {
     let matches = match getopts::getopts(args.tail(), &opts()) {
         Ok(m) => m,
         Err(err) => {
@@ -338,7 +333,7 @@ fn acquire_input(input: &str,
 fn parse_externs(matches: &getopts::Matches) -> Result<core::Externs, String> {
     let mut externs = HashMap::new();
     for arg in &matches.opt_strs("extern") {
-        let mut parts = arg.splitn(1, '=');
+        let mut parts = arg.splitn(2, '=');
         let name = match parts.next() {
             Some(s) => s,
             None => {
@@ -352,9 +347,7 @@ fn parse_externs(matches: &getopts::Matches) -> Result<core::Externs, String> {
             }
         };
         let name = name.to_string();
-        let locs = externs.entry(name).get().unwrap_or_else(
-            |vacant_entry| vacant_entry.insert(Vec::with_capacity(1)));
-        locs.push(location.to_string());
+        externs.entry(name).or_insert(vec![]).push(location.to_string());
     }
     Ok(externs)
 }
@@ -437,7 +430,7 @@ fn rust_input(cratefile: &str, externs: core::Externs, matches: &getopts::Matche
     // Load all plugins/passes into a PluginManager
     let path = matches.opt_str("plugin-path")
                       .unwrap_or("/tmp/rustdoc/plugins".to_string());
-    let mut pm = plugins::PluginManager::new(Path::new(path));
+    let mut pm = plugins::PluginManager::new(PathBuf::from(path));
     for pass in &passes {
         let plugin = match PASSES.iter()
                                  .position(|&(p, _, _)| {

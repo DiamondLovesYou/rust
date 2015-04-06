@@ -8,6 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// ignore-bitrig
 // compile-flags: -C codegen-units=3
 // aux-build:sepcomp-extern-lib.rs
 
@@ -15,24 +16,24 @@
 
 // pretty-expanded FIXME #23616
 
-#[link(name = "sepcomp-extern-lib")]
+#[link(name = "sepcomp_extern_lib")]
 extern {
     #[allow(ctypes)]
-    fn foo() -> uint;
+    fn foo() -> usize;
 }
 
-fn call1() -> uint {
+fn call1() -> usize {
     unsafe { foo() }
 }
 
 mod a {
-    pub fn call2() -> uint {
+    pub fn call2() -> usize {
         unsafe { ::foo() }
     }
 }
 
 mod b {
-    pub fn call3() -> uint {
+    pub fn call3() -> usize {
         unsafe { ::foo() }
     }
 }

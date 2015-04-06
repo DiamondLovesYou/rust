@@ -10,7 +10,7 @@
 
 // pretty-expanded FIXME #23616
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 enum Foo {
     Bar = 0xDEADBEE
 }
@@ -18,8 +18,8 @@ enum Foo {
 static X: Foo = Foo::Bar;
 
 pub fn main() {
-    assert_eq!((X as uint), 0xDEADBEE);
-    assert_eq!((Y as uint), 0xDEADBEE);
+    assert_eq!((X as usize), 0xDEADBEE);
+    assert_eq!((Y as usize), 0xDEADBEE);
 }
 
 static Y: Foo = Foo::Bar;

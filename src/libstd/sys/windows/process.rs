@@ -23,7 +23,7 @@ use mem;
 use old_io::process::{ProcessExit, ExitStatus};
 use old_io::{IoResult, IoError};
 use old_io;
-use os;
+use fs::PathExt;
 use old_path::{BytesContainer, GenericPath};
 use ptr;
 use str;
@@ -63,11 +63,11 @@ impl Process {
         self.pid
     }
 
-    pub unsafe fn kill(&self, signal: int) -> IoResult<()> {
+    pub unsafe fn kill(&self, signal: isize) -> IoResult<()> {
         Process::killpid(self.pid, signal)
     }
 
-    pub unsafe fn killpid(pid: pid_t, signal: int) -> IoResult<()> {
+    pub unsafe fn killpid(pid: pid_t, signal: isize) -> IoResult<()> {
         let handle = libc::OpenProcess(libc::PROCESS_TERMINATE |
                                        libc::PROCESS_QUERY_INFORMATION,
                                        libc::FALSE, pid as libc::DWORD);
@@ -142,14 +142,19 @@ impl Process {
         let program = cfg.env().and_then(|env| {
             for (key, v) in env {
                 if b"PATH" != key.container_as_bytes() { continue }
+                let v = match ::str::from_utf8(v.container_as_bytes()) {
+                    Ok(s) => s,
+                    Err(..) => continue,
+                };
 
                 // Split the value and test each path to see if the
                 // program exists.
-                for path in os::split_paths(v.container_as_bytes()) {
-                    let path = path.join(cfg.program().as_bytes())
+                for path in ::env::split_paths(v) {
+                    let program = str::from_utf8(cfg.program().as_bytes()).unwrap();
+                    let path = path.join(program)
                                    .with_extension(env::consts::EXE_EXTENSION);
                     if path.exists() {
-                        return Some(CString::from_slice(path.as_vec()))
+                        return Some(CString::new(path.to_str().unwrap()).unwrap())
                     }
                 }
                 break
@@ -309,7 +314,7 @@ impl Process {
                 }
                 if status != STILL_ACTIVE {
                     assert!(CloseHandle(process) != 0);
-                    return Ok(ExitStatus(status as int));
+                    return Ok(ExitStatus(status as isize));
                 }
                 let interval = if deadline == 0 {
                     INFINITE
@@ -394,7 +399,7 @@ fn make_command_line(prog: &CString, args: &[CString]) -> String {
         }
     }
 
-    fn append_char_at(cmd: &mut String, arg: &[char], i: uint) {
+    fn append_char_at(cmd: &mut String, arg: &[char], i: usize) {
         match arg[i] {
             '"' => {
                 // Escape quotes.
@@ -415,7 +420,7 @@ fn make_command_line(prog: &CString, args: &[CString]) -> String {
         }
     }
 
-    fn backslash_run_ends_in_quote(s: &[char], mut i: uint) -> bool {
+    fn backslash_run_ends_in_quote(s: &[char], mut i: usize) -> bool {
         while i < s.len() && s[i] == '\\' {
             i += 1;
         }
@@ -482,9 +487,9 @@ mod tests {
     #[test]
     fn test_make_command_line() {
         fn test_wrapper(prog: &str, args: &[&str]) -> String {
-            make_command_line(&CString::from_slice(prog.as_bytes()),
+            make_command_line(&CString::new(prog).unwrap(),
                               &args.iter()
-                                   .map(|a| CString::from_slice(a.as_bytes()))
+                                   .map(|a| CString::new(*a).unwrap())
                                    .collect::<Vec<CString>>())
         }
 

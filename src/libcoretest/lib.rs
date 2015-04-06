@@ -26,6 +26,7 @@
 #![feature(debug_builders)]
 #![feature(unique)]
 #![feature(step_by)]
+#![feature(slice_patterns)]
 #![allow(deprecated)] // rand
 
 extern crate core;
@@ -38,7 +39,6 @@ mod atomic;
 mod cell;
 mod char;
 mod cmp;
-mod finally;
 mod fmt;
 mod hash;
 mod iter;

@@ -27,8 +27,6 @@
 
 #![feature(box_syntax)]
 #![feature(collections)]
-#![feature(core)]
-#![feature(int_uint)]
 #![feature(libc)]
 #![feature(quote)]
 #![feature(rustc_diagnostic_macros)]
@@ -36,10 +34,8 @@
 #![feature(unsafe_destructor)]
 #![feature(staged_api)]
 #![feature(exit_status)]
-#![feature(io)]
 #![feature(set_stdio)]
 #![feature(unicode)]
-#![feature(convert)]
 
 extern crate arena;
 extern crate flate;
@@ -55,7 +51,7 @@ extern crate rustc_resolve;
 extern crate rustc_trans;
 extern crate rustc_typeck;
 extern crate serialize;
-extern crate "rustc_llvm" as llvm;
+extern crate rustc_llvm as llvm;
 #[macro_use] extern crate log;
 #[macro_use] extern crate syntax;
 
@@ -101,7 +97,7 @@ const BUG_REPORT_URL: &'static str =
     "https://github.com/rust-lang/rust/blob/master/CONTRIBUTING.md#bug-reports";
 
 
-pub fn run(args: Vec<String>) -> int {
+pub fn run(args: Vec<String>) -> isize {
     monitor(move || run_compiler(&args, &mut RustcDefaultCalls));
     0
 }
@@ -186,7 +182,7 @@ fn make_input(free_matches: &[String]) -> Option<(Input, Option<PathBuf>)> {
 }
 
 // Whether to stop or continue compilation.
-#[derive(Copy, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Compilation {
     Stop,
     Continue,
@@ -269,7 +265,7 @@ pub trait CompilerCalls<'a> {
 }
 
 // CompilerCalls instance for a regular rustc build.
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct RustcDefaultCalls;
 
 impl<'a> CompilerCalls<'a> for RustcDefaultCalls {
@@ -795,7 +791,7 @@ fn parse_crate_attrs(sess: &Session, input: &Input) ->
 /// errors of the compiler.
 #[allow(deprecated)]
 pub fn monitor<F:FnOnce()+Send+'static>(f: F) {
-    const STACK_SIZE: uint = 8 * 1024 * 1024; // 8MB
+    const STACK_SIZE: usize = 8 * 1024 * 1024; // 8MB
 
     struct Sink(Arc<Mutex<Vec<u8>>>);
     impl Write for Sink {

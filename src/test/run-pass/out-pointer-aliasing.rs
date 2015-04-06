@@ -10,10 +10,10 @@
 
 // pretty-expanded FIXME #23616
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct Foo {
-    f1: int,
-    _f2: int,
+    f1: isize,
+    _f2: isize,
 }
 
 #[inline(never)]

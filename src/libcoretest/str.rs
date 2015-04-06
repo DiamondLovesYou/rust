@@ -65,20 +65,20 @@ fn test_strslice_contains() {
 fn test_rsplitn_char_iterator() {
     let data = "\nMäry häd ä little lämb\nLittle lämb\n";
 
-    let mut split: Vec<&str> = data.rsplitn(3, ' ').collect();
+    let mut split: Vec<&str> = data.rsplitn(4, ' ').collect();
     split.reverse();
     assert_eq!(split, ["\nMäry häd ä", "little", "lämb\nLittle", "lämb\n"]);
 
-    let mut split: Vec<&str> = data.rsplitn(3, |c: char| c == ' ').collect();
+    let mut split: Vec<&str> = data.rsplitn(4, |c: char| c == ' ').collect();
     split.reverse();
     assert_eq!(split, ["\nMäry häd ä", "little", "lämb\nLittle", "lämb\n"]);
 
     // Unicode
-    let mut split: Vec<&str> = data.rsplitn(3, 'ä').collect();
+    let mut split: Vec<&str> = data.rsplitn(4, 'ä').collect();
     split.reverse();
     assert_eq!(split, ["\nMäry häd ", " little l", "mb\nLittle l", "mb\n"]);
 
-    let mut split: Vec<&str> = data.rsplitn(3, |c: char| c == 'ä').collect();
+    let mut split: Vec<&str> = data.rsplitn(4, |c: char| c == 'ä').collect();
     split.reverse();
     assert_eq!(split, ["\nMäry häd ", " little l", "mb\nLittle l", "mb\n"]);
 }
@@ -163,9 +163,9 @@ fn starts_short_long() {
 
 #[test]
 fn contains_weird_cases() {
-    assert!("* \t".contains_char(' '));
-    assert!(!"* \t".contains_char('?'));
-    assert!(!"* \t".contains_char('\u{1F4A9}'));
+    assert!("* \t".contains(' '));
+    assert!(!"* \t".contains('?'));
+    assert!(!"* \t".contains('\u{1F4A9}'));
 }
 
 #[test]
@@ -347,11 +347,11 @@ malesuada sollicitudin quam eu fermentum!");
     make_test!(chars_count, s, s.chars().count());
 
     make_test!(contains_bang_str, s, s.contains("!"));
-    make_test!(contains_bang_char, s, s.contains_char('!'));
+    make_test!(contains_bang_char, s, s.contains('!'));
 
     make_test!(match_indices_a_str, s, s.match_indices("a").count());
 
-    make_test!(split_str_a_str, s, s.split_str("a").count());
+    make_test!(split_a_str, s, s.split("a").count());
 
     make_test!(trim_ascii_char, s, {
         use std::ascii::AsciiExt;
@@ -368,11 +368,11 @@ malesuada sollicitudin quam eu fermentum!");
 
     make_test!(find_underscore_char, s, s.find('_'));
     make_test!(rfind_underscore_char, s, s.rfind('_'));
-    make_test!(find_underscore_str, s, s.find_str("_"));
+    make_test!(find_underscore_str, s, s.find("_"));
 
     make_test!(find_zzz_char, s, s.find('\u{1F4A4}'));
     make_test!(rfind_zzz_char, s, s.rfind('\u{1F4A4}'));
-    make_test!(find_zzz_str, s, s.find_str("\u{1F4A4}"));
+    make_test!(find_zzz_str, s, s.find("\u{1F4A4}"));
 
     make_test!(split_space_char, s, s.split(' ').count());
     make_test!(split_terminator_space_char, s, s.split_terminator(' ').count());
@@ -380,6 +380,6 @@ malesuada sollicitudin quam eu fermentum!");
     make_test!(splitn_space_char, s, s.splitn(10, ' ').count());
     make_test!(rsplitn_space_char, s, s.rsplitn(10, ' ').count());
 
-    make_test!(split_str_space_str, s, s.split_str(" ").count());
-    make_test!(split_str_ad_str, s, s.split_str("ad").count());
+    make_test!(split_space_str, s, s.split(" ").count());
+    make_test!(split_ad_str, s, s.split("ad").count());
 }

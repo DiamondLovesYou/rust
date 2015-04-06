@@ -47,7 +47,7 @@ use syntax::ast::StructVariantKind;
 use syntax::ast::TupleVariantKind;
 use syntax::ast::UnnamedField;
 use syntax::ast::{Variant, ViewPathGlob, ViewPathList, ViewPathSimple};
-use syntax::ast::{Visibility};
+use syntax::ast::Visibility;
 use syntax::ast;
 use syntax::ast_util::local_def;
 use syntax::attr::AttrMetaMethods;
@@ -61,7 +61,7 @@ use std::rc::Rc;
 
 // Specifies how duplicates should be handled when adding a child item if
 // another item exists with the same name in some namespace.
-#[derive(Copy, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 enum DuplicateCheckingMode {
     ForbidDuplicateModules,
     ForbidDuplicateTypesAndModules,
@@ -70,7 +70,7 @@ enum DuplicateCheckingMode {
     OverwriteDuplicates
 }
 
-#[derive(Copy, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 enum NamespaceError {
     NoError,
     ModuleError,

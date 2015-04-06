@@ -63,7 +63,6 @@
 #![allow(raw_pointer_derive)]
 #![deny(missing_docs)]
 
-#![feature(int_uint)]
 #![feature(intrinsics, lang_items)]
 #![feature(on_unimplemented)]
 #![feature(simd, unsafe_destructor)]
@@ -71,7 +70,10 @@
 #![feature(unboxed_closures)]
 #![feature(rustc_attrs)]
 #![feature(optin_builtin_traits)]
+#![feature(fundamental)]
 #![feature(concat_idents)]
+#![feature(reflect)]
+#![feature(custom_attribute)]
 
 #[macro_use]
 mod macros;
@@ -136,7 +138,6 @@ pub mod atomic;
 pub mod cell;
 pub mod char;
 pub mod panicking;
-pub mod finally;
 pub mod iter;
 pub mod option;
 pub mod raw;
@@ -146,7 +147,6 @@ pub mod slice;
 pub mod str;
 pub mod hash;
 pub mod fmt;
-pub mod error;
 
 #[doc(primitive = "bool")]
 mod bool {

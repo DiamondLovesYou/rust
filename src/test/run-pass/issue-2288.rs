@@ -17,7 +17,7 @@ trait clam<A> {
   fn chowder(&self, y: A);
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 struct foo<A> {
   x: A,
 }
@@ -40,6 +40,6 @@ fn f<A>(x: Box<clam<A>>, a: A) {
 pub fn main() {
 
   let c = foo(42);
-  let d: Box<clam<int>> = box c as Box<clam<int>>;
+  let d: Box<clam<isize>> = box c as Box<clam<isize>>;
   f(d, c.x);
 }

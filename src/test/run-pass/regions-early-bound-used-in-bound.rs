@@ -17,11 +17,10 @@ trait GetRef<'a, T> {
     fn get(&self) -> &'a T;
 }
 
+#[derive(Copy, Clone)]
 struct Box<'a, T:'a> {
     t: &'a T
 }
-
-impl<'a,T:'a> Copy for Box<'a,T> {}
 
 impl<'a,T:Clone> GetRef<'a,T> for Box<'a,T> {
     fn get(&self) -> &'a T {
@@ -29,7 +28,7 @@ impl<'a,T:Clone> GetRef<'a,T> for Box<'a,T> {
     }
 }
 
-fn add<'a,G:GetRef<'a, int>>(g1: G, g2: G) -> int {
+fn add<'a,G:GetRef<'a, isize>>(g1: G, g2: G) -> isize {
     *g1.get() + *g2.get()
 }
 

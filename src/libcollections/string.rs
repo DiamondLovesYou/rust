@@ -17,7 +17,6 @@
 use core::prelude::*;
 
 use core::default::Default;
-use core::error::Error;
 use core::fmt;
 use core::hash;
 use core::iter::{IntoIterator, FromIterator};
@@ -93,7 +92,7 @@ impl String {
     /// ```
     /// # #![feature(collections, core)]
     /// let s = String::from_str("hello");
-    /// assert_eq!(s.as_slice(), "hello");
+    /// assert_eq!(&s[..], "hello");
     /// ```
     #[inline]
     #[unstable(feature = "collections",
@@ -364,6 +363,14 @@ impl String {
         self.vec
     }
 
+    /// Extract a string slice containing the entire string.
+    #[inline]
+    #[unstable(feature = "convert",
+               reason = "waiting on RFC revision")]
+    pub fn as_str(&self) -> &str {
+        self
+    }
+
     /// Pushes the given string onto this string buffer.
     ///
     /// # Examples
@@ -592,8 +599,8 @@ impl String {
         let ch = self.char_at(idx);
         let next = idx + ch.len_utf8();
         unsafe {
-            ptr::copy(self.vec.as_mut_ptr().offset(idx as isize),
-                      self.vec.as_ptr().offset(next as isize),
+            ptr::copy(self.vec.as_ptr().offset(next as isize),
+                      self.vec.as_mut_ptr().offset(idx as isize),
                       len - next);
             self.vec.set_len(len - (next - idx));
         }
@@ -622,11 +629,11 @@ impl String {
         let amt = ch.encode_utf8(&mut bits).unwrap();
 
         unsafe {
-            ptr::copy(self.vec.as_mut_ptr().offset((idx + amt) as isize),
-                      self.vec.as_ptr().offset(idx as isize),
+            ptr::copy(self.vec.as_ptr().offset(idx as isize),
+                      self.vec.as_mut_ptr().offset((idx + amt) as isize),
                       len - idx);
-            ptr::copy(self.vec.as_mut_ptr().offset(idx as isize),
-                      bits.as_ptr(),
+            ptr::copy(bits.as_ptr(),
+                      self.vec.as_mut_ptr().offset(idx as isize),
                       amt);
             self.vec.set_len(len + amt);
         }
@@ -716,20 +723,10 @@ impl fmt::Display for FromUtf8Error {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl Error for FromUtf8Error {
-    fn description(&self) -> &str { "invalid utf-8" }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
 impl fmt::Display for FromUtf16Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt("invalid utf-16: lone surrogate found", f)
     }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
-impl Error for FromUtf16Error {
-    fn description(&self) -> &str { "invalid utf-16" }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -799,9 +796,9 @@ impl<'a, 'b> Pattern<'a> for &'b String {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl PartialEq for String {
     #[inline]
-    fn eq(&self, other: &String) -> bool { PartialEq::eq(&**self, &**other) }
+    fn eq(&self, other: &String) -> bool { PartialEq::eq(&self[..], &other[..]) }
     #[inline]
-    fn ne(&self, other: &String) -> bool { PartialEq::ne(&**self, &**other) }
+    fn ne(&self, other: &String) -> bool { PartialEq::ne(&self[..], &other[..]) }
 }
 
 macro_rules! impl_eq {
@@ -809,46 +806,47 @@ macro_rules! impl_eq {
         #[stable(feature = "rust1", since = "1.0.0")]
         impl<'a> PartialEq<$rhs> for $lhs {
             #[inline]
-            fn eq(&self, other: &$rhs) -> bool { PartialEq::eq(&**self, &**other) }
+            fn eq(&self, other: &$rhs) -> bool { PartialEq::eq(&self[..], &other[..]) }
             #[inline]
-            fn ne(&self, other: &$rhs) -> bool { PartialEq::ne(&**self, &**other) }
+            fn ne(&self, other: &$rhs) -> bool { PartialEq::ne(&self[..], &other[..]) }
         }
 
         #[stable(feature = "rust1", since = "1.0.0")]
         impl<'a> PartialEq<$lhs> for $rhs {
             #[inline]
-            fn eq(&self, other: &$lhs) -> bool { PartialEq::eq(&**self, &**other) }
+            fn eq(&self, other: &$lhs) -> bool { PartialEq::eq(&self[..], &other[..]) }
             #[inline]
-            fn ne(&self, other: &$lhs) -> bool { PartialEq::ne(&**self, &**other) }
+            fn ne(&self, other: &$lhs) -> bool { PartialEq::ne(&self[..], &other[..]) }
         }
 
     }
 }
 
+impl_eq! { String, str }
 impl_eq! { String, &'a str }
+impl_eq! { Cow<'a, str>, str }
 impl_eq! { Cow<'a, str>, String }
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, 'b> PartialEq<&'b str> for Cow<'a, str> {
     #[inline]
-    fn eq(&self, other: &&'b str) -> bool { PartialEq::eq(&**self, &**other) }
+    fn eq(&self, other: &&'b str) -> bool { PartialEq::eq(&self[..], &other[..]) }
     #[inline]
-    fn ne(&self, other: &&'b str) -> bool { PartialEq::ne(&**self, &**other) }
+    fn ne(&self, other: &&'b str) -> bool { PartialEq::ne(&self[..], &other[..]) }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, 'b> PartialEq<Cow<'a, str>> for &'b str {
     #[inline]
-    fn eq(&self, other: &Cow<'a, str>) -> bool { PartialEq::eq(&**self, &**other) }
+    fn eq(&self, other: &Cow<'a, str>) -> bool { PartialEq::eq(&self[..], &other[..]) }
     #[inline]
-    fn ne(&self, other: &Cow<'a, str>) -> bool { PartialEq::ne(&**self, &**other) }
+    fn ne(&self, other: &Cow<'a, str>) -> bool { PartialEq::ne(&self[..], &other[..]) }
 }
 
 #[unstable(feature = "collections", reason = "waiting on Str stabilization")]
 #[allow(deprecated)]
 impl Str for String {
     #[inline]
-    #[stable(feature = "rust1", since = "1.0.0")]
     fn as_slice(&self) -> &str {
         unsafe { mem::transmute(&*self.vec) }
     }
@@ -903,13 +901,6 @@ impl<'a> Add<&'a str> for String {
 impl ops::Index<ops::Range<usize>> for String {
     type Output = str;
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, index: &ops::Range<usize>) -> &str {
-        &self[..][*index]
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, index: ops::Range<usize>) -> &str {
         &self[..][index]
@@ -919,13 +910,6 @@ impl ops::Index<ops::Range<usize>> for String {
 impl ops::Index<ops::RangeTo<usize>> for String {
     type Output = str;
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, index: &ops::RangeTo<usize>) -> &str {
-        &self[..][*index]
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, index: ops::RangeTo<usize>) -> &str {
         &self[..][index]
@@ -935,13 +919,6 @@ impl ops::Index<ops::RangeTo<usize>> for String {
 impl ops::Index<ops::RangeFrom<usize>> for String {
     type Output = str;
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, index: &ops::RangeFrom<usize>) -> &str {
-        &self[..][*index]
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, index: ops::RangeFrom<usize>) -> &str {
         &self[..][index]
@@ -951,13 +928,6 @@ impl ops::Index<ops::RangeFrom<usize>> for String {
 impl ops::Index<ops::RangeFull> for String {
     type Output = str;
 
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, _index: &ops::RangeFull) -> &str {
-        unsafe { mem::transmute(&*self.vec) }
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, _index: ops::RangeFull) -> &str {
         unsafe { mem::transmute(&*self.vec) }
@@ -1047,8 +1017,25 @@ impl AsRef<str> for String {
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a> From<&'a str> for String {
+    #[inline]
     fn from(s: &'a str) -> String {
         s.to_string()
+    }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<'a> From<&'a str> for Cow<'a, str> {
+    #[inline]
+    fn from(s: &'a str) -> Cow<'a, str> {
+        Cow::Borrowed(s)
+    }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<'a> From<String> for Cow<'a, str> {
+    #[inline]
+    fn from(s: String) -> Cow<'a, str> {
+        Cow::Owned(s)
     }
 }
 
@@ -1059,7 +1046,7 @@ impl Into<Vec<u8>> for String {
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
+#[unstable(feature = "into_cow", reason = "may be replaced by `convert::Into`")]
 impl IntoCow<'static, str> for String {
     #[inline]
     fn into_cow(self) -> Cow<'static, str> {
@@ -1067,7 +1054,7 @@ impl IntoCow<'static, str> for String {
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
+#[unstable(feature = "into_cow", reason = "may be replaced by `convert::Into`")]
 impl<'a> IntoCow<'a, str> for &'a str {
     #[inline]
     fn into_cow(self) -> Cow<'a, str> {
@@ -1082,11 +1069,6 @@ impl<'a> Str for Cow<'a, str> {
         &**self
     }
 }
-
-/// A clone-on-write string
-#[deprecated(since = "1.0.0", reason = "use Cow<'a, str> instead")]
-#[stable(feature = "rust1", since = "1.0.0")]
-pub type CowString<'a> = Cow<'a, str>;
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl fmt::Write for String {

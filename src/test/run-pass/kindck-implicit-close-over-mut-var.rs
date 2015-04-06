@@ -10,15 +10,15 @@
 
 #![feature(std_misc)]
 
-use std::thread::Thread;
+use std::thread;
 
-fn user(_i: int) {}
+fn user(_i: isize) {}
 
 fn foo() {
     // Here, i is *copied* into the proc (heap closure).
     // Requires allocation.  The proc's copy is not mutable.
     let mut i = 0;
-    let _t = Thread::spawn(move|| {
+    let _t = thread::scoped(move|| {
         user(i);
         println!("spawned {}", i)
     });
@@ -31,7 +31,7 @@ fn bar() {
     // mutable outside of the proc.
     let mut i = 0;
     while i < 10 {
-        let _t = Thread::spawn(move|| {
+        let _t = thread::scoped(move|| {
             user(i);
         });
         i += 1;
@@ -42,7 +42,7 @@ fn car() {
     // Here, i must be shadowed in the proc to be mutable.
     let mut i = 0;
     while i < 10 {
-        let _t = Thread::spawn(move|| {
+        let _t = thread::scoped(move|| {
             let mut i = i;
             i += 1;
             user(i);

@@ -44,7 +44,7 @@ use std::option;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-#[derive(Copy, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum PpSourceMode {
     PpmNormal,
     PpmEveryBodyLoops,
@@ -56,7 +56,7 @@ pub enum PpSourceMode {
 }
 
 
-#[derive(Copy, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum PpFlowGraphMode {
     Default,
     /// Drops the labels from the edges in the flowgraph output. This
@@ -65,7 +65,7 @@ pub enum PpFlowGraphMode {
     /// have become a pain to maintain.
     UnlabelledEdges,
 }
-#[derive(Copy, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum PpMode {
     PpmSource(PpSourceMode),
     PpmFlowGraph(PpFlowGraphMode),
@@ -74,7 +74,7 @@ pub enum PpMode {
 pub fn parse_pretty(sess: &Session,
                     name: &str,
                     extended: bool) -> (PpMode, Option<UserIdentifiedItem>) {
-    let mut split = name.splitn(1, '=');
+    let mut split = name.splitn(2, '=');
     let first = split.next().unwrap();
     let opt_second = split.next();
     let first = match (first, extended) {
@@ -225,6 +225,10 @@ impl<'ast> pprust::PpAnn for IdentifiedAnnotation<'ast> {
             pprust::NodeItem(item) => {
                 try!(pp::space(&mut s.s));
                 s.synth_comment(item.id.to_string())
+            }
+            pprust::NodeSubItem(id) => {
+                try!(pp::space(&mut s.s));
+                s.synth_comment(id.to_string())
             }
             pprust::NodeBlock(blk) => {
                 try!(pp::space(&mut s.s));
@@ -699,8 +703,8 @@ fn print_flowgraph<W: Write>(variants: Vec<borrowck_dot::Variant>,
 
     fn expand_err_details(r: io::Result<()>) -> io::Result<()> {
         r.map_err(|ioerr| {
-            io::Error::new(io::ErrorKind::Other, "graphviz::render failed",
-                           Some(ioerr.to_string()))
+            io::Error::new(io::ErrorKind::Other,
+                           &format!("graphviz::render failed: {}", ioerr)[..])
         })
     }
 }

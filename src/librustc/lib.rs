@@ -30,25 +30,21 @@
 #![feature(collections)]
 #![feature(core)]
 #![feature(hash)]
-#![feature(int_uint)]
 #![feature(libc)]
-#![feature(old_path)]
 #![feature(quote)]
 #![feature(rustc_diagnostic_macros)]
 #![feature(rustc_private)]
 #![feature(unsafe_destructor)]
 #![feature(staged_api)]
 #![feature(std_misc)]
-#![feature(io)]
 #![feature(path_ext)]
 #![feature(str_words)]
 #![feature(str_char)]
-#![feature(convert)]
 #![feature(into_cow)]
+#![feature(slice_patterns)]
 #![cfg_attr(test, feature(test))]
 
 #![allow(trivial_casts)]
-#![allow(trivial_numeric_casts)]
 
 extern crate arena;
 extern crate flate;
@@ -65,7 +61,7 @@ extern crate collections;
 #[macro_use] extern crate syntax;
 #[macro_use] #[no_link] extern crate rustc_bitflags;
 
-extern crate "serialize" as rustc_serialize; // used by deriving
+extern crate serialize as rustc_serialize; // used by deriving
 
 #[cfg(test)]
 extern crate test;
@@ -126,6 +122,8 @@ pub mod middle {
     pub mod traits;
     pub mod ty;
     pub mod ty_fold;
+    pub mod ty_match;
+    pub mod ty_relate;
     pub mod ty_walk;
     pub mod weak_lang_items;
 }

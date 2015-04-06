@@ -66,6 +66,7 @@ use parse::lexer;
 use ptr::P;
 
 use std::fmt;
+#[allow(deprecated)]
 use std::num::Int;
 use std::rc::Rc;
 use serialize::{Encodable, Decodable, Encoder, Decoder};
@@ -387,7 +388,7 @@ pub const CRATE_NODE_ID: NodeId = 0;
 /// When parsing and doing expansions, we initially give all AST nodes this AST
 /// node value. Then later, in the renumber pass, we renumber them to have
 /// small, positive ids.
-pub const DUMMY_NODE_ID: NodeId = -1;
+pub const DUMMY_NODE_ID: NodeId = !0;
 
 /// The AST represents all type param bounds as types.
 /// typeck::collect::compute_bounds matches these against
@@ -1141,6 +1142,7 @@ pub enum Sign {
 }
 
 impl Sign {
+    #[allow(deprecated)] // Int
     pub fn new<T:Int>(n: T) -> Sign {
         if n < Int::zero() {
             Minus
@@ -1249,27 +1251,13 @@ pub enum ImplItem_ {
     MacImplItem(Mac),
 }
 
-#[derive(Clone, Eq, RustcEncodable, RustcDecodable, Hash, Copy)]
+#[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Copy)]
 pub enum IntTy {
-    TyIs(bool /* is this deprecated `int`? */),
+    TyIs,
     TyI8,
     TyI16,
     TyI32,
     TyI64,
-}
-
-impl PartialEq for IntTy {
-    fn eq(&self, other: &IntTy) -> bool {
-        match (*self, *other) {
-            // true/false need to compare the same, so this can't be derived
-            (TyIs(_), TyIs(_)) |
-            (TyI8, TyI8) |
-            (TyI16, TyI16) |
-            (TyI32, TyI32) |
-            (TyI64, TyI64) => true,
-            _ => false
-        }
-    }
 }
 
 impl fmt::Debug for IntTy {
@@ -1287,41 +1275,25 @@ impl fmt::Display for IntTy {
 impl IntTy {
     pub fn suffix_len(&self) -> usize {
         match *self {
-            TyIs(true) /* i */ => 1,
-            TyIs(false) /* is */ | TyI8 => 2,
+            TyIs | TyI8 => 2,
             TyI16 | TyI32 | TyI64  => 3,
         }
     }
 }
 
-#[derive(Clone, Eq, RustcEncodable, RustcDecodable, Hash, Copy)]
+#[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Copy)]
 pub enum UintTy {
-    TyUs(bool /* is this deprecated uint? */),
+    TyUs,
     TyU8,
     TyU16,
     TyU32,
     TyU64,
 }
 
-impl PartialEq for UintTy {
-    fn eq(&self, other: &UintTy) -> bool {
-        match (*self, *other) {
-            // true/false need to compare the same, so this can't be derived
-            (TyUs(_), TyUs(_)) |
-            (TyU8, TyU8) |
-            (TyU16, TyU16) |
-            (TyU32, TyU32) |
-            (TyU64, TyU64) => true,
-            _ => false
-        }
-    }
-}
-
 impl UintTy {
     pub fn suffix_len(&self) -> usize {
         match *self {
-            TyUs(true) /* u */ => 1,
-            TyUs(false) /* us */ | TyU8 => 2,
+            TyUs | TyU8 => 2,
             TyU16 | TyU32 | TyU64  => 3,
         }
     }

@@ -115,24 +115,24 @@
 #![feature(box_syntax)]
 #![omit_gdb_pretty_printer_section]
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 struct Struct {
-    x: int
+    x: isize
 }
 
 impl Struct {
 
-    fn self_by_ref(&self, arg1: int, arg2: int) -> int {
+    fn self_by_ref(&self, arg1: isize, arg2: isize) -> isize {
         zzz(); // #break
         self.x + arg1 + arg2
     }
 
-    fn self_by_val(self, arg1: int, arg2: int) -> int {
+    fn self_by_val(self, arg1: isize, arg2: isize) -> isize {
         zzz(); // #break
         self.x + arg1 + arg2
     }
 
-    fn self_owned(self: Box<Struct>, arg1: int, arg2: int) -> int {
+    fn self_owned(self: Box<Struct>, arg1: isize, arg2: isize) -> isize {
         zzz(); // #break
         self.x + arg1 + arg2
     }

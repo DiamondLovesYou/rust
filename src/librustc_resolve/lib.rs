@@ -21,12 +21,9 @@
 
 #![feature(alloc)]
 #![feature(collections)]
-#![feature(core)]
-#![feature(int_uint)]
 #![feature(rustc_diagnostic_macros)]
 #![feature(rustc_private)]
 #![feature(staged_api)]
-#![feature(std_misc)]
 
 #[macro_use] extern crate log;
 #[macro_use] extern crate syntax;
@@ -78,7 +75,7 @@ use syntax::ast::{TraitRef, Ty, TyBool, TyChar, TyF32};
 use syntax::ast::{TyF64, TyFloat, TyIs, TyI8, TyI16, TyI32, TyI64, TyInt};
 use syntax::ast::{TyPath, TyPtr};
 use syntax::ast::{TyRptr, TyStr, TyUs, TyU8, TyU16, TyU32, TyU64, TyUint};
-use syntax::ast::{TypeImplItem};
+use syntax::ast::TypeImplItem;
 use syntax::ast;
 use syntax::ast_map;
 use syntax::ast_util::{local_def, walk_pat};
@@ -110,7 +107,7 @@ mod record_exports;
 mod build_reduced_graph;
 mod resolve_imports;
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 struct BindingInfo {
     span: Span,
     binding_mode: BindingMode,
@@ -119,14 +116,14 @@ struct BindingInfo {
 // Map from the name in a pattern to its binding mode.
 type BindingMap = HashMap<Name, BindingInfo>;
 
-#[derive(Copy, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 enum PatternBindingMode {
     RefutableMode,
     LocalIrrefutableMode,
     ArgumentIrrefutableMode,
 }
 
-#[derive(Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 enum Namespace {
     TypeNS,
     ValueNS
@@ -165,9 +162,12 @@ impl NamespaceResult {
 }
 
 enum NameDefinition {
-    NoNameDefinition,           //< The name was unbound.
-    ChildNameDefinition(Def, LastPrivate), //< The name identifies an immediate child.
-    ImportNameDefinition(Def, LastPrivate) //< The name identifies an import.
+    // The name was unbound.
+    NoNameDefinition,
+    // The name identifies an immediate child.
+    ChildNameDefinition(Def, LastPrivate),
+    // The name identifies an import.
+    ImportNameDefinition(Def, LastPrivate),
 }
 
 impl<'a, 'v, 'tcx> Visitor<'v> for Resolver<'a, 'tcx> {
@@ -280,7 +280,7 @@ enum FallbackSuggestion {
     TraitMethod(String),
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 enum TypeParameters<'a> {
     NoTypeParameters,
     HasTypeParameters(
@@ -297,7 +297,7 @@ enum TypeParameters<'a> {
 
 // The rib kind controls the translation of local
 // definitions (`DefLocal`) to upvars (`DefUpvar`).
-#[derive(Copy, Debug)]
+#[derive(Copy, Clone, Debug)]
 enum RibKind {
     // No translation needs to be applied.
     NormalRibKind,
@@ -319,7 +319,7 @@ enum RibKind {
     ConstantItemRibKind
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 enum UseLexicalScopeFlag {
     DontUseLexicalScope,
     UseLexicalScope
@@ -327,10 +327,10 @@ enum UseLexicalScopeFlag {
 
 enum ModulePrefixResult {
     NoPrefixFound,
-    PrefixFound(Rc<Module>, uint)
+    PrefixFound(Rc<Module>, usize)
 }
 
-#[derive(Copy, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 enum NameSearchType {
     /// We're doing a name search in order to resolve a `use` directive.
     ImportSearch,
@@ -340,7 +340,7 @@ enum NameSearchType {
     PathSearch,
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 enum BareIdentifierPatternResolution {
     FoundStructOrEnumVariant(Def, LastPrivate),
     FoundConst(Def, LastPrivate),
@@ -372,7 +372,7 @@ enum ParentLink {
 }
 
 /// The type of module this is.
-#[derive(Copy, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 enum ModuleKind {
     NormalModuleKind,
     TraitModuleKind,
@@ -415,10 +415,10 @@ pub struct Module {
     import_resolutions: RefCell<HashMap<Name, ImportResolution>>,
 
     // The number of unresolved globs that this module exports.
-    glob_count: Cell<uint>,
+    glob_count: Cell<usize>,
 
     // The index of the import we're resolving.
-    resolved_import_count: Cell<uint>,
+    resolved_import_count: Cell<usize>,
 
     // Whether this module is populated. If not populated, any attempt to
     // access the children must be preceded with a
@@ -744,15 +744,13 @@ impl PrimitiveTypeTable {
         table.intern("char",    TyChar);
         table.intern("f32",     TyFloat(TyF32));
         table.intern("f64",     TyFloat(TyF64));
-        table.intern("int",     TyInt(TyIs(true)));
-        table.intern("isize",   TyInt(TyIs(false)));
+        table.intern("isize",   TyInt(TyIs));
         table.intern("i8",      TyInt(TyI8));
         table.intern("i16",     TyInt(TyI16));
         table.intern("i32",     TyInt(TyI32));
         table.intern("i64",     TyInt(TyI64));
         table.intern("str",     TyStr);
-        table.intern("uint",    TyUint(TyUs(true)));
-        table.intern("usize",   TyUint(TyUs(false)));
+        table.intern("usize",   TyUint(TyUs));
         table.intern("u8",      TyUint(TyU8));
         table.intern("u16",     TyUint(TyU16));
         table.intern("u32",     TyUint(TyU32));
@@ -779,7 +777,7 @@ pub struct Resolver<'a, 'tcx:'a> {
     structs: FnvHashMap<DefId, Vec<Name>>,
 
     // The number of imports that are currently unresolved.
-    unresolved_imports: uint,
+    unresolved_imports: usize,
 
     // The module that represents the current item scope.
     current_module: Rc<Module>,
@@ -799,11 +797,6 @@ pub struct Resolver<'a, 'tcx:'a> {
 
     // The current self type if inside an impl (used for better errors).
     current_self_type: Option<Ty>,
-
-    // The ident for the keyword "self".
-    self_name: Name,
-    // The ident for the non-keyword "Self".
-    type_self_name: Name,
 
     // The idents for the primitive types.
     primitive_type_table: PrimitiveTypeTable,
@@ -873,9 +866,6 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
             current_trait_ref: None,
             current_self_type: None,
-
-            self_name: special_names::self_,
-            type_self_name: special_names::type_self,
 
             primitive_type_table: PrimitiveTypeTable::new(),
 
@@ -961,7 +951,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
     fn resolve_module_path_from_root(&mut self,
                                      module_: Rc<Module>,
                                      module_path: &[Name],
-                                     index: uint,
+                                     index: usize,
                                      span: Span,
                                      name_search_type: NameSearchType,
                                      lp: LastPrivate)
@@ -1827,7 +1817,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 let mut self_type_rib = Rib::new(ItemRibKind);
 
                 // plain insert (no renaming, types are not currently hygienic....)
-                let name = self.type_self_name;
+                let name = special_names::type_self;
                 self_type_rib.bindings.insert(name, DlDef(DefSelfTy(item.id)));
                 self.type_ribs.push(self_type_rib);
 
@@ -2052,8 +2042,9 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
     fn with_optional_trait_ref<T, F>(&mut self,
                                      opt_trait_ref: Option<&TraitRef>,
-                                     f: F) -> T where
-        F: FnOnce(&mut Resolver) -> T,
+                                     f: F)
+                                     -> T
+        where F: FnOnce(&mut Resolver) -> T,
     {
         let mut new_val = None;
         if let Some(trait_ref) = opt_trait_ref {
@@ -2590,11 +2581,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         let span = path.span;
         let segments = &path.segments[..path.segments.len()-path_depth];
 
-        let mk_res = |(def, lp)| PathResolution {
-            base_def: def,
-            last_private: lp,
-            depth: path_depth
-        };
+        let mk_res = |(def, lp)| PathResolution::new(def, lp, path_depth);
 
         if path.global {
             let def = self.resolve_crate_relative_path(span, segments, namespace);
@@ -2608,25 +2595,25 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                         check_ribs,
                                         span);
 
-        if segments.len() > 1 {
-            let def = self.resolve_module_relative_path(span, segments, namespace);
-            match (def, unqualified_def) {
-                (Some((ref d, _)), Some((ref ud, _))) if *d == *ud => {
-                    self.session
-                        .add_lint(lint::builtin::UNUSED_QUALIFICATIONS,
-                                  id, span,
-                                  "unnecessary qualification".to_string());
-                }
-                _ => ()
-            }
-
-            def.map(mk_res)
-        } else {
-            unqualified_def.map(mk_res)
+        if segments.len() <= 1 {
+            return unqualified_def.map(mk_res);
         }
+
+        let def = self.resolve_module_relative_path(span, segments, namespace);
+        match (def, unqualified_def) {
+            (Some((ref d, _)), Some((ref ud, _))) if *d == *ud => {
+                self.session
+                    .add_lint(lint::builtin::UNUSED_QUALIFICATIONS,
+                              id, span,
+                              "unnecessary qualification".to_string());
+            }
+            _ => {}
+        }
+
+        def.map(mk_res)
     }
 
-    // resolve a single identifier (used as a varref)
+    // Resolve a single identifier.
     fn resolve_identifier(&mut self,
                           identifier: Ident,
                           namespace: Namespace,
@@ -2667,8 +2654,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 match child_name_bindings.def_for_namespace(namespace) {
                     Some(def) => {
                         // Found it. Stop the search here.
-                        let p = child_name_bindings.defined_in_public_namespace(
-                                        namespace);
+                        let p = child_name_bindings.defined_in_public_namespace(namespace);
                         let lp = if p {LastMod(AllPublic)} else {
                             LastMod(DependsOn(def.def_id()))
                         };
@@ -2739,8 +2725,8 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
         let containing_module;
         let last_private;
-        let module = self.current_module.clone();
-        match self.resolve_module_path(module,
+        let current_module = self.current_module.clone();
+        match self.resolve_module_path(current_module,
                                        &module_path[..],
                                        UseLexicalScope,
                                        span,
@@ -2863,8 +2849,7 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
 
         match search_result {
             Some(DlDef(def)) => {
-                debug!("(resolving path in local ribs) resolved `{}` to \
-                        local: {:?}",
+                debug!("(resolving path in local ribs) resolved `{}` to local: {:?}",
                        token::get_ident(ident),
                        def);
                 Some(def)
@@ -2909,15 +2894,13 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 panic!("unexpected indeterminate result");
             }
             Failed(err) => {
-                match err {
-                    Some((span, msg)) =>
-                        self.resolve_error(span, &format!("failed to resolve. {}",
-                                                         msg)),
-                    None => ()
-                }
-
                 debug!("(resolving item path by identifier in lexical scope) \
                          failed to resolve {}", token::get_name(name));
+
+                if let Some((span, msg)) = err {
+                    self.resolve_error(span, &format!("failed to resolve. {}", msg))
+                }
+
                 return None;
             }
         }
@@ -2969,10 +2952,10 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                 }
             } else {
                 match this.resolve_module_path(root,
-                                                &name_path[..],
-                                                UseLexicalScope,
-                                                span,
-                                                PathSearch) {
+                                               &name_path[..],
+                                               UseLexicalScope,
+                                               span,
+                                               PathSearch) {
                     Success((module, _)) => Some(module),
                     _ => None
                 }
@@ -3055,12 +3038,12 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
         NoSuggestion
     }
 
-    fn find_best_match_for_name(&mut self, name: &str, max_distance: uint)
+    fn find_best_match_for_name(&mut self, name: &str, max_distance: usize)
                                 -> Option<String> {
         let this = &mut *self;
 
         let mut maybes: Vec<token::InternedString> = Vec::new();
-        let mut values: Vec<uint> = Vec::new();
+        let mut values: Vec<usize> = Vec::new();
 
         for rib in this.value_ribs.iter().rev() {
             for (&k, _) in &rib.bindings {
@@ -3208,8 +3191,8 @@ impl<'a, 'tcx> Resolver<'a, 'tcx> {
                                 false // Stop advancing
                             });
 
-                            if method_scope && &token::get_name(self.self_name)[..]
-                                                                == path_name {
+                            if method_scope &&
+                               &token::get_name(special_names::self_)[..] == path_name {
                                     self.resolve_error(
                                         expr.span,
                                         "`self` is not available \
@@ -3544,7 +3527,7 @@ pub struct CrateMap {
     pub glob_map: Option<GlobMap>
 }
 
-#[derive(PartialEq,Copy)]
+#[derive(PartialEq,Copy, Clone)]
 pub enum MakeGlobMap {
     Yes,
     No

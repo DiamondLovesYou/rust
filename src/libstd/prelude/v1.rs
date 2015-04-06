@@ -36,21 +36,17 @@
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use iter::ExactSizeIterator;
 #[stable(feature = "rust1", since = "1.0.0")]
-#[doc(no_inline)] pub use iter::{Iterator, IteratorExt, Extend};
+#[doc(no_inline)] pub use iter::{Iterator, Extend};
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use option::Option::{self, Some, None};
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use result::Result::{self, Ok, Err};
 #[stable(feature = "rust1", since = "1.0.0")]
-#[allow(deprecated)]
-#[doc(no_inline)] pub use slice::{SliceConcatExt, AsSlice};
-#[stable(feature = "rust1", since = "1.0.0")]
-#[allow(deprecated)]
-#[doc(no_inline)] pub use str::Str;
+#[doc(no_inline)] pub use slice::SliceConcatExt;
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use string::{String, ToString};
 #[stable(feature = "rust1", since = "1.0.0")]
 #[doc(no_inline)] pub use vec::Vec;
 
-// FIXME(#23454) should these be here?
-#[doc(no_inline)] pub use num::wrapping::{Wrapping, WrappingOps};
+#[allow(deprecated)] pub use slice::AsSlice;
+#[allow(deprecated)] pub use str::Str;

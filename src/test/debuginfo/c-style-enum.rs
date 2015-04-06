@@ -15,25 +15,25 @@
 
 // === GDB TESTS ===================================================================================
 
-// gdb-command:print 'c-style-enum::SINGLE_VARIANT'
+// gdb-command:print 'c_style_enum::SINGLE_VARIANT'
 // gdb-check:$1 = TheOnlyVariant
 
-// gdb-command:print 'c-style-enum::AUTO_ONE'
+// gdb-command:print 'c_style_enum::AUTO_ONE'
 // gdb-check:$2 = One
 
-// gdb-command:print 'c-style-enum::AUTO_TWO'
+// gdb-command:print 'c_style_enum::AUTO_TWO'
 // gdb-check:$3 = One
 
-// gdb-command:print 'c-style-enum::AUTO_THREE'
+// gdb-command:print 'c_style_enum::AUTO_THREE'
 // gdb-check:$4 = One
 
-// gdb-command:print 'c-style-enum::MANUAL_ONE'
+// gdb-command:print 'c_style_enum::MANUAL_ONE'
 // gdb-check:$5 = OneHundred
 
-// gdb-command:print 'c-style-enum::MANUAL_TWO'
+// gdb-command:print 'c_style_enum::MANUAL_TWO'
 // gdb-check:$6 = OneHundred
 
-// gdb-command:print 'c-style-enum::MANUAL_THREE'
+// gdb-command:print 'c_style_enum::MANUAL_THREE'
 // gdb-check:$7 = OneHundred
 
 // gdb-command:run
@@ -59,16 +59,16 @@
 // gdb-command:print single_variant
 // gdb-check:$14 = TheOnlyVariant
 
-// gdb-command:print 'c-style-enum::AUTO_TWO'
+// gdb-command:print 'c_style_enum::AUTO_TWO'
 // gdb-check:$15 = Two
 
-// gdb-command:print 'c-style-enum::AUTO_THREE'
+// gdb-command:print 'c_style_enum::AUTO_THREE'
 // gdb-check:$16 = Three
 
-// gdb-command:print 'c-style-enum::MANUAL_TWO'
+// gdb-command:print 'c_style_enum::MANUAL_TWO'
 // gdb-check:$17 = OneThousand
 
-// gdb-command:print 'c-style-enum::MANUAL_THREE'
+// gdb-command:print 'c_style_enum::MANUAL_THREE'
 // gdb-check:$18 = OneMillion
 
 
@@ -105,21 +105,21 @@ use self::AutoDiscriminant::{One, Two, Three};
 use self::ManualDiscriminant::{OneHundred, OneThousand, OneMillion};
 use self::SingleVariant::TheOnlyVariant;
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 enum AutoDiscriminant {
     One,
     Two,
     Three
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 enum ManualDiscriminant {
     OneHundred = 100,
     OneThousand = 1000,
     OneMillion = 1000000
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 enum SingleVariant {
     TheOnlyVariant
 }

@@ -21,6 +21,7 @@ use std::cell::{Cell, RefCell};
 use std::fs::File;
 use std::io::Read;
 use std::iter;
+#[allow(deprecated)] // Int
 use std::num::Int;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -372,7 +373,7 @@ pub fn maybe_aborted<T>(result: T, p: Parser) -> T {
 /// well. Can take any slice prefixed by a character escape. Returns the
 /// character and the number of characters consumed.
 pub fn char_lit(lit: &str) -> (char, isize) {
-    use std::{num, char};
+    use std::char;
 
     let mut chars = lit.chars();
     let c = match (chars.next(), chars.next()) {
@@ -399,7 +400,7 @@ pub fn char_lit(lit: &str) -> (char, isize) {
     let msg2 = &msg[..];
 
     fn esc(len: usize, lit: &str) -> Option<(char, isize)> {
-        num::from_str_radix(&lit[2..len], 16).ok()
+        u32::from_str_radix(&lit[2..len], 16).ok()
         .and_then(char::from_u32)
         .map(|x| (x, len as isize))
     }
@@ -408,7 +409,7 @@ pub fn char_lit(lit: &str) -> (char, isize) {
         if lit.as_bytes()[2] == b'{' {
             let idx = lit.find('}').expect(msg2);
             let subslice = &lit[3..idx];
-            num::from_str_radix(subslice, 16).ok()
+            u32::from_str_radix(subslice, 16).ok()
                 .and_then(char::from_u32)
                 .map(|x| (x, subslice.chars().count() as isize + 4))
         } else {
@@ -582,7 +583,7 @@ pub fn byte_lit(lit: &str) -> (u8, usize) {
             b'\'' => b'\'',
             b'0' => b'\0',
             _ => {
-                match ::std::num::from_str_radix::<u64>(&lit[2..4], 16).ok() {
+                match u64::from_str_radix(&lit[2..4], 16).ok() {
                     Some(c) =>
                         if c > 0xFF {
                             panic!(err(2))
@@ -700,18 +701,18 @@ pub fn integer_lit(s: &str, suffix: Option<&str>, sd: &SpanHandler, sp: Span) ->
     if let Some(suf) = suffix {
         if suf.is_empty() { sd.span_bug(sp, "found empty literal suffix in Some")}
         ty = match suf {
-            "isize" => ast::SignedIntLit(ast::TyIs(false), ast::Plus),
+            "isize" => ast::SignedIntLit(ast::TyIs, ast::Plus),
             "i8"  => ast::SignedIntLit(ast::TyI8, ast::Plus),
             "i16" => ast::SignedIntLit(ast::TyI16, ast::Plus),
             "i32" => ast::SignedIntLit(ast::TyI32, ast::Plus),
             "i64" => ast::SignedIntLit(ast::TyI64, ast::Plus),
-            "usize" => ast::UnsignedIntLit(ast::TyUs(false)),
+            "usize" => ast::UnsignedIntLit(ast::TyUs),
             "u8"  => ast::UnsignedIntLit(ast::TyU8),
             "u16" => ast::UnsignedIntLit(ast::TyU16),
             "u32" => ast::UnsignedIntLit(ast::TyU32),
             "u64" => ast::UnsignedIntLit(ast::TyU64),
-            "i" | "is" => ast::SignedIntLit(ast::TyIs(true), ast::Plus),
-            "u" | "us" => ast::UnsignedIntLit(ast::TyUs(true)),
+            "is" => ast::SignedIntLit(ast::TyIs, ast::Plus),
+            "us" => ast::UnsignedIntLit(ast::TyUs),
             _ => {
                 // i<digits> and u<digits> look like widths, so lets
                 // give an error message along those lines
@@ -733,9 +734,22 @@ pub fn integer_lit(s: &str, suffix: Option<&str>, sd: &SpanHandler, sp: Span) ->
     debug!("integer_lit: the type is {:?}, base {:?}, the new string is {:?}, the original \
            string was {:?}, the original suffix was {:?}", ty, base, s, orig, suffix);
 
-    let res: u64 = match ::std::num::from_str_radix(s, base).ok() {
+    let res = match u64::from_str_radix(s, base).ok() {
         Some(r) => r,
-        None => { sd.span_err(sp, "int literal is too large"); 0 }
+        None => {
+            // small bases are lexed as if they were base 10, e.g, the string
+            // might be `0b10201`. This will cause the conversion above to fail,
+            // but these cases have errors in the lexer: we don't want to emit
+            // two errors, and we especially don't want to emit this error since
+            // it isn't necessarily true.
+            let already_errored = base < 10 &&
+                s.chars().any(|c| c.to_digit(10).map_or(false, |d| d >= base));
+
+            if !already_errored {
+                sd.span_err(sp, "int literal is too large");
+            }
+            0
+        }
     };
 
     // adjust the sign

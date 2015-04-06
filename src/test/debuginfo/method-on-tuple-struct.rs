@@ -115,22 +115,22 @@
 #![feature(box_syntax)]
 #![omit_gdb_pretty_printer_section]
 
-#[derive(Copy)]
-struct TupleStruct(int, f64);
+#[derive(Copy, Clone)]
+struct TupleStruct(isize, f64);
 
 impl TupleStruct {
 
-    fn self_by_ref(&self, arg1: int, arg2: int) -> int {
+    fn self_by_ref(&self, arg1: isize, arg2: isize) -> isize {
         zzz(); // #break
         arg1 + arg2
     }
 
-    fn self_by_val(self, arg1: int, arg2: int) -> int {
+    fn self_by_val(self, arg1: isize, arg2: isize) -> isize {
         zzz(); // #break
         arg1 + arg2
     }
 
-    fn self_owned(self: Box<TupleStruct>, arg1: int, arg2: int) -> int {
+    fn self_owned(self: Box<TupleStruct>, arg1: isize, arg2: isize) -> isize {
         zzz(); // #break
         arg1 + arg2
     }

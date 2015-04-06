@@ -84,7 +84,7 @@
 //!
 //!     fn edges(&'a self) -> dot::Edges<'a,Ed> {
 //!         let &Edges(ref edges) = self;
-//!         edges.as_slice().into_cow()
+//!         (&edges[..]).into_cow()
 //!     }
 //!
 //!     fn source(&self, e: &Ed) -> Nd { let &(s,_) = e; s }
@@ -281,7 +281,6 @@
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/")]
-#![feature(int_uint)]
 #![feature(collections)]
 #![feature(into_cow)]
 
@@ -525,7 +524,7 @@ pub trait GraphWalk<'a, N, E> {
     fn target(&'a self, edge: &E) -> N;
 }
 
-#[derive(Copy, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum RenderOption {
     NoEdgeLabels,
     NoNodeLabels,

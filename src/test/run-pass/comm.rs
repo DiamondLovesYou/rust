@@ -10,19 +10,19 @@
 
 #![feature(std_misc)]
 
-use std::thread::Thread;
+use std::thread;
 use std::sync::mpsc::{channel, Sender};
 
 pub fn main() {
     let (tx, rx) = channel();
-    let _t = Thread::spawn(move|| { child(&tx) });
+    let _t = thread::scoped(move|| { child(&tx) });
     let y = rx.recv().unwrap();
     println!("received");
     println!("{}", y);
     assert_eq!(y, 10);
 }
 
-fn child(c: &Sender<int>) {
+fn child(c: &Sender<isize>) {
     println!("sending");
     c.send(10).unwrap();
     println!("value sent");

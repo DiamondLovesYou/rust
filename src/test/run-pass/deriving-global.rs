@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(old_orphan_check, rand, rustc_private)]
+#![feature(rand, rustc_private)]
 
 extern crate serialize;
 extern crate rand;
@@ -22,21 +22,21 @@ mod submod {
                Clone,
                Debug, Rand,
                Encodable, Decodable)]
-    enum A { A1(uint), A2(int) }
+    enum A { A1(usize), A2(isize) }
 
     #[derive(PartialEq, PartialOrd, Eq, Ord,
                Hash,
                Clone,
                Debug, Rand,
                Encodable, Decodable)]
-    struct B { x: uint, y: int }
+    struct B { x: usize, y: isize }
 
     #[derive(PartialEq, PartialOrd, Eq, Ord,
                Hash,
                Clone,
                Debug, Rand,
                Encodable, Decodable)]
-    struct C(uint, int);
+    struct C(usize, isize);
 
 }
 

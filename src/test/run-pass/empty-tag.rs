@@ -8,12 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[derive(Copy, Debug)]
+#[derive(Copy, Clone, Debug)]
 enum chan { chan_t, }
 
 impl PartialEq for chan {
     fn eq(&self, other: &chan) -> bool {
-        ((*self) as uint) == ((*other) as uint)
+        ((*self) as usize) == ((*other) as usize)
     }
     fn ne(&self, other: &chan) -> bool { !(*self).eq(other) }
 }

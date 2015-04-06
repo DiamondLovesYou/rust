@@ -12,6 +12,7 @@
 // older versions of GDB too. A more extensive test can be found in
 // gdb-pretty-struct-and-enums.rs
 
+// ignore-bitrig
 // ignore-windows failing on win32 bot
 // ignore-freebsd: gdb package too new
 // ignore-tidy-linelength
@@ -37,7 +38,7 @@
 // gdb-check:$5 = CStyleEnumVar3
 
 struct RegularStruct {
-    the_first_field: int,
+    the_first_field: isize,
     the_second_field: f64,
     the_third_field: bool,
 }

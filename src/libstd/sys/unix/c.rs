@@ -198,7 +198,7 @@ extern {
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod select {
-    pub const FD_SETSIZE: uint = 1024;
+    pub const FD_SETSIZE: usize = 1024;
 
     #[repr(C)]
     pub struct fd_set {
@@ -206,7 +206,7 @@ mod select {
     }
 
     pub fn fd_set(set: &mut fd_set, fd: i32) {
-        set.fds_bits[(fd / 32) as uint] |= 1 << ((fd % 32) as uint);
+        set.fds_bits[(fd / 32) as usize] |= 1 << ((fd % 32) as usize);
     }
 }
 
@@ -226,12 +226,12 @@ mod select {
     #[repr(C)]
     pub struct fd_set {
         // FIXME: shouldn't this be a c_ulong?
-        fds_bits: [libc::uintptr_t; (FD_SETSIZE / usize::BITS as usize)]
+        fds_bits: [libc::uintptr_t; (FD_SETSIZE / usize::BITS)]
     }
 
     pub fn fd_set(set: &mut fd_set, fd: i32) {
-        let fd = fd as uint;
-        set.fds_bits[fd / usize::BITS as usize] |= 1 << (fd % usize::BITS as usize);
+        let fd = fd as usize;
+        set.fds_bits[fd / usize::BITS] |= 1 << (fd % usize::BITS);
     }
 }
 
@@ -245,7 +245,7 @@ mod signal {
     pub struct siginfo {
         pub si_signo: libc::c_int,
         pub si_code:  libc::c_int,
-        pub si_val:   uint,
+        pub si_val:   usize,
     }
     pub type sigset_t = libc::c_ulong;
     #[repr(C)]

@@ -76,10 +76,10 @@ pub struct FlowedMoveData<'a, 'tcx: 'a> {
 
 /// Index into `MoveData.paths`, used like a pointer
 #[derive(Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct MovePathIndex(uint);
+pub struct MovePathIndex(usize);
 
 impl MovePathIndex {
-    fn get(&self) -> uint {
+    fn get(&self) -> usize {
         let MovePathIndex(v) = *self; v
     }
 }
@@ -94,11 +94,11 @@ impl Clone for MovePathIndex {
 const InvalidMovePathIndex: MovePathIndex = MovePathIndex(usize::MAX);
 
 /// Index into `MoveData.moves`, used like a pointer
-#[derive(Copy, PartialEq)]
-pub struct MoveIndex(uint);
+#[derive(Copy, Clone, PartialEq)]
+pub struct MoveIndex(usize);
 
 impl MoveIndex {
-    fn get(&self) -> uint {
+    fn get(&self) -> usize {
         let MoveIndex(v) = *self; v
     }
 }
@@ -125,7 +125,7 @@ pub struct MovePath<'tcx> {
     pub next_sibling: MovePathIndex,
 }
 
-#[derive(Copy, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum MoveKind {
     Declared,   // When declared, variables start out "moved".
     MoveExpr,   // Expression or binding that moves a variable
@@ -133,7 +133,7 @@ pub enum MoveKind {
     Captured    // Closure creation that moves a value
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct Move {
     /// Path being moved.
     pub path: MovePathIndex,
@@ -148,7 +148,7 @@ pub struct Move {
     pub next_move: MoveIndex
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct Assignment {
     /// Path being assigned.
     pub path: MovePathIndex,
@@ -160,7 +160,7 @@ pub struct Assignment {
     pub span: Span,
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct VariantMatch {
     /// downcast to the variant.
     pub path: MovePathIndex,
@@ -740,7 +740,7 @@ impl<'a, 'tcx> FlowedMoveData<'a, 'tcx> {
 
 impl BitwiseOperator for MoveDataFlowOperator {
     #[inline]
-    fn join(&self, succ: uint, pred: uint) -> uint {
+    fn join(&self, succ: usize, pred: usize) -> usize {
         succ | pred // moves from both preds are in scope
     }
 }
@@ -754,7 +754,7 @@ impl DataFlowOperator for MoveDataFlowOperator {
 
 impl BitwiseOperator for AssignDataFlowOperator {
     #[inline]
-    fn join(&self, succ: uint, pred: uint) -> uint {
+    fn join(&self, succ: usize, pred: usize) -> usize {
         succ | pred // moves from both preds are in scope
     }
 }

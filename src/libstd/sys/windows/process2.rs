@@ -127,7 +127,7 @@ impl Process {
 
         use env::split_paths;
         use mem;
-        use iter::IteratorExt;
+        use iter::Iterator;
 
         // To have the spawning semantics of unix/windows stay the same, we need to
         // read the *child's* PATH if one is provided. See #15149 for more details.
@@ -445,10 +445,9 @@ mod tests {
         fn test_wrapper(prog: &str, args: &[&str]) -> String {
             String::from_utf16(
                 &make_command_line(OsStr::from_str(prog),
-                                   args.iter()
-                                       .map(|a| OsString::from_str(a))
-                                       .collect::<Vec<OsString>>()
-                                       .as_slice())).unwrap()
+                                   &args.iter()
+                                        .map(|a| OsString::from(a))
+                                        .collect::<Vec<OsString>>())).unwrap()
         }
 
         assert_eq!(

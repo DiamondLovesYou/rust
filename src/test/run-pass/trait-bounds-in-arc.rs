@@ -19,45 +19,45 @@
 
 use std::sync::Arc;
 use std::sync::mpsc::channel;
-use std::thread::Thread;
+use std::thread;
 
 trait Pet {
     fn name(&self, blk: Box<FnMut(&str)>);
-    fn num_legs(&self) -> uint;
+    fn num_legs(&self) -> usize;
     fn of_good_pedigree(&self) -> bool;
 }
 
 struct Catte {
-    num_whiskers: uint,
+    num_whiskers: usize,
     name: String,
 }
 
 struct Dogge {
-    bark_decibels: uint,
-    tricks_known: uint,
+    bark_decibels: usize,
+    tricks_known: usize,
     name: String,
 }
 
 struct Goldfyshe {
-    swim_speed: uint,
+    swim_speed: usize,
     name: String,
 }
 
 impl Pet for Catte {
     fn name(&self, mut blk: Box<FnMut(&str)>) { blk(&self.name) }
-    fn num_legs(&self) -> uint { 4 }
+    fn num_legs(&self) -> usize { 4 }
     fn of_good_pedigree(&self) -> bool { self.num_whiskers >= 4 }
 }
 impl Pet for Dogge {
     fn name(&self, mut blk: Box<FnMut(&str)>) { blk(&self.name) }
-    fn num_legs(&self) -> uint { 4 }
+    fn num_legs(&self) -> usize { 4 }
     fn of_good_pedigree(&self) -> bool {
         self.bark_decibels < 70 || self.tricks_known > 20
     }
 }
 impl Pet for Goldfyshe {
     fn name(&self, mut blk: Box<FnMut(&str)>) { blk(&self.name) }
-    fn num_legs(&self) -> uint { 0 }
+    fn num_legs(&self) -> usize { 0 }
     fn of_good_pedigree(&self) -> bool { self.swim_speed >= 500 }
 }
 
@@ -83,13 +83,13 @@ pub fn main() {
                             box dogge2 as Box<Pet+Sync+Send>));
     let (tx1, rx1) = channel();
     let arc1 = arc.clone();
-    let _t1 = Thread::spawn(move|| { check_legs(arc1); tx1.send(()); });
+    let _t1 = thread::scoped(move|| { check_legs(arc1); tx1.send(()); });
     let (tx2, rx2) = channel();
     let arc2 = arc.clone();
-    let _t2 = Thread::spawn(move|| { check_names(arc2); tx2.send(()); });
+    let _t2 = thread::scoped(move|| { check_names(arc2); tx2.send(()); });
     let (tx3, rx3) = channel();
     let arc3 = arc.clone();
-    let _t3 = Thread::spawn(move|| { check_pedigree(arc3); tx3.send(()); });
+    let _t3 = thread::scoped(move|| { check_pedigree(arc3); tx3.send(()); });
     rx1.recv();
     rx2.recv();
     rx3.recv();

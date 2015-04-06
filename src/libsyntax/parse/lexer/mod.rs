@@ -14,13 +14,12 @@ use codemap;
 use diagnostic::SpanHandler;
 use ext::tt::transcribe::tt_next_token;
 use parse::token;
-use parse::token::{str_to_ident};
+use parse::token::str_to_ident;
 
 use std::borrow::{IntoCow, Cow};
 use std::char;
 use std::fmt;
 use std::mem::replace;
-use std::num;
 use std::rc::Rc;
 
 pub use ext::tt::transcribe::{TtReader, new_tt_reader, new_tt_reader_with_doc_flag};
@@ -621,9 +620,9 @@ impl<'a> StringReader<'a> {
         let base = 10;
 
         // find the integer representing the name
-        self.scan_digits(base);
+        self.scan_digits(base, base);
         let encoded_name : u32 = self.with_str_from(start_bpos, |s| {
-            num::from_str_radix(s, 10).unwrap_or_else(|_| {
+            u32::from_str_radix(s, 10).unwrap_or_else(|_| {
                 panic!("expected digits representing a name, got {:?}, {}, range [{:?},{:?}]",
                       s, whence, start_bpos, self.last_pos);
             })
@@ -639,9 +638,9 @@ impl<'a> StringReader<'a> {
 
         // find the integer representing the ctxt
         let start_bpos = self.last_pos;
-        self.scan_digits(base);
+        self.scan_digits(base, base);
         let encoded_ctxt : ast::SyntaxContext = self.with_str_from(start_bpos, |s| {
-            num::from_str_radix(s, 10).unwrap_or_else(|_| {
+            u32::from_str_radix(s, 10).unwrap_or_else(|_| {
                 panic!("expected digits representing a ctxt, got {:?}, {}", s, whence);
             })
         });
@@ -653,16 +652,28 @@ impl<'a> StringReader<'a> {
                      ctxt: encoded_ctxt, }
     }
 
-    /// Scan through any digits (base `radix`) or underscores, and return how
-    /// many digits there were.
-    fn scan_digits(&mut self, radix: u32) -> usize {
+    /// Scan through any digits (base `scan_radix`) or underscores,
+    /// and return how many digits there were.
+    ///
+    /// `real_radix` represents the true radix of the number we're
+    /// interested in, and errors will be emitted for any digits
+    /// between `real_radix` and `scan_radix`.
+    fn scan_digits(&mut self, real_radix: u32, scan_radix: u32) -> usize {
+        assert!(real_radix <= scan_radix);
         let mut len = 0;
         loop {
             let c = self.curr;
             if c == Some('_') { debug!("skipping a _"); self.bump(); continue; }
-            match c.and_then(|cc| cc.to_digit(radix)) {
+            match c.and_then(|cc| cc.to_digit(scan_radix)) {
                 Some(_) => {
                     debug!("{:?} in scan_digits", c);
+                    // check that the hypothetical digit is actually
+                    // in range for the true radix
+                    if c.unwrap().to_digit(real_radix).is_none() {
+                        self.err_span_(self.last_pos, self.pos,
+                                       &format!("invalid digit for a base {} literal",
+                                                real_radix));
+                    }
                     len += 1;
                     self.bump();
                 }
@@ -681,11 +692,11 @@ impl<'a> StringReader<'a> {
 
         if c == '0' {
             match self.curr.unwrap_or('\0') {
-                'b' => { self.bump(); base = 2; num_digits = self.scan_digits(2); }
-                'o' => { self.bump(); base = 8; num_digits = self.scan_digits(8); }
-                'x' => { self.bump(); base = 16; num_digits = self.scan_digits(16); }
+                'b' => { self.bump(); base = 2; num_digits = self.scan_digits(2, 10); }
+                'o' => { self.bump(); base = 8; num_digits = self.scan_digits(8, 10); }
+                'x' => { self.bump(); base = 16; num_digits = self.scan_digits(16, 16); }
                 '0'...'9' | '_' | '.' => {
-                    num_digits = self.scan_digits(10) + 1;
+                    num_digits = self.scan_digits(10, 10) + 1;
                 }
                 _ => {
                     // just a 0
@@ -693,7 +704,7 @@ impl<'a> StringReader<'a> {
                 }
             }
         } else if c.is_digit(10) {
-            num_digits = self.scan_digits(10) + 1;
+            num_digits = self.scan_digits(10, 10) + 1;
         } else {
             num_digits = 0;
         }
@@ -712,7 +723,7 @@ impl<'a> StringReader<'a> {
             // with a number
             self.bump();
             if self.curr.unwrap_or('\0').is_digit(10) {
-                self.scan_digits(10);
+                self.scan_digits(10, 10);
                 self.scan_float_exponent();
             }
             let last_pos = self.last_pos;
@@ -742,6 +753,7 @@ impl<'a> StringReader<'a> {
         let start_bpos = self.last_pos;
         let mut accum_int = 0;
 
+        let mut valid = true;
         for _ in 0..n_digits {
             if self.is_eof() {
                 let last_bpos = self.last_pos;
@@ -750,6 +762,7 @@ impl<'a> StringReader<'a> {
             if self.curr_is(delim) {
                 let last_bpos = self.last_pos;
                 self.err_span_(start_bpos, last_bpos, "numeric character escape is too short");
+                valid = false;
                 break;
             }
             let c = self.curr.unwrap_or('\x00');
@@ -757,6 +770,8 @@ impl<'a> StringReader<'a> {
             accum_int += c.to_digit(16).unwrap_or_else(|| {
                 self.err_span_char(self.last_pos, self.pos,
                               "illegal character in numeric character escape", c);
+
+                valid = false;
                 0
             });
             self.bump();
@@ -767,10 +782,11 @@ impl<'a> StringReader<'a> {
                            self.last_pos,
                            "this form of character escape may only be used \
                             with characters in the range [\\x00-\\x7f]");
+            valid = false;
         }
 
         match char::from_u32(accum_int) {
-            Some(_) => true,
+            Some(_) => valid,
             None => {
                 let last_bpos = self.last_pos;
                 self.err_span_(start_bpos, last_bpos, "illegal numeric character escape");
@@ -799,7 +815,18 @@ impl<'a> StringReader<'a> {
                             'n' | 'r' | 't' | '\\' | '\'' | '"' | '0' => true,
                             'x' => self.scan_byte_escape(delim, !ascii_only),
                             'u' if self.curr_is('{') => {
-                                self.scan_unicode_escape(delim)
+                            let valid = self.scan_unicode_escape(delim);
+                            if valid && ascii_only {
+                                self.err_span_(
+                                    escaped_pos,
+                                    self.last_pos,
+                                    "unicode escape sequences cannot be used as a byte or in \
+                                    a byte string"
+                                );
+                                false
+                            } else {
+                               valid
+                            }
                             }
                             '\n' if delim == '"' => {
                                 self.consume_whitespace();
@@ -869,6 +896,7 @@ impl<'a> StringReader<'a> {
         let start_bpos = self.last_pos;
         let mut count = 0;
         let mut accum_int = 0;
+        let mut valid = true;
 
         while !self.curr_is('}') && count <= 6 {
             let c = match self.curr {
@@ -884,29 +912,30 @@ impl<'a> StringReader<'a> {
                     self.fatal_span_(self.last_pos, self.pos,
                                      "unterminated unicode escape (needed a `}`)");
                 } else {
-                    self.fatal_span_char(self.last_pos, self.pos,
+                    self.err_span_char(self.last_pos, self.pos,
                                    "illegal character in unicode escape", c);
                 }
+                valid = false;
+                0
             });
             self.bump();
             count += 1;
         }
 
         if count > 6 {
-            self.fatal_span_(start_bpos, self.last_pos,
+            self.err_span_(start_bpos, self.last_pos,
                           "overlong unicode escape (can have at most 6 hex digits)");
+            valid = false;
         }
 
         self.bump(); // past the ending }
 
-        let mut valid = count >= 1 && count <= 6;
-        if char::from_u32(accum_int).is_none() {
-            valid = false;
+        if valid && (char::from_u32(accum_int).is_none() || count == 0) {
+            self.err_span_(start_bpos, self.last_pos, "illegal unicode character escape");
+            valid= false;
         }
 
-        if !valid {
-            self.fatal_span_(start_bpos, self.last_pos, "illegal unicode character escape");
-        }
+
         valid
     }
 
@@ -917,7 +946,7 @@ impl<'a> StringReader<'a> {
             if self.curr_is('-') || self.curr_is('+') {
                 self.bump();
             }
-            if self.scan_digits(10) == 0 {
+            if self.scan_digits(10, 10) == 0 {
                 self.err_span_(self.last_pos, self.pos, "expected at least one digit in exponent")
             }
         }
@@ -1330,7 +1359,7 @@ impl<'a> StringReader<'a> {
                 "unterminated byte constant".to_string());
         }
 
-        let id = if valid { self.name_from(start) } else { token::intern("??") };
+        let id = if valid { self.name_from(start) } else { token::intern("?") };
         self.bump(); // advance curr past token
         return token::Byte(id);
     }

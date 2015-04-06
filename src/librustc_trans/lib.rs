@@ -30,7 +30,6 @@
 #![feature(box_syntax)]
 #![feature(collections)]
 #![feature(core)]
-#![feature(int_uint)]
 #![feature(libc)]
 #![feature(quote)]
 #![feature(rustc_diagnostic_macros)]
@@ -40,12 +39,10 @@
 #![feature(unicode)]
 #![feature(path_ext)]
 #![feature(fs)]
-#![feature(convert)]
 #![feature(path_relative_from)]
 #![feature(fs_ext)]
 
 #![allow(trivial_casts)]
-#![allow(trivial_numeric_casts)]
 
 extern crate arena;
 extern crate flate;
@@ -55,7 +52,7 @@ extern crate libc;
 extern crate rustc;
 extern crate rustc_back;
 extern crate serialize;
-extern crate "rustc_llvm" as llvm;
+extern crate rustc_llvm as llvm;
 
 #[macro_use] extern crate log;
 #[macro_use] extern crate syntax;

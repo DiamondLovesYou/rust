@@ -632,21 +632,12 @@ impl<V> VecMap<V> {
     /// ```
     /// # #![feature(collections)]
     /// use std::collections::VecMap;
-    /// use std::collections::vec_map::Entry;
     ///
     /// let mut count: VecMap<u32> = VecMap::new();
     ///
     /// // count the number of occurrences of numbers in the vec
-    /// for x in vec![1, 2, 1, 2, 3, 4, 1, 2, 4].iter() {
-    ///     match count.entry(*x) {
-    ///         Entry::Vacant(view) => {
-    ///             view.insert(1);
-    ///         },
-    ///         Entry::Occupied(mut view) => {
-    ///             let v = view.get_mut();
-    ///             *v += 1;
-    ///         },
-    ///     }
+    /// for x in vec![1, 2, 1, 2, 3, 4, 1, 2, 4] {
+    ///     *count.entry(x).or_insert(0) += 1;
     /// }
     ///
     /// assert_eq!(count[1], 3);
@@ -675,11 +666,35 @@ impl<V> VecMap<V> {
 impl<'a, V> Entry<'a, V> {
     #[unstable(feature = "collections",
                reason = "will soon be replaced by or_insert")]
+    #[deprecated(since = "1.0",
+                reason = "replaced with more ergonomic `or_insert` and `or_insert_with`")]
     /// Returns a mutable reference to the entry if occupied, or the VacantEntry if vacant
     pub fn get(self) -> Result<&'a mut V, VacantEntry<'a, V>> {
         match self {
             Occupied(entry) => Ok(entry.into_mut()),
             Vacant(entry) => Err(entry),
+        }
+    }
+
+    #[unstable(feature = "collections",
+               reason = "matches entry v3 specification, waiting for dust to settle")]
+    /// Ensures a value is in the entry by inserting the default if empty, and returns
+    /// a mutable reference to the value in the entry.
+    pub fn or_insert(self, default: V) -> &'a mut V {
+        match self {
+            Occupied(entry) => entry.into_mut(),
+            Vacant(entry) => entry.insert(default),
+        }
+    }
+
+    #[unstable(feature = "collections",
+               reason = "matches entry v3 specification, waiting for dust to settle")]
+    /// Ensures a value is in the entry by inserting the result of the default function if empty,
+    /// and returns a mutable reference to the value in the entry.
+    pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> &'a mut V {
+        match self {
+            Occupied(entry) => entry.into_mut(),
+            Vacant(entry) => entry.insert(default()),
         }
     }
 }
@@ -821,17 +836,6 @@ impl<V> Extend<(usize, V)> for VecMap<V> {
     }
 }
 
-#[cfg(stage0)]
-impl<V> Index<usize> for VecMap<V> {
-    type Output = V;
-
-    #[inline]
-    fn index<'a>(&'a self, i: &usize) -> &'a V {
-        self.get(i).expect("key not present")
-    }
-}
-
-#[cfg(not(stage0))]
 impl<V> Index<usize> for VecMap<V> {
     type Output = V;
 
@@ -841,7 +845,6 @@ impl<V> Index<usize> for VecMap<V> {
     }
 }
 
-#[cfg(not(stage0))]
 impl<'a,V> Index<&'a usize> for VecMap<V> {
     type Output = V;
 
@@ -851,16 +854,6 @@ impl<'a,V> Index<&'a usize> for VecMap<V> {
     }
 }
 
-#[cfg(stage0)]
-#[stable(feature = "rust1", since = "1.0.0")]
-impl<V> IndexMut<usize> for VecMap<V> {
-    #[inline]
-    fn index_mut(&mut self, i: &usize) -> &mut V {
-        self.get_mut(&i).expect("key not present")
-    }
-}
-
-#[cfg(not(stage0))]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<V> IndexMut<usize> for VecMap<V> {
     #[inline]
@@ -869,7 +862,6 @@ impl<V> IndexMut<usize> for VecMap<V> {
     }
 }
 
-#[cfg(not(stage0))]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, V> IndexMut<&'a usize> for VecMap<V> {
     #[inline]

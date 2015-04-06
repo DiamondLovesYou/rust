@@ -10,7 +10,7 @@
 
 // pretty-expanded FIXME #23616
 
-#![feature(old_orphan_check, rustc_private, old_io)]
+#![feature(rustc_private, old_io)]
 
 extern crate rbml;
 extern crate serialize;
@@ -32,7 +32,7 @@ struct Foo {
 
 #[derive(Encodable)]
 struct Bar {
-    froboz: uint,
+    froboz: usize,
 }
 
 enum WireProtocol {

@@ -25,7 +25,6 @@
 #![doc(test(no_crate_inject))]
 
 #![allow(trivial_casts)]
-#![allow(trivial_numeric_casts)]
 #![feature(alloc)]
 #![feature(box_syntax)]
 #![feature(box_patterns)]
@@ -36,10 +35,11 @@
 #![feature(unicode)]
 #![feature(unsafe_destructor)]
 #![feature(unique)]
-#![feature(unsafe_no_drop_flag)]
+#![feature(unsafe_no_drop_flag, filling_drop)]
 #![feature(step_by)]
 #![feature(str_char)]
-#![feature(convert)]
+#![feature(slice_patterns)]
+#![feature(debug_builders)]
 #![cfg_attr(test, feature(rand, rustc_private, test, hash, collections))]
 #![cfg_attr(test, allow(deprecated))] // rand
 
@@ -67,22 +67,6 @@ pub use string::String;
 pub use vec::Vec;
 pub use vec_map::VecMap;
 
-#[deprecated(since = "1.0.0", reason = "renamed to vec_deque")]
-#[unstable(feature = "collections")]
-pub use vec_deque as ring_buf;
-
-#[deprecated(since = "1.0.0", reason = "renamed to linked_list")]
-#[unstable(feature = "collections")]
-pub use linked_list as dlist;
-
-#[deprecated(since = "1.0.0", reason = "renamed to bit_vec")]
-#[unstable(feature = "collections")]
-pub use bit_vec as bitv;
-
-#[deprecated(since = "1.0.0", reason = "renamed to bit_set")]
-#[unstable(feature = "collections")]
-pub use bit_set as bitv_set;
-
 // Needed for the vec! macro
 pub use alloc::boxed;
 
@@ -107,10 +91,6 @@ pub mod vec_map;
            reason = "RFC 509")]
 pub mod bit_vec {
     pub use bit::{BitVec, Iter};
-
-    #[deprecated(since = "1.0.0", reason = "renamed to BitVec")]
-    #[unstable(feature = "collections")]
-    pub use bit::BitVec as Bitv;
 }
 
 #[unstable(feature = "collections",
@@ -118,10 +98,6 @@ pub mod bit_vec {
 pub mod bit_set {
     pub use bit::{BitSet, Union, Intersection, Difference, SymmetricDifference};
     pub use bit::SetIter as Iter;
-
-    #[deprecated(since = "1.0.0", reason = "renamed to BitSet")]
-    #[unstable(feature = "collections")]
-    pub use bit::BitSet as BitvSet;
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]

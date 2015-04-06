@@ -15,7 +15,7 @@ use hash;
 use io;
 use libc::{self, socklen_t, sa_family_t};
 use mem;
-use net::{lookup_host, ntoh, hton, Ipv4Addr, Ipv6Addr};
+use net::{lookup_host, ntoh, hton, IpAddr, Ipv4Addr, Ipv6Addr};
 use option;
 use sys_common::{FromInner, AsInner, IntoInner};
 use vec;
@@ -47,6 +47,24 @@ pub struct SocketAddrV4 { inner: libc::sockaddr_in }
 pub struct SocketAddrV6 { inner: libc::sockaddr_in6 }
 
 impl SocketAddr {
+    /// Creates a new socket address from the (ip, port) pair.
+    #[unstable(feature = "ip_addr", reason = "recent addition")]
+    pub fn new(ip: IpAddr, port: u16) -> SocketAddr {
+        match ip {
+            IpAddr::V4(a) => SocketAddr::V4(SocketAddrV4::new(a, port)),
+            IpAddr::V6(a) => SocketAddr::V6(SocketAddrV6::new(a, port, 0, 0)),
+        }
+    }
+
+    /// Gets the IP address associated with this socket address.
+    #[unstable(feature = "ip_addr", reason = "recent addition")]
+    pub fn ip(&self) -> IpAddr {
+        match *self {
+            SocketAddr::V4(ref a) => IpAddr::V4(*a.ip()),
+            SocketAddr::V6(ref a) => IpAddr::V6(*a.ip()),
+        }
+    }
+
     /// Gets the port number associated with this socket address
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn port(&self) -> u16 {
@@ -334,6 +352,18 @@ impl ToSocketAddrs for SocketAddrV6 {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
+impl ToSocketAddrs for (IpAddr, u16) {
+    type Iter = option::IntoIter<SocketAddr>;
+    fn to_socket_addrs(&self) -> io::Result<option::IntoIter<SocketAddr>> {
+        let (ip, port) = *self;
+        match ip {
+            IpAddr::V4(ref a) => (*a, port).to_socket_addrs(),
+            IpAddr::V6(ref a) => (*a, port).to_socket_addrs(),
+        }
+    }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
 impl ToSocketAddrs for (Ipv4Addr, u16) {
     type Iter = option::IntoIter<SocketAddr>;
     fn to_socket_addrs(&self) -> io::Result<option::IntoIter<SocketAddr>> {
@@ -405,13 +435,13 @@ impl ToSocketAddrs for str {
                 match $e {
                     Some(r) => r,
                     None => return Err(io::Error::new(io::ErrorKind::InvalidInput,
-                                                      $msg, None)),
+                                                      $msg)),
                 }
             )
         }
 
         // split the string by ':' and convert the second part to u16
-        let mut parts_iter = self.rsplitn(1, ':');
+        let mut parts_iter = self.rsplitn(2, ':');
         let port_str = try_opt!(parts_iter.next(), "invalid socket address");
         let host = try_opt!(parts_iter.next(), "invalid socket address");
         let port: u16 = try_opt!(port_str.parse().ok(), "invalid port value");
@@ -667,8 +697,11 @@ mod tests {
               false, false, false, true,  false, false, false, Some(Global));
     }
 
-    fn tsa<A: ToSocketAddrs>(a: A) -> io::Result<Vec<SocketAddr>> {
-        Ok(try!(a.to_socket_addrs()).collect())
+    fn tsa<A: ToSocketAddrs>(a: A) -> Result<Vec<SocketAddr>, String> {
+        match a.to_socket_addrs() {
+            Ok(a) => Ok(a.collect()),
+            Err(e) => Err(e.to_string()),
+        }
     }
 
     #[test]

@@ -13,14 +13,14 @@
 // pretty-expanded FIXME #23616
 
 trait Trait {
-    fn foo(&self) -> int;
+    fn foo(&self) -> isize;
 }
 
 struct A {
-    f: int
+    f: isize
 }
 impl Trait for A {
-    fn foo(&self) -> int {
+    fn foo(&self) -> isize {
         self.f
     }
 }
@@ -56,7 +56,7 @@ pub fn main() {
     }
 
     // raw slice with explicit cast
-    let a = &[1, 2, 3] as *const [_];
+    let a = &[1, 2, 3] as *const [i32];
     unsafe {
         let b = (*a)[2];
         assert!(b == 3);
@@ -96,7 +96,7 @@ pub fn main() {
         assert!(len == 3);
     }
 
-    let a = &mut [1, 2, 3] as *mut [_];
+    let a = &mut [1, 2, 3] as *mut [i32];
     unsafe {
         let b = (*a)[2];
         assert!(b == 3);

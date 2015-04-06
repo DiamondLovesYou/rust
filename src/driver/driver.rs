@@ -12,13 +12,13 @@
 #![cfg_attr(rustdoc, feature(rustdoc))]
 
 #[cfg(rustdoc)]
-extern crate "rustdoc" as this;
+extern crate rustdoc as this;
 
 #[cfg(rustc)]
-extern crate "rustc_driver" as this;
+extern crate rustc_driver as this;
 
 #[cfg(rust_pnacl_trans)]
-extern crate "rust_pnacl_trans" as this;
+extern crate rust_pnacl_trans as this;
 
 fn main() { this::main() }
 

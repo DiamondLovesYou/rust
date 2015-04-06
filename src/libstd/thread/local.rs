@@ -199,7 +199,7 @@ macro_rules! __thread_local_inner {
 /// Indicator of the state of a thread local storage key.
 #[unstable(feature = "std_misc",
            reason = "state querying was recently added")]
-#[derive(Eq, PartialEq, Copy)]
+#[derive(Eq, PartialEq, Copy, Clone)]
 pub enum LocalKeyState {
     /// All keys are in this state whenever a thread starts. Keys will
     /// transition to the `Valid` state once the first call to `with` happens
@@ -296,12 +296,6 @@ impl<T: 'static> LocalKey<T> {
             }
         }
     }
-
-    /// Deprecated
-    #[unstable(feature = "std_misc")]
-    #[deprecated(since = "1.0.0",
-                 reason = "function renamed to state() and returns more info")]
-    pub fn destroyed(&'static self) -> bool { self.state() == LocalKeyState::Destroyed }
 }
 
 #[cfg(all(any(target_os = "macos", target_os = "linux",

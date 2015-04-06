@@ -38,7 +38,7 @@
 //! [sieve]: http://en.wikipedia.org/wiki/Sieve_of_Eratosthenes
 //!
 //! ```
-//! # #![feature(collections, core)]
+//! # #![feature(collections, core, step_by)]
 //! use std::collections::{BitSet, BitVec};
 //! use std::num::Float;
 //! use std::iter;
@@ -60,7 +60,7 @@
 //!         if bv[i] {
 //!             // Mark all multiples of i as non-prime (any multiples below i * i
 //!             // will have been marked as non-prime previously)
-//!             for j in iter::range_step(i * i, max_prime, i) { bv.set(j, false) }
+//!             for j in (i * i..max_prime).step_by(i) { bv.set(j, false) }
 //!         }
 //!     }
 //!     BitSet::from_bit_vec(bv)
@@ -91,7 +91,6 @@ use core::hash;
 use core::iter::RandomAccessIterator;
 use core::iter::{Chain, Enumerate, Repeat, Skip, Take, repeat, Cloned};
 use core::iter::{self, FromIterator, IntoIterator};
-use core::num::Int;
 use core::ops::Index;
 use core::slice;
 use core::{u8, u32, usize};
@@ -171,18 +170,6 @@ pub struct BitVec {
 impl Index<usize> for BitVec {
     type Output = bool;
 
-
-    #[cfg(stage0)]
-    #[inline]
-    fn index(&self, i: &usize) -> &bool {
-        if self.get(*i).expect("index out of bounds") {
-            &TRUE
-        } else {
-            &FALSE
-        }
-    }
-
-    #[cfg(not(stage0))]
     #[inline]
     fn index(&self, i: usize) -> &bool {
         if self.get(i).expect("index out of bounds") {
@@ -203,17 +190,17 @@ fn blocks_for_bits(bits: usize) -> usize {
     //
     // Note that we can technically avoid this branch with the expression
     // `(nbits + u32::BITS - 1) / 32::BITS`, but if nbits is almost usize::MAX this will overflow.
-    if bits % u32::BITS as usize == 0 {
-        bits / u32::BITS as usize
+    if bits % u32::BITS == 0 {
+        bits / u32::BITS
     } else {
-        bits / u32::BITS as usize + 1
+        bits / u32::BITS + 1
     }
 }
 
 /// Computes the bitmask for the final word of the vector
 fn mask_for_bits(bits: usize) -> u32 {
     // Note especially that a perfect multiple of u32::BITS should mask all 1s.
-    !0 >> (u32::BITS as usize - bits % u32::BITS as usize) % u32::BITS as usize
+    !0 >> (u32::BITS - bits % u32::BITS) % u32::BITS
 }
 
 impl BitVec {
@@ -251,7 +238,7 @@ impl BitVec {
     /// An operation might screw up the unused bits in the last block of the
     /// `BitVec`. As per (3), it's assumed to be all 0s. This method fixes it up.
     fn fix_last_block(&mut self) {
-        let extra_bits = self.len() % u32::BITS as usize;
+        let extra_bits = self.len() % u32::BITS;
         if extra_bits > 0 {
             let mask = (1 << extra_bits) - 1;
             let storage_len = self.storage.len();
@@ -330,7 +317,7 @@ impl BitVec {
     ///                     false, false, true, false]));
     /// ```
     pub fn from_bytes(bytes: &[u8]) -> BitVec {
-        let len = bytes.len().checked_mul(u8::BITS as usize).expect("capacity overflow");
+        let len = bytes.len().checked_mul(u8::BITS).expect("capacity overflow");
         let mut bit_vec = BitVec::with_capacity(len);
         let complete_words = bytes.len() / 4;
         let extra_bytes = bytes.len() % 4;
@@ -399,8 +386,8 @@ impl BitVec {
         if i >= self.nbits {
             return None;
         }
-        let w = i / u32::BITS as usize;
-        let b = i % u32::BITS as usize;
+        let w = i / u32::BITS;
+        let b = i % u32::BITS;
         self.storage.get(w).map(|&block|
             (block & (1 << b)) != 0
         )
@@ -427,8 +414,8 @@ impl BitVec {
                reason = "panic semantics are likely to change in the future")]
     pub fn set(&mut self, i: usize, x: bool) {
         assert!(i < self.nbits);
-        let w = i / u32::BITS as usize;
-        let b = i % u32::BITS as usize;
+        let w = i / u32::BITS;
+        let b = i % u32::BITS;
         let flag = 1 << b;
         let val = if x { self.storage[w] | flag }
                   else { self.storage[w] & !flag };
@@ -824,7 +811,7 @@ impl BitVec {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn capacity(&self) -> usize {
-        self.storage.capacity().checked_mul(u32::BITS as usize).unwrap_or(usize::MAX)
+        self.storage.capacity().checked_mul(u32::BITS).unwrap_or(usize::MAX)
     }
 
     /// Grows the `BitVec` in-place, adding `n` copies of `value` to the `BitVec`.
@@ -855,7 +842,7 @@ impl BitVec {
 
         // Correct the old tail word, setting or clearing formerly unused bits
         let num_cur_blocks = blocks_for_bits(self.nbits);
-        if self.nbits % u32::BITS as usize > 0 {
+        if self.nbits % u32::BITS > 0 {
             let mask = mask_for_bits(self.nbits);
             if value {
                 self.storage[num_cur_blocks - 1] |= !mask;
@@ -905,7 +892,7 @@ impl BitVec {
             // (3)
             self.set(i, false);
             self.nbits = i;
-            if self.nbits % u32::BITS as usize == 0 {
+            if self.nbits % u32::BITS == 0 {
                 // (2)
                 self.storage.pop();
             }
@@ -928,7 +915,7 @@ impl BitVec {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn push(&mut self, elem: bool) {
-        if self.nbits % u32::BITS as usize == 0 {
+        if self.nbits % u32::BITS == 0 {
             self.storage.push(0);
         }
         let insert_pos = self.nbits;
@@ -1277,14 +1264,6 @@ impl BitSet {
         BitSet { bit_vec: bit_vec }
     }
 
-    /// Deprecated: use `from_bit_vec`.
-    #[inline]
-    #[deprecated(since = "1.0.0", reason = "renamed to from_bit_vec")]
-    #[unstable(feature = "collections")]
-    pub fn from_bitv(bit_vec: BitVec) -> BitSet {
-        BitSet { bit_vec: bit_vec }
-    }
-
     /// Returns the capacity in bits for this bit vector. Inserting any
     /// element less than this amount will not trigger a resizing.
     ///
@@ -1454,7 +1433,7 @@ impl BitSet {
         // Truncate
         let trunc_len = cmp::max(old_len - n, 1);
         bit_vec.storage.truncate(trunc_len);
-        bit_vec.nbits = trunc_len * u32::BITS as usize;
+        bit_vec.nbits = trunc_len * u32::BITS;
     }
 
     /// Iterator over each u32 stored in the `BitSet`.
@@ -1892,13 +1871,13 @@ impl<'a> Iterator for TwoBitPositions<'a> {
     fn next(&mut self) -> Option<usize> {
         while self.next_idx < self.set.bit_vec.len() ||
               self.next_idx < self.other.bit_vec.len() {
-            let bit_idx = self.next_idx % u32::BITS as usize;
+            let bit_idx = self.next_idx % u32::BITS;
             if bit_idx == 0 {
                 let s_bit_vec = &self.set.bit_vec;
                 let o_bit_vec = &self.other.bit_vec;
                 // Merging the two words is a bit of an awkward dance since
                 // one BitVec might be longer than the other
-                let word_idx = self.next_idx / u32::BITS as usize;
+                let word_idx = self.next_idx / u32::BITS;
                 let w1 = if word_idx < s_bit_vec.storage.len() {
                              s_bit_vec.storage[word_idx]
                          } else { 0 };

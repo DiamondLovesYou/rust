@@ -282,7 +282,7 @@ pub fn find_crate_name(attrs: &[Attribute]) -> Option<InternedString> {
     first_attr_value_str_by_name(attrs, "crate_name")
 }
 
-#[derive(Copy, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum InlineAttr {
     None,
     Hint,
@@ -565,15 +565,13 @@ fn int_type_of_word(s: &str) -> Option<IntType> {
         "u32" => Some(UnsignedInt(ast::TyU32)),
         "i64" => Some(SignedInt(ast::TyI64)),
         "u64" => Some(UnsignedInt(ast::TyU64)),
-        "int" => Some(SignedInt(ast::TyIs(true))),
-        "uint" => Some(UnsignedInt(ast::TyUs(true))),
-        "isize" => Some(SignedInt(ast::TyIs(false))),
-        "usize" => Some(UnsignedInt(ast::TyUs(false))),
+        "isize" => Some(SignedInt(ast::TyIs)),
+        "usize" => Some(UnsignedInt(ast::TyUs)),
         _ => None
     }
 }
 
-#[derive(PartialEq, Debug, RustcEncodable, RustcDecodable, Copy)]
+#[derive(PartialEq, Debug, RustcEncodable, RustcDecodable, Copy, Clone)]
 pub enum ReprAttr {
     ReprAny,
     ReprInt(Span, IntType),
@@ -592,7 +590,7 @@ impl ReprAttr {
     }
 }
 
-#[derive(Eq, Hash, PartialEq, Debug, RustcEncodable, RustcDecodable, Copy)]
+#[derive(Eq, Hash, PartialEq, Debug, RustcEncodable, RustcDecodable, Copy, Clone)]
 pub enum IntType {
     SignedInt(ast::IntTy),
     UnsignedInt(ast::UintTy)
@@ -612,7 +610,7 @@ impl IntType {
             SignedInt(ast::TyI16) | UnsignedInt(ast::TyU16) |
             SignedInt(ast::TyI32) | UnsignedInt(ast::TyU32) |
             SignedInt(ast::TyI64) | UnsignedInt(ast::TyU64) => true,
-            SignedInt(ast::TyIs(_)) | UnsignedInt(ast::TyUs(_)) => false
+            SignedInt(ast::TyIs) | UnsignedInt(ast::TyUs) => false
         }
     }
 }

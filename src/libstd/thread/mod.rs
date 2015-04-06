@@ -189,8 +189,6 @@ use sys_common::{stack, thread_info};
 use thunk::Thunk;
 use time::Duration;
 
-#[allow(deprecated)] use old_io::Writer;
-
 ////////////////////////////////////////////////////////////////////////////////
 // Thread-local storage
 ////////////////////////////////////////////////////////////////////////////////
@@ -243,28 +241,6 @@ impl Builder {
         self
     }
 
-    /// Redirect thread-local stdout.
-    #[unstable(feature = "std_misc",
-               reason = "Will likely go away after proc removal")]
-    #[deprecated(since = "1.0.0",
-                 reason = "the old I/O module is deprecated and this function \
-                           will be removed with no replacement")]
-    #[allow(deprecated)]
-    pub fn stdout(self, _stdout: Box<Writer + Send + 'static>) -> Builder {
-        self
-    }
-
-    /// Redirect thread-local stderr.
-    #[unstable(feature = "std_misc",
-               reason = "Will likely go away after proc removal")]
-    #[deprecated(since = "1.0.0",
-                 reason = "the old I/O module is deprecated and this function \
-                           will be removed with no replacement")]
-    #[allow(deprecated)]
-    pub fn stderr(self, _stderr: Box<Writer + Send + 'static>) -> Builder {
-        self
-    }
-
     /// Spawn a new thread, and return a join handle for it.
     ///
     /// The child thread may outlive the parent (unless the parent thread
@@ -281,7 +257,7 @@ impl Builder {
     pub fn spawn<F>(self, f: F) -> io::Result<JoinHandle> where
         F: FnOnce(), F: Send + 'static
     {
-        self.spawn_inner(Thunk::new(f)).map(|i| JoinHandle(i))
+        self.spawn_inner(Box::new(f)).map(|i| JoinHandle(i))
     }
 
     /// Spawn a new child thread that must be joined within a given
@@ -303,7 +279,7 @@ impl Builder {
     pub fn scoped<'a, T, F>(self, f: F) -> io::Result<JoinGuard<'a, T>> where
         T: Send + 'a, F: FnOnce() -> T, F: Send + 'a
     {
-        self.spawn_inner(Thunk::new(f)).map(|inner| {
+        self.spawn_inner(Box::new(f)).map(|inner| {
             JoinGuard { inner: inner, _marker: PhantomData }
         })
     }
@@ -339,7 +315,7 @@ impl Builder {
                 thread_info::set(imp::guard::current(), their_thread);
             }
 
-            let mut output = None;
+            let mut output: Option<T> = None;
             let try_result = {
                 let ptr = &mut output;
 
@@ -351,7 +327,11 @@ impl Builder {
                 // 'unwinding' flag in the thread itself. For these reasons,
                 // this unsafety should be ok.
                 unsafe {
-                    unwind::try(move || *ptr = Some(f.invoke(())))
+                    unwind::try(move || {
+                        let f: Thunk<(), T> = f;
+                        let v: T = f();
+                        *ptr = Some(v)
+                    })
                 }
             };
             unsafe {
@@ -364,7 +344,7 @@ impl Builder {
         };
 
         Ok(JoinInner {
-            native: try!(unsafe { imp::create(stack_size, Thunk::new(main)) }),
+            native: try!(unsafe { imp::create(stack_size, Box::new(main)) }),
             thread: my_thread,
             packet: my_packet,
             joined: false,
@@ -434,15 +414,71 @@ pub fn panicking() -> bool {
     unwind::panicking()
 }
 
+/// Invoke a closure, capturing the cause of panic if one occurs.
+///
+/// This function will return `Ok(())` if the closure does not panic, and will
+/// return `Err(cause)` if the closure panics. The `cause` returned is the
+/// object with which panic was originally invoked.
+///
+/// It is currently undefined behavior to unwind from Rust code into foreign
+/// code, so this function is particularly useful when Rust is called from
+/// another language (normally C). This can run arbitrary Rust code, capturing a
+/// panic and allowing a graceful handling of the error.
+///
+/// It is **not** recommended to use this function for a general try/catch
+/// mechanism. The `Result` type is more appropriate to use for functions that
+/// can fail on a regular basis.
+///
+/// The closure provided is required to adhere to the `'static` bound to ensure
+/// that it cannot reference data in the parent stack frame, mitigating problems
+/// with exception safety. Furthermore, a `Send` bound is also required,
+/// providing the same safety guarantees as `thread::spawn` (ensuring the
+/// closure is properly isolated from the parent).
+///
+/// # Examples
+///
+/// ```
+/// # #![feature(catch_panic)]
+/// use std::thread;
+///
+/// let result = thread::catch_panic(|| {
+///     println!("hello!");
+/// });
+/// assert!(result.is_ok());
+///
+/// let result = thread::catch_panic(|| {
+///     panic!("oh no!");
+/// });
+/// assert!(result.is_err());
+/// ```
+#[unstable(feature = "catch_panic", reason = "recent API addition")]
+pub fn catch_panic<F, R>(f: F) -> Result<R>
+    where F: FnOnce() -> R + Send + 'static
+{
+    let mut result = None;
+    unsafe {
+        let result = &mut result;
+        try!(::rt::unwind::try(move || *result = Some(f())))
+    }
+    Ok(result.unwrap())
+}
+
 /// Put the current thread to sleep for the specified amount of time.
 ///
 /// The thread may sleep longer than the duration specified due to scheduling
 /// specifics or platform-dependent functionality. Note that on unix platforms
 /// this function will not return early due to a signal being received or a
 /// spurious wakeup.
+#[stable(feature = "rust1", since = "1.0.0")]
+pub fn sleep_ms(ms: u32) {
+    imp::sleep(Duration::milliseconds(ms as i64))
+}
+
+/// Deprecated: use `sleep_ms` instead.
 #[unstable(feature = "thread_sleep",
            reason = "recently added, needs an RFC, and `Duration` itself is \
                      unstable")]
+#[deprecated(since = "1.0.0", reason = "use sleep_ms instead")]
 pub fn sleep(dur: Duration) {
     imp::sleep(dur)
 }
@@ -476,15 +512,22 @@ pub fn park() {
 /// amount of time waited to be precisely *duration* long.
 ///
 /// See the module doc for more detail.
-#[unstable(feature = "std_misc", reason = "recently introduced, depends on Duration")]
-pub fn park_timeout(duration: Duration) {
+#[stable(feature = "rust1", since = "1.0.0")]
+pub fn park_timeout_ms(ms: u32) {
     let thread = current();
     let mut guard = thread.inner.lock.lock().unwrap();
     if !*guard {
-        let (g, _) = thread.inner.cvar.wait_timeout(guard, duration).unwrap();
+        let (g, _) = thread.inner.cvar.wait_timeout_ms(guard, ms).unwrap();
         guard = g;
     }
     *guard = false;
+}
+
+/// Deprecated: use `park_timeout_ms`
+#[unstable(feature = "std_misc", reason = "recently introduced, depends on Duration")]
+#[deprecated(since = "1.0.0", reason = "use park_timeout_ms instead")]
+pub fn park_timeout(duration: Duration) {
+    park_timeout_ms(duration.num_milliseconds() as u32)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -517,71 +560,6 @@ impl Thread {
                 cvar: Condvar::new(),
             })
         }
-    }
-
-    /// Deprecated: use module-level free function.
-    #[deprecated(since = "1.0.0", reason = "use module-level free function")]
-    #[unstable(feature = "std_misc",
-               reason = "may change with specifics of new Send semantics")]
-    pub fn spawn<F>(f: F) -> Thread where F: FnOnce(), F: Send + 'static {
-        Builder::new().spawn(f).unwrap().thread().clone()
-    }
-
-    /// Deprecated: use module-level free function.
-    #[deprecated(since = "1.0.0", reason = "use module-level free function")]
-    #[unstable(feature = "std_misc",
-               reason = "may change with specifics of new Send semantics")]
-    pub fn scoped<'a, T, F>(f: F) -> JoinGuard<'a, T> where
-        T: Send + 'a, F: FnOnce() -> T, F: Send + 'a
-    {
-        Builder::new().scoped(f).unwrap()
-    }
-
-    /// Deprecated: use module-level free function.
-    #[deprecated(since = "1.0.0", reason = "use module-level free function")]
-    #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn current() -> Thread {
-        thread_info::current_thread()
-    }
-
-    /// Deprecated: use module-level free function.
-    #[deprecated(since = "1.0.0", reason = "use module-level free function")]
-    #[unstable(feature = "std_misc", reason = "name may change")]
-    pub fn yield_now() {
-        unsafe { imp::yield_now() }
-    }
-
-    /// Deprecated: use module-level free function.
-    #[deprecated(since = "1.0.0", reason = "use module-level free function")]
-    #[inline]
-    #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn panicking() -> bool {
-        unwind::panicking()
-    }
-
-    /// Deprecated: use module-level free function.
-    #[deprecated(since = "1.0.0", reason = "use module-level free function")]
-    #[unstable(feature = "std_misc", reason = "recently introduced")]
-    pub fn park() {
-        let thread = current();
-        let mut guard = thread.inner.lock.lock().unwrap();
-        while !*guard {
-            guard = thread.inner.cvar.wait(guard).unwrap();
-        }
-        *guard = false;
-    }
-
-    /// Deprecated: use module-level free function.
-    #[deprecated(since = "1.0.0", reason = "use module-level free function")]
-    #[unstable(feature = "std_misc", reason = "recently introduced")]
-    pub fn park_timeout(duration: Duration) {
-        let thread = current();
-        let mut guard = thread.inner.lock.lock().unwrap();
-        if !*guard {
-            let (g, _) = thread.inner.cvar.wait_timeout(guard, duration).unwrap();
-            guard = g;
-        }
-        *guard = false;
     }
 
     /// Atomically makes the handle's token available if it is not already.
@@ -713,8 +691,8 @@ impl<'a, T: Send + 'a> JoinGuard<'a, T> {
         &self.inner.thread
     }
 
-    /// Wait for the associated thread to finish, returning the result of the thread's
-    /// calculation.
+    /// Wait for the associated thread to finish, returning the result of the
+    /// thread's calculation.
     ///
     /// # Panics
     ///
@@ -725,17 +703,6 @@ impl<'a, T: Send + 'a> JoinGuard<'a, T> {
             Ok(res) => res,
             Err(_) => panic!("child thread {:?} panicked", self.thread()),
         }
-    }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
-impl<T: Send> JoinGuard<'static, T> {
-    /// Detaches the child thread, allowing it to outlive its parent.
-    #[deprecated(since = "1.0.0", reason = "use spawn instead")]
-    #[unstable(feature = "std_misc")]
-    pub fn detach(mut self) {
-        unsafe { imp::detach(self.inner.native) };
-        self.inner.joined = true; // avoid joining in the destructor
     }
 }
 
@@ -761,13 +728,13 @@ mod test {
 
     use any::Any;
     use sync::mpsc::{channel, Sender};
-    use boxed::BoxAny;
     use result;
     use std::old_io::{ChanReader, ChanWriter};
     use super::{Builder};
     use thread;
     use thunk::Thunk;
     use time::Duration;
+    use u32;
 
     // !!! These tests are dangerous. If something is buggy, they will hang, !!!
     // !!! instead of exiting cleanly. This might wedge the buildbots.       !!!
@@ -821,13 +788,13 @@ mod test {
     }
 
     #[test]
-    #[should_fail]
+    #[should_panic]
     fn test_scoped_panic() {
         thread::scoped(|| panic!()).join();
     }
 
     #[test]
-    #[should_fail]
+    #[should_panic]
     fn test_scoped_implicit_panic() {
         let _ = thread::scoped(|| panic!());
     }
@@ -872,7 +839,7 @@ mod test {
         let x: Box<_> = box 1;
         let x_in_parent = (&*x) as *const i32 as usize;
 
-        spawnfn(Thunk::new(move|| {
+        spawnfn(Box::new(move|| {
             let x_in_child = (&*x) as *const i32 as usize;
             tx.send(x_in_child).unwrap();
         }));
@@ -884,7 +851,7 @@ mod test {
     #[test]
     fn test_avoid_copying_the_body_spawn() {
         avoid_copying_the_body(|v| {
-            thread::spawn(move || v.invoke(()));
+            thread::spawn(move || v());
         });
     }
 
@@ -892,7 +859,7 @@ mod test {
     fn test_avoid_copying_the_body_thread_spawn() {
         avoid_copying_the_body(|f| {
             thread::spawn(move|| {
-                f.invoke(());
+                f();
             });
         })
     }
@@ -901,7 +868,7 @@ mod test {
     fn test_avoid_copying_the_body_join() {
         avoid_copying_the_body(|f| {
             let _ = thread::spawn(move|| {
-                f.invoke(())
+                f()
             }).join();
         })
     }
@@ -914,13 +881,13 @@ mod test {
         // valgrind-friendly. try this at home, instead..!)
         const GENERATIONS: u32 = 16;
         fn child_no(x: u32) -> Thunk<'static> {
-            return Thunk::new(move|| {
+            return Box::new(move|| {
                 if x < GENERATIONS {
-                    thread::spawn(move|| child_no(x+1).invoke(()));
+                    thread::spawn(move|| child_no(x+1)());
                 }
             });
         }
-        thread::spawn(|| child_no(0).invoke(()));
+        thread::spawn(|| child_no(0)());
     }
 
     #[test]
@@ -988,14 +955,14 @@ mod test {
     fn test_park_timeout_unpark_before() {
         for _ in 0..10 {
             thread::current().unpark();
-            thread::park_timeout(Duration::seconds(10_000_000));
+            thread::park_timeout_ms(u32::MAX);
         }
     }
 
     #[test]
     fn test_park_timeout_unpark_not_called() {
         for _ in 0..10 {
-            thread::park_timeout(Duration::milliseconds(10));
+            thread::park_timeout_ms(10);
         }
     }
 
@@ -1011,14 +978,13 @@ mod test {
                 th.unpark();
             });
 
-            thread::park_timeout(Duration::seconds(10_000_000));
+            thread::park_timeout_ms(u32::MAX);
         }
     }
 
     #[test]
-    fn sleep_smoke() {
-        thread::sleep(Duration::milliseconds(2));
-        thread::sleep(Duration::milliseconds(-2));
+    fn sleep_ms_smoke() {
+        thread::sleep_ms(2);
     }
 
     // NOTE: the corresponding test for stderr is in run-pass/task-stderr, due

@@ -288,6 +288,7 @@ VAL_OPTIONS=""
 flag uninstall "only uninstall from the installation prefix"
 valopt prefix "" "set installation prefix"
 valopt date "" "use the YYYY-MM-DD nightly instead of the current nightly"
+valopt channel "beta" "use the selected release channel [beta]"
 flag save "save the downloaded nightlies to ~/.rustup"
 
 if [ $HELP -eq 1 ]
@@ -307,7 +308,7 @@ CFG_CPUTYPE=$(uname -m)
 
 if [ $CFG_OSTYPE = Darwin -a $CFG_CPUTYPE = i386 ]
 then
-    # Darwin's `uname -s` lies and always returns i386. We have to use sysctl
+    # Darwin's `uname -m` lies and always returns i386. We have to use sysctl
     # instead.
     if sysctl hw.optional.x86_64 | grep -q ': 1'
     then
@@ -335,7 +336,7 @@ case $CFG_OSTYPE in
     MINGW32*)
         CFG_OSTYPE=pc-mingw32
         ;;
-# Thad's Cygwin identifers below
+# Thad's Cygwin identifiers below
 
 #   Vista 32 bit
     CYGWIN_NT-6.0)
@@ -437,7 +438,7 @@ CFG_TMP_DIR=$(mktemp -d 2>/dev/null \
            || create_tmp_dir)
 
 # If we're saving nightlies and we didn't specify which one, grab the latest
-# verison from the perspective of the server. Buildbot has typically finished
+# version from the perspective of the server. Buildbot has typically finished
 # building and uploading by ~8UTC, but we want to include a little buffer.
 #
 # FIXME It would be better to use the known most recent nightly that has been
@@ -449,17 +450,27 @@ then
 fi
 
 RUST_URL="https://static.rust-lang.org/dist"
-RUST_PACKAGE_NAME=rust-nightly
+case "$CFG_CHANNEL" in
+    nightly)
+        # add a date suffix if we want a particular nightly.
+        if [ -n "${CFG_DATE}" ];
+        then
+            RUST_URL="${RUST_URL}/${CFG_DATE}"
+        fi
+
+        RUST_PACKAGE_NAME=rust-nightly
+        ;;
+    beta)
+        RUST_PACKAGE_NAME=rust-1.0.0-beta
+        ;;
+    *)
+        err "Currently 'beta' and 'nightly' are the only supported channels"
+esac
+
 RUST_PACKAGE_NAME_AND_TRIPLE="${RUST_PACKAGE_NAME}-${HOST_TRIPLE}"
 RUST_TARBALL_NAME="${RUST_PACKAGE_NAME_AND_TRIPLE}.tar.gz"
 RUST_LOCAL_INSTALL_DIR="${CFG_TMP_DIR}/${RUST_PACKAGE_NAME_AND_TRIPLE}"
 RUST_LOCAL_INSTALL_SCRIPT="${RUST_LOCAL_INSTALL_DIR}/install.sh"
-
-# add a date suffix if we want a particular nighly.
-if [ -n "${CFG_DATE}" ];
-then
-    RUST_URL="${RUST_URL}/${CFG_DATE}"
-fi
 
 download_hash() {
     msg "Downloading ${remote_sha256}"

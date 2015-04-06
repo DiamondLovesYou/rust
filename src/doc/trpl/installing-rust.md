@@ -6,21 +6,21 @@ Linux or a Mac, all you need to do is this (note that you don't need to type
 in the `$`s, they just indicate the start of each command):
 
 ```bash
-$ curl -L https://static.rust-lang.org/rustup.sh | sudo sh
+$ curl -sf -L https://static.rust-lang.org/rustup.sh | sudo sh
 ```
 
 If you're concerned about the [potential insecurity](http://curlpipesh.tumblr.com/) of using `curl | sudo sh`,
 please keep reading and see our disclaimer below. And feel free to use a two-step version of the installation and examine our installation script:
 
 ```bash
-$ curl -L https://static.rust-lang.org/rustup.sh -O
+$ curl -f -L https://static.rust-lang.org/rustup.sh -O
 $ sudo sh rustup.sh
 ```
 
 If you're on Windows, please download either the [32-bit
-installer](https://static.rust-lang.org/dist/rust-nightly-i686-pc-windows-gnu.exe)
+installer](https://static.rust-lang.org/dist/rust-1.0.0-beta-i686-pc-windows-gnu.exe)
 or the [64-bit
-installer](https://static.rust-lang.org/dist/rust-nightly-x86_64-pc-windows-gnu.exe)
+installer](https://static.rust-lang.org/dist/rust-1.0.0-beta-x86_64-pc-windows-gnu.exe)
 and run it.
 
 If you decide you don't want Rust anymore, we'll be a bit sad, but that's okay.

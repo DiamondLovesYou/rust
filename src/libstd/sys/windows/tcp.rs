@@ -15,6 +15,7 @@ use prelude::v1::*;
 use old_io::net::ip;
 use old_io::IoResult;
 use libc;
+use libc::consts::os::extra::INVALID_SOCKET;
 use mem;
 use ptr;
 use super::{last_error, last_net_error, sock_t};
@@ -77,7 +78,7 @@ impl TcpListener {
 
     pub fn socket(&self) -> sock_t { self.sock }
 
-    pub fn listen(self, backlog: int) -> IoResult<TcpAcceptor> {
+    pub fn listen(self, backlog: isize) -> IoResult<TcpAcceptor> {
         match unsafe { libc::listen(self.socket(), backlog as libc::c_int) } {
             -1 => Err(last_net_error()),
 
@@ -183,8 +184,8 @@ impl TcpAcceptor {
             match unsafe {
                 libc::accept(self.socket(), ptr::null_mut(), ptr::null_mut())
             } {
-                -1 if wouldblock() => {}
-                -1 => return Err(last_net_error()),
+                INVALID_SOCKET if wouldblock() => {}
+                INVALID_SOCKET => return Err(last_net_error()),
 
                 // Accepted sockets inherit the same properties as the caller,
                 // so we need to deregister our event and switch the socket back

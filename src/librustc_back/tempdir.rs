@@ -11,7 +11,7 @@
 use std::env;
 use std::io::{self, Error, ErrorKind};
 use std::fs;
-use std::path::{self, PathBuf, AsPath};
+use std::path::{self, PathBuf, Path};
 use std::rand::{thread_rng, Rng};
 
 /// A wrapper for a path to temporary directory implementing automatic
@@ -27,7 +27,7 @@ const NUM_RETRIES: u32 = 1 << 31;
 // be enough to dissuade an attacker from trying to preemptively create names
 // of that length, but not so huge that we unnecessarily drain the random number
 // generator of entropy.
-const NUM_RAND_CHARS: uint = 12;
+const NUM_RAND_CHARS: usize = 12;
 
 impl TempDir {
     /// Attempts to make a temporary directory inside of `tmpdir` whose name
@@ -36,10 +36,10 @@ impl TempDir {
     ///
     /// If no directory can be created, `Err` is returned.
     #[allow(deprecated)] // rand usage
-    pub fn new_in<P: AsPath + ?Sized>(tmpdir: &P, prefix: &str)
-                                      -> io::Result<TempDir> {
+    pub fn new_in<P: AsRef<Path>>(tmpdir: P, prefix: &str)
+                                  -> io::Result<TempDir> {
         let storage;
-        let mut tmpdir = tmpdir.as_path();
+        let mut tmpdir = tmpdir.as_ref();
         if !tmpdir.is_absolute() {
             let cur_dir = try!(env::current_dir());
             storage = cur_dir.join(tmpdir);
@@ -67,8 +67,7 @@ impl TempDir {
         }
 
         Err(Error::new(ErrorKind::AlreadyExists,
-                       "too many temporary directories already exist",
-                       None))
+                       "too many temporary directories already exist"))
     }
 
     /// Attempts to make a temporary directory inside of `env::temp_dir()` whose

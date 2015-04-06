@@ -45,7 +45,7 @@ use std::num::Float;
 const PI: f64 = 3.141592653589793;
 const SOLAR_MASS: f64 = 4.0 * PI * PI;
 const YEAR: f64 = 365.24;
-const N_BODIES: uint = 5;
+const N_BODIES: usize = 5;
 
 static BODIES: [Planet;N_BODIES] = [
     // Sun
@@ -96,14 +96,14 @@ static BODIES: [Planet;N_BODIES] = [
     },
 ];
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 struct Planet {
     x: f64, y: f64, z: f64,
     vx: f64, vy: f64, vz: f64,
     mass: f64,
 }
 
-fn advance(bodies: &mut [Planet;N_BODIES], dt: f64, steps: int) {
+fn advance(bodies: &mut [Planet;N_BODIES], dt: f64, steps: isize) {
     for _ in 0..steps {
         let mut b_slice: &mut [_] = bodies;
         loop {

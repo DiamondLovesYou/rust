@@ -10,27 +10,30 @@
 
 // pretty-expanded FIXME #23616
 
+// this is for the wrapping_add call below.
+#![feature(core)]
+
 /*!
  * Tests the range assertion wraparound case in trans::middle::adt::load_discr.
  */
 
 #[repr(u8)]
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 enum Eu { Lu = 0, Hu = 255 }
 
 static CLu: Eu = Eu::Lu;
 static CHu: Eu = Eu::Hu;
 
 #[repr(i8)]
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 enum Es { Ls = -128, Hs = 127 }
 
 static CLs: Es = Es::Ls;
 static CHs: Es = Es::Hs;
 
 pub fn main() {
-    assert_eq!((Eu::Hu as u8) + 1, Eu::Lu as u8);
-    assert_eq!((Es::Hs as i8) + 1, Es::Ls as i8);
+    assert_eq!((Eu::Hu as u8).wrapping_add(1), Eu::Lu as u8);
+    assert_eq!((Es::Hs as i8).wrapping_add(1), Es::Ls as i8);
     assert_eq!(CLu as u8, Eu::Lu as u8);
     assert_eq!(CHu as u8, Eu::Hu as u8);
     assert_eq!(CLs as i8, Es::Ls as i8);

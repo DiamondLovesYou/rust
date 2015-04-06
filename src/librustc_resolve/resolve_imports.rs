@@ -37,7 +37,7 @@ use std::rc::Rc;
 
 
 /// Contains data for specific types of import directives.
-#[derive(Copy,Debug)]
+#[derive(Copy, Clone,Debug)]
 pub enum ImportDirectiveSubclass {
     SingleImport(Name /* target */, Name /* source */),
     GlobImport
@@ -115,7 +115,7 @@ pub struct ImportResolution {
     // Note that this is usually either 0 or 1 - shadowing is forbidden the only
     // way outstanding_references is > 1 in a legal program is if the name is
     // used in both namespaces.
-    pub outstanding_references: uint,
+    pub outstanding_references: usize,
 
     /// The value that this `use` directive names, if there is one.
     pub value_target: Option<Target>,
@@ -836,11 +836,8 @@ impl<'a, 'b:'a, 'tcx:'b> ImportResolver<'a, 'b, 'tcx> {
         let is_public = import_directive.is_public;
 
         let mut import_resolutions = module_.import_resolutions.borrow_mut();
-        let dest_import_resolution = import_resolutions.entry(name).get().unwrap_or_else(
-            |vacant_entry| {
-                // Create a new import resolution from this child.
-                vacant_entry.insert(ImportResolution::new(id, is_public))
-            });
+        let dest_import_resolution = import_resolutions.entry(name)
+            .or_insert_with(|| ImportResolution::new(id, is_public));
 
         debug!("(resolving glob import) writing resolution `{}` in `{}` \
                to `{}`",

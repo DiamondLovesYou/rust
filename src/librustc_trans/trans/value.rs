@@ -14,7 +14,7 @@ use trans::basic_block::BasicBlock;
 use trans::common::Block;
 use libc::c_uint;
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct Value(pub ValueRef);
 
 macro_rules! opt_val { ($e:expr) => (
@@ -107,7 +107,7 @@ impl Value {
 
     /// Returns the requested operand of this instruction
     /// Returns None, if there's no operand at the given index
-    pub fn get_operand(self, i: uint) -> Option<Value> {
+    pub fn get_operand(self, i: usize) -> Option<Value> {
         opt_val!(llvm::LLVMGetOperand(self.get(), i as c_uint))
     }
 
@@ -125,7 +125,7 @@ impl Value {
 }
 
 /// Wrapper for LLVM UseRef
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct Use(UseRef);
 
 impl Use {

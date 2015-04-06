@@ -35,7 +35,7 @@ pub struct ErrorReported;
 pub fn time<T, U, F>(do_it: bool, what: &str, u: U, f: F) -> T where
     F: FnOnce(U) -> T,
 {
-    thread_local!(static DEPTH: Cell<uint> = Cell::new(0));
+    thread_local!(static DEPTH: Cell<usize> = Cell::new(0));
     if !do_it { return f(u); }
 
     let old = DEPTH.with(|slot| {
@@ -196,10 +196,10 @@ pub fn can_reach<T, S>(edges_map: &HashMap<T, Vec<T>, S>, source: T,
 /// # Examples
 /// ```
 /// struct Context {
-///    cache: RefCell<HashMap<uint, uint>>
+///    cache: RefCell<HashMap<usize, usize>>
 /// }
 ///
-/// fn factorial(ctxt: &Context, n: uint) -> uint {
+/// fn factorial(ctxt: &Context, n: usize) -> usize {
 ///     memoized(&ctxt.cache, n, |n| match n {
 ///         0 | 1 => n,
 ///         _ => factorial(ctxt, n - 2) + factorial(ctxt, n - 1)
@@ -228,8 +228,9 @@ pub fn memoized<T, U, S, F>(cache: &RefCell<HashMap<T, U, S>>, arg: T, f: F) -> 
 #[cfg(unix)]
 pub fn path2cstr(p: &Path) -> CString {
     use std::os::unix::prelude::*;
-    use std::ffi::AsOsStr;
-    CString::new(p.as_os_str().as_bytes()).unwrap()
+    use std::ffi::OsStr;
+    let p: &OsStr = p.as_ref();
+    CString::new(p.as_bytes()).unwrap()
 }
 #[cfg(windows)]
 pub fn path2cstr(p: &Path) -> CString {

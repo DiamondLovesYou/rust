@@ -10,11 +10,12 @@
 
 use prelude::v1::*;
 
-use ffi::CString;
+use ffi::{CStr, CString};
 use io::{self, Error, ErrorKind};
 use libc::{self, c_int, c_char, c_void, socklen_t};
 use mem;
-use net::{SocketAddr, Shutdown};
+use net::{SocketAddr, Shutdown, IpAddr};
+use str::from_utf8;
 use sys::c;
 use sys::net::{cvt, cvt_r, cvt_gai, Socket, init, wrlen_t};
 use sys_common::{AsInner, FromInner, IntoInner};
@@ -74,7 +75,7 @@ fn sockaddr_to_addr(storage: &libc::sockaddr_storage,
             })))
         }
         _ => {
-            Err(Error::new(ErrorKind::InvalidInput, "invalid argument", None))
+            Err(Error::new(ErrorKind::InvalidInput, "invalid argument"))
         }
     }
 }
@@ -123,6 +124,41 @@ pub fn lookup_host(host: &str) -> io::Result<LookupHost> {
         try!(cvt_gai(getaddrinfo(c_host.as_ptr(), 0 as *const _, 0 as *const _,
                                  &mut res)));
         Ok(LookupHost { original: res, cur: res })
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// lookup_addr
+////////////////////////////////////////////////////////////////////////////////
+
+extern "system" {
+    fn getnameinfo(sa: *const libc::sockaddr, salen: socklen_t,
+                   host: *mut c_char, hostlen: libc::size_t,
+                   serv: *mut c_char, servlen: libc::size_t,
+                   flags: c_int) -> c_int;
+}
+
+const NI_MAXHOST: usize = 1025;
+
+pub fn lookup_addr(addr: &IpAddr) -> io::Result<String> {
+    init();
+
+    let saddr = SocketAddr::new(*addr, 0);
+    let (inner, len) = saddr.into_inner();
+    let mut hostbuf = [0 as c_char; NI_MAXHOST];
+
+    let data = unsafe {
+        try!(cvt_gai(getnameinfo(inner, len,
+                                 hostbuf.as_mut_ptr(), NI_MAXHOST as libc::size_t,
+                                 0 as *mut _, 0, 0)));
+
+        CStr::from_ptr(hostbuf.as_ptr())
+    };
+
+    match from_utf8(data.to_bytes()) {
+        Ok(name) => Ok(name.to_string()),
+        Err(_) => Err(io::Error::new(io::ErrorKind::Other,
+                                     "failed to lookup address information"))
     }
 }
 
@@ -222,6 +258,12 @@ impl TcpStream {
     }
 }
 
+impl FromInner<Socket> for TcpStream {
+    fn from_inner(socket: Socket) -> TcpStream {
+        TcpStream { inner: socket }
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // TCP listeners
 ////////////////////////////////////////////////////////////////////////////////
@@ -272,6 +314,12 @@ impl TcpListener {
 
     pub fn duplicate(&self) -> io::Result<TcpListener> {
         self.inner.duplicate().map(|s| TcpListener { inner: s })
+    }
+}
+
+impl FromInner<Socket> for TcpListener {
+    fn from_inner(socket: Socket) -> TcpListener {
+        TcpListener { inner: socket }
     }
 }
 
@@ -334,39 +382,39 @@ impl UdpSocket {
                    libc::IP_MULTICAST_LOOP, on as c_int)
     }
 
-    pub fn join_multicast(&self, multi: &SocketAddr) -> io::Result<()> {
+    pub fn join_multicast(&self, multi: &IpAddr) -> io::Result<()> {
         match *multi {
-            SocketAddr::V4(..) => {
+            IpAddr::V4(..) => {
                 self.set_membership(multi, libc::IP_ADD_MEMBERSHIP)
             }
-            SocketAddr::V6(..) => {
+            IpAddr::V6(..) => {
                 self.set_membership(multi, libc::IPV6_ADD_MEMBERSHIP)
             }
         }
     }
-    pub fn leave_multicast(&self, multi: &SocketAddr) -> io::Result<()> {
+    pub fn leave_multicast(&self, multi: &IpAddr) -> io::Result<()> {
         match *multi {
-            SocketAddr::V4(..) => {
+            IpAddr::V4(..) => {
                 self.set_membership(multi, libc::IP_DROP_MEMBERSHIP)
             }
-            SocketAddr::V6(..) => {
+            IpAddr::V6(..) => {
                 self.set_membership(multi, libc::IPV6_DROP_MEMBERSHIP)
             }
         }
     }
-    fn set_membership(&self, addr: &SocketAddr, opt: c_int) -> io::Result<()> {
+    fn set_membership(&self, addr: &IpAddr, opt: c_int) -> io::Result<()> {
         match *addr {
-            SocketAddr::V4(ref addr) => {
+            IpAddr::V4(ref addr) => {
                 let mreq = libc::ip_mreq {
-                    imr_multiaddr: *addr.ip().as_inner(),
+                    imr_multiaddr: *addr.as_inner(),
                     // interface == INADDR_ANY
                     imr_interface: libc::in_addr { s_addr: 0x0 },
                 };
                 setsockopt(&self.inner, libc::IPPROTO_IP, opt, mreq)
             }
-            SocketAddr::V6(ref addr) => {
+            IpAddr::V6(ref addr) => {
                 let mreq = libc::ip6_mreq {
-                    ipv6mr_multiaddr: *addr.ip().as_inner(),
+                    ipv6mr_multiaddr: *addr.as_inner(),
                     ipv6mr_interface: 0,
                 };
                 setsockopt(&self.inner, libc::IPPROTO_IPV6, opt, mreq)
@@ -385,5 +433,11 @@ impl UdpSocket {
 
     pub fn duplicate(&self) -> io::Result<UdpSocket> {
         self.inner.duplicate().map(|s| UdpSocket { inner: s })
+    }
+}
+
+impl FromInner<Socket> for UdpSocket {
+    fn from_inner(socket: Socket) -> UdpSocket {
+        UdpSocket { inner: socket }
     }
 }

@@ -11,18 +11,14 @@
 #![feature(lang_items, no_std)]
 #![no_std]
 
-#[lang="phantom_fn"]
-trait PhantomFn<A:?Sized,R:?Sized=()> { }
-impl<A:?Sized, R:?Sized, U:?Sized> PhantomFn<A,R> for U { }
-
 #[lang="copy"]
-trait Copy : PhantomFn<Self> { }
+trait Copy { }
 
 #[lang="sized"]
-trait Sized : PhantomFn<Self>  { }
+trait Sized { }
 
 #[lang="start"]
-fn start(_main: *const u8, _argc: int, _argv: *const *const u8) -> int { 0 }
+fn start(_main: *const u8, _argc: isize, _argv: *const *const u8) -> isize { 0 }
 
 extern {
     fn _foo() -> [u8; 16];

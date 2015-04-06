@@ -95,7 +95,7 @@ fn ensure_drop_params_and_item_params_correspond<'tcx>(
         ty::lookup_item_type(tcx, self_type_did);
 
     let infcx = infer::new_infer_ctxt(tcx);
-    infcx.try(|snapshot| {
+    infcx.commit_if_ok(|snapshot| {
         let (named_type_to_skolem, skol_map) =
             infcx.construct_skolemized_subst(named_type_generics, snapshot);
         let named_type_skolem = named_type.subst(tcx, &named_type_to_skolem);
@@ -339,8 +339,8 @@ fn iterate_over_potentially_unsafe_regions_in_type<'a, 'tcx>(
     ty_root: ty::Ty<'tcx>,
     span: Span,
     scope: region::CodeExtent,
-    depth: uint,
-    xref_depth: uint) -> Result<(), Error<'tcx>>
+    depth: usize,
+    xref_depth: usize) -> Result<(), Error<'tcx>>
 {
     // Issue #22443: Watch out for overflow. While we are careful to
     // handle regular types properly, non-regular ones cause problems.

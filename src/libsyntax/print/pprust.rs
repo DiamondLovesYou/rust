@@ -37,6 +37,7 @@ pub enum AnnNode<'a> {
     NodeName(&'a ast::Name),
     NodeBlock(&'a ast::Block),
     NodeItem(&'a ast::Item),
+    NodeSubItem(ast::NodeId),
     NodeExpr(&'a ast::Expr),
     NodePat(&'a ast::Pat),
 }
@@ -46,12 +47,12 @@ pub trait PpAnn {
     fn post(&self, _state: &mut State, _node: AnnNode) -> io::Result<()> { Ok(()) }
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct NoAnn;
 
 impl PpAnn for NoAnn {}
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct CurrentCommentAndLiteral {
     cur_cmnt: usize,
     cur_lit: usize,
@@ -365,6 +366,10 @@ pub fn trait_item_to_string(i: &ast::TraitItem) -> String {
 
 pub fn generics_to_string(generics: &ast::Generics) -> String {
     $to_string(|s| s.print_generics(generics))
+}
+
+pub fn where_clause_to_string(i: &ast::WhereClause) -> String {
+    $to_string(|s| s.print_where_clause(i))
 }
 
 pub fn fn_block_to_string(p: &ast::FnDecl) -> String {
@@ -917,7 +922,7 @@ impl<'a> State<'a> {
                 try!(space(&mut self.s));
                 try!(self.word_space("="));
                 try!(self.print_type(&**ty));
-                try!(self.print_where_clause(params));
+                try!(self.print_where_clause(&params.where_clause));
                 try!(word(&mut self.s, ";"));
                 try!(self.end()); // end the outer ibox
             }
@@ -980,7 +985,7 @@ impl<'a> State<'a> {
                 }
 
                 try!(self.print_type(&**ty));
-                try!(self.print_where_clause(generics));
+                try!(self.print_where_clause(&generics.where_clause));
 
                 try!(space(&mut self.s));
                 try!(self.bopen());
@@ -1008,7 +1013,7 @@ impl<'a> State<'a> {
                     }
                 }
                 try!(self.print_bounds(":", &real_bounds[..]));
-                try!(self.print_where_clause(generics));
+                try!(self.print_where_clause(&generics.where_clause));
                 try!(word(&mut self.s, " "));
                 try!(self.bopen());
                 for trait_item in trait_items {
@@ -1066,7 +1071,7 @@ impl<'a> State<'a> {
         try!(self.head(&visibility_qualified(visibility, "enum")));
         try!(self.print_ident(ident));
         try!(self.print_generics(generics));
-        try!(self.print_where_clause(generics));
+        try!(self.print_where_clause(&generics.where_clause));
         try!(space(&mut self.s));
         self.print_variants(&enum_definition.variants, span)
     }
@@ -1120,12 +1125,12 @@ impl<'a> State<'a> {
                 ));
                 try!(self.pclose());
             }
-            try!(self.print_where_clause(generics));
+            try!(self.print_where_clause(&generics.where_clause));
             try!(word(&mut self.s, ";"));
             try!(self.end());
             self.end() // close the outer-box
         } else {
-            try!(self.print_where_clause(generics));
+            try!(self.print_where_clause(&generics.where_clause));
             try!(self.nbsp());
             try!(self.bopen());
             try!(self.hardbreak_if_not_bol());
@@ -1260,6 +1265,7 @@ impl<'a> State<'a> {
 
     pub fn print_trait_item(&mut self, ti: &ast::TraitItem)
                             -> io::Result<()> {
+        try!(self.ann.pre(self, NodeSubItem(ti.id)));
         try!(self.hardbreak_if_not_bol());
         try!(self.maybe_print_comment(ti.span.lo));
         try!(self.print_outer_attributes(&ti.attrs));
@@ -1271,19 +1277,21 @@ impl<'a> State<'a> {
                 try!(self.print_method_sig(ti.ident, sig, ast::Inherited));
                 if let Some(ref body) = *body {
                     try!(self.nbsp());
-                    self.print_block_with_attrs(body, &ti.attrs)
+                    try!(self.print_block_with_attrs(body, &ti.attrs));
                 } else {
-                    word(&mut self.s, ";")
+                    try!(word(&mut self.s, ";"));
                 }
             }
             ast::TypeTraitItem(ref bounds, ref default) => {
-                self.print_associated_type(ti.ident, Some(bounds),
-                                           default.as_ref().map(|ty| &**ty))
+                try!(self.print_associated_type(ti.ident, Some(bounds),
+                                                default.as_ref().map(|ty| &**ty)));
             }
         }
+        self.ann.post(self, NodeSubItem(ti.id))
     }
 
     pub fn print_impl_item(&mut self, ii: &ast::ImplItem) -> io::Result<()> {
+        try!(self.ann.pre(self, NodeSubItem(ii.id)));
         try!(self.hardbreak_if_not_bol());
         try!(self.maybe_print_comment(ii.span.lo));
         try!(self.print_outer_attributes(&ii.attrs));
@@ -1292,10 +1300,10 @@ impl<'a> State<'a> {
                 try!(self.head(""));
                 try!(self.print_method_sig(ii.ident, sig, ii.vis));
                 try!(self.nbsp());
-                self.print_block_with_attrs(body, &ii.attrs)
+                try!(self.print_block_with_attrs(body, &ii.attrs));
             }
             ast::TypeImplItem(ref ty) => {
-                self.print_associated_type(ii.ident, None, Some(ty))
+                try!(self.print_associated_type(ii.ident, None, Some(ty)));
             }
             ast::MacImplItem(codemap::Spanned { node: ast::MacInvocTT(ref pth, ref tts, _),
                                                 ..}) => {
@@ -1307,9 +1315,10 @@ impl<'a> State<'a> {
                 try!(self.print_tts(&tts[..]));
                 try!(self.pclose());
                 try!(word(&mut self.s, ";"));
-                self.end()
+                try!(self.end())
             }
         }
+        self.ann.post(self, NodeSubItem(ii.id))
     }
 
     pub fn print_outer_attributes(&mut self,
@@ -2348,7 +2357,7 @@ impl<'a> State<'a> {
         }
         try!(self.print_generics(generics));
         try!(self.print_fn_args_and_ret(decl, opt_explicit_self));
-        self.print_where_clause(generics)
+        self.print_where_clause(&generics.where_clause)
     }
 
     pub fn print_fn_args(&mut self, decl: &ast::FnDecl,
@@ -2531,19 +2540,16 @@ impl<'a> State<'a> {
         }
     }
 
-    pub fn print_where_clause(&mut self, generics: &ast::Generics)
+    pub fn print_where_clause(&mut self, where_clause: &ast::WhereClause)
                               -> io::Result<()> {
-        if generics.where_clause.predicates.len() == 0 {
+        if where_clause.predicates.len() == 0 {
             return Ok(())
         }
 
         try!(space(&mut self.s));
         try!(self.word_space("where"));
 
-        for (i, predicate) in generics.where_clause
-                                      .predicates
-                                      .iter()
-                                      .enumerate() {
+        for (i, predicate) in where_clause.predicates.iter().enumerate() {
             if i != 0 {
                 try!(self.word_space(","));
             }
@@ -3047,7 +3053,7 @@ mod test {
     #[test]
     fn test_signed_int_to_string() {
         let pos_int = ast::LitInt(42, ast::SignedIntLit(ast::TyI32, ast::Plus));
-        let neg_int = ast::LitInt((-42) as u64, ast::SignedIntLit(ast::TyI32, ast::Minus));
+        let neg_int = ast::LitInt((!42 + 1) as u64, ast::SignedIntLit(ast::TyI32, ast::Minus));
         assert_eq!(format!("-{}", lit_to_string(&codemap::dummy_spanned(pos_int))),
                    lit_to_string(&codemap::dummy_spanned(neg_int)));
     }

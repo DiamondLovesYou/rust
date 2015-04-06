@@ -8,6 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use middle::region;
 use middle::subst::{Substs, VecPerParamSpace};
 use middle::infer::InferCtxt;
 use middle::ty::{self, Ty, AsPredicate, ToPolyTraitRef};
@@ -210,6 +211,47 @@ pub fn transitive_bounds<'cx, 'tcx>(tcx: &'cx ty::ctxt<'tcx>,
 }
 
 ///////////////////////////////////////////////////////////////////////////
+// Iterator over def-ids of supertraits
+
+pub struct SupertraitDefIds<'cx, 'tcx:'cx> {
+    tcx: &'cx ty::ctxt<'tcx>,
+    stack: Vec<ast::DefId>,
+    visited: FnvHashSet<ast::DefId>,
+}
+
+pub fn supertrait_def_ids<'cx, 'tcx>(tcx: &'cx ty::ctxt<'tcx>,
+                                     trait_def_id: ast::DefId)
+                                     -> SupertraitDefIds<'cx, 'tcx>
+{
+    SupertraitDefIds {
+        tcx: tcx,
+        stack: vec![trait_def_id],
+        visited: Some(trait_def_id).into_iter().collect(),
+    }
+}
+
+impl<'cx, 'tcx> Iterator for SupertraitDefIds<'cx, 'tcx> {
+    type Item = ast::DefId;
+
+    fn next(&mut self) -> Option<ast::DefId> {
+        let def_id = match self.stack.pop() {
+            Some(def_id) => def_id,
+            None => { return None; }
+        };
+
+        let predicates = ty::lookup_super_predicates(self.tcx, def_id);
+        let visited = &mut self.visited;
+        self.stack.extend(
+            predicates.predicates
+                      .iter()
+                      .filter_map(|p| p.to_opt_poly_trait_ref())
+                      .map(|t| t.def_id())
+                      .filter(|&super_def_id| visited.insert(super_def_id)));
+        Some(def_id)
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////
 // Other
 ///////////////////////////////////////////////////////////////////////////
 
@@ -244,7 +286,6 @@ impl<'tcx,I:Iterator<Item=ty::Predicate<'tcx>>> Iterator for FilterToTraits<I> {
     }
 }
 
-
 ///////////////////////////////////////////////////////////////////////////
 // Other
 ///////////////////////////////////////////////////////////////////////////
@@ -253,14 +294,42 @@ impl<'tcx,I:Iterator<Item=ty::Predicate<'tcx>>> Iterator for FilterToTraits<I> {
 // declared on the impl declaration e.g., `impl<A,B> for Box<[(A,B)]>`
 // would return ($0, $1) where $0 and $1 are freshly instantiated type
 // variables.
-pub fn fresh_substs_for_impl<'a, 'tcx>(infcx: &InferCtxt<'a, 'tcx>,
-                                       span: Span,
-                                       impl_def_id: ast::DefId)
-                                       -> Substs<'tcx>
+pub fn fresh_type_vars_for_impl<'a, 'tcx>(infcx: &InferCtxt<'a, 'tcx>,
+                                          span: Span,
+                                          impl_def_id: ast::DefId)
+                                          -> Substs<'tcx>
 {
     let tcx = infcx.tcx;
     let impl_generics = ty::lookup_item_type(tcx, impl_def_id).generics;
     infcx.fresh_substs_for_generics(span, &impl_generics)
+}
+
+// determine the `self` type, using fresh variables for all variables
+// declared on the impl declaration e.g., `impl<A,B> for Box<[(A,B)]>`
+// would return ($0, $1) where $0 and $1 are freshly instantiated type
+// variables.
+pub fn free_substs_for_impl<'a, 'tcx>(infcx: &InferCtxt<'a, 'tcx>,
+                                      _span: Span,
+                                      impl_def_id: ast::DefId)
+                                      -> Substs<'tcx>
+{
+    let tcx = infcx.tcx;
+    let impl_generics = ty::lookup_item_type(tcx, impl_def_id).generics;
+
+    let some_types = impl_generics.types.map(|def| {
+        ty::mk_param_from_def(tcx, def)
+    });
+
+    let some_regions = impl_generics.regions.map(|def| {
+        // FIXME. This destruction scope information is pretty darn
+        // bogus; after all, the impl might not even be in this crate!
+        // But given what we do in coherence, it is harmless enough
+        // for now I think. -nmatsakis
+        let extent = region::DestructionScopeData::new(ast::DUMMY_NODE_ID);
+        ty::free_region_from_def(extent, def)
+    });
+
+    Substs::new(some_types, some_regions)
 }
 
 impl<'tcx, N> fmt::Debug for VtableImplData<'tcx, N> {
@@ -278,7 +347,7 @@ impl<'tcx> fmt::Debug for super::VtableObjectData<'tcx> {
 /// See `super::obligations_for_generics`
 pub fn predicates_for_generics<'tcx>(tcx: &ty::ctxt<'tcx>,
                                      cause: ObligationCause<'tcx>,
-                                     recursion_depth: uint,
+                                     recursion_depth: usize,
                                      generic_bounds: &ty::InstantiatedPredicates<'tcx>)
                                      -> VecPerParamSpace<PredicateObligation<'tcx>>
 {
@@ -316,7 +385,7 @@ pub fn trait_ref_for_builtin_bound<'tcx>(
 pub fn predicate_for_trait_ref<'tcx>(
     cause: ObligationCause<'tcx>,
     trait_ref: Rc<ty::TraitRef<'tcx>>,
-    recursion_depth: uint)
+    recursion_depth: usize)
     -> Result<PredicateObligation<'tcx>, ErrorReported>
 {
     Ok(Obligation {
@@ -330,7 +399,7 @@ pub fn predicate_for_trait_def<'tcx>(
     tcx: &ty::ctxt<'tcx>,
     cause: ObligationCause<'tcx>,
     trait_def_id: ast::DefId,
-    recursion_depth: uint,
+    recursion_depth: usize,
     param_ty: Ty<'tcx>)
     -> Result<PredicateObligation<'tcx>, ErrorReported>
 {
@@ -345,7 +414,7 @@ pub fn predicate_for_builtin_bound<'tcx>(
     tcx: &ty::ctxt<'tcx>,
     cause: ObligationCause<'tcx>,
     builtin_bound: ty::BuiltinBound,
-    recursion_depth: uint,
+    recursion_depth: usize,
     param_ty: Ty<'tcx>)
     -> Result<PredicateObligation<'tcx>, ErrorReported>
 {
@@ -377,7 +446,7 @@ pub fn upcast<'tcx>(tcx: &ty::ctxt<'tcx>,
 pub fn get_vtable_index_of_object_method<'tcx>(tcx: &ty::ctxt<'tcx>,
                                                object_trait_ref: ty::PolyTraitRef<'tcx>,
                                                trait_def_id: ast::DefId,
-                                               method_offset_in_trait: uint) -> uint {
+                                               method_offset_in_trait: usize) -> usize {
     // We need to figure the "real index" of the method in a
     // listing of all the methods of an object. We do this by
     // iterating down the supertraits of the object's trait until

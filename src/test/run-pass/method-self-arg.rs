@@ -15,9 +15,9 @@
 #![allow(unknown_features)]
 #![feature(box_syntax)]
 
-static mut COUNT: uint = 1;
+static mut COUNT: usize = 1;
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 struct Foo;
 
 impl Foo {

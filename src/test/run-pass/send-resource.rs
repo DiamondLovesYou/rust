@@ -12,18 +12,18 @@
 
 #![feature(std_misc)]
 
-use std::thread::Thread;
+use std::thread;
 use std::sync::mpsc::channel;
 
 struct test {
-  f: int,
+  f: isize,
 }
 
 impl Drop for test {
     fn drop(&mut self) {}
 }
 
-fn test(f: int) -> test {
+fn test(f: isize) -> test {
     test {
         f: f
     }
@@ -32,7 +32,7 @@ fn test(f: int) -> test {
 pub fn main() {
     let (tx, rx) = channel();
 
-    let _t = Thread::spawn(move|| {
+    let _t = thread::scoped(move|| {
         let (tx2, rx2) = channel();
         tx.send(tx2).unwrap();
 

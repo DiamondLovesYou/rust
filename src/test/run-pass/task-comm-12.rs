@@ -10,22 +10,22 @@
 
 #![feature(std_misc)]
 
-use std::thread::Thread;
+use std::thread;
 
 pub fn main() { test00(); }
 
-fn start(_task_number: int) { println!("Started / Finished task."); }
+fn start(_task_number: isize) { println!("Started / Finished task."); }
 
 fn test00() {
-    let i: int = 0;
-    let mut result = Thread::scoped(move|| {
+    let i: isize = 0;
+    let mut result = thread::scoped(move|| {
         start(i)
     });
 
     // Sleep long enough for the task to finish.
     let mut i = 0_usize;
     while i < 10000 {
-        Thread::yield_now();
+        thread::yield_now();
         i += 1;
     }
 

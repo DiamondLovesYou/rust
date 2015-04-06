@@ -115,24 +115,24 @@
 #![feature(box_syntax)]
 #![omit_gdb_pretty_printer_section]
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 struct Struct<T> {
     x: T
 }
 
 impl<T> Struct<T> {
 
-    fn self_by_ref(&self, arg1: int, arg2: int) -> int {
+    fn self_by_ref(&self, arg1: isize, arg2: isize) -> isize {
         zzz(); // #break
         arg1 + arg2
     }
 
-    fn self_by_val(self, arg1: int, arg2: int) -> int {
+    fn self_by_val(self, arg1: isize, arg2: isize) -> isize {
         zzz(); // #break
         arg1 + arg2
     }
 
-    fn self_owned(self: Box<Struct<T>>, arg1: int, arg2: int) -> int {
+    fn self_owned(self: Box<Struct<T>>, arg1: isize, arg2: isize) -> isize {
         zzz(); // #break
         arg1 + arg2
     }

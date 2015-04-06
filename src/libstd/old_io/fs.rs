@@ -88,7 +88,7 @@ use sys_common;
 pub struct File {
     fd: fs_imp::FileDesc,
     path: Path,
-    last_nread: int,
+    last_nread: isize,
 }
 
 impl sys_common::AsInner<fs_imp::FileDesc> for File {
@@ -105,7 +105,7 @@ impl File {
     ///
     /// # Examples
     ///
-    /// ```rust,should_fail
+    /// ```rust,should_panic
     /// # #![feature(old_io, old_path)]
     /// use std::old_io::*;
     /// use std::old_path::Path;
@@ -472,14 +472,14 @@ pub fn copy(from: &Path, to: &Path) -> IoResult<()> {
 #[deprecated(since = "1.0.0", reason = "replaced with std::fs::set_permissions")]
 #[unstable(feature = "old_io")]
 pub fn chmod(path: &Path, mode: old_io::FilePermission) -> IoResult<()> {
-    fs_imp::chmod(path, mode.bits() as uint)
+    fs_imp::chmod(path, mode.bits() as usize)
            .update_err("couldn't chmod path", |e|
                format!("{}; path={}; mode={:?}", e, path.display(), mode))
 }
 
 /// Change the user and group owners of a file at the specified path.
 #[unstable(feature = "old_fs")]
-pub fn chown(path: &Path, uid: int, gid: int) -> IoResult<()> {
+pub fn chown(path: &Path, uid: isize, gid: isize) -> IoResult<()> {
     fs_imp::chown(path, uid, gid)
            .update_err("couldn't chown path", |e|
                format!("{}; path={}; uid={}; gid={}", e, path.display(), uid, gid))
@@ -541,7 +541,7 @@ pub fn readlink(path: &Path) -> IoResult<Path> {
 /// new directory at the provided `path`, or if the directory already exists.
 #[unstable(feature = "old_fs")]
 pub fn mkdir(path: &Path, mode: FilePermission) -> IoResult<()> {
-    fs_imp::mkdir(path, mode.bits() as uint)
+    fs_imp::mkdir(path, mode.bits() as usize)
            .update_err("couldn't create directory", |e|
                format!("{}; path={}; mode={}", e, path.display(), mode))
 }
@@ -773,7 +773,7 @@ pub fn change_file_times(path: &Path, atime: u64, mtime: u64) -> IoResult<()> {
 }
 
 impl Reader for File {
-    fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> {
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
         fn update_err<T>(result: IoResult<T>, file: &File) -> IoResult<T> {
             result.update_err("couldn't read file",
                               |e| format!("{}; path={}",
@@ -784,10 +784,10 @@ impl Reader for File {
 
         match result {
             Ok(read) => {
-                self.last_nread = read as int;
+                self.last_nread = read as isize;
                 match read {
                     0 => update_err(Err(standard_error(old_io::EndOfFile)), self),
-                    _ => Ok(read as uint)
+                    _ => Ok(read as usize)
                 }
             },
             Err(e) => Err(e)
@@ -951,7 +951,8 @@ mod test {
     pub fn tmpdir() -> TempDir {
         use os;
         use rand;
-        let ret = os::tmpdir().join(format!("rust-{}", rand::random::<u32>()));
+        let temp = Path::new(::env::temp_dir().to_str().unwrap());
+        let ret = temp.join(format!("rust-{}", rand::random::<u32>()));
         check!(old_io::fs::mkdir(&ret, old_io::USER_RWX));
         TempDir(ret)
     }
@@ -969,7 +970,7 @@ mod test {
             let mut read_stream = File::open_mode(filename, Open, Read);
             let mut read_buf = [0; 1028];
             let read_str = match check!(read_stream.read(&mut read_buf)) {
-                -1|0 => panic!("shouldn't happen"),
+                0 => panic!("shouldn't happen"),
                 n => str::from_utf8(&read_buf[..n]).unwrap().to_string()
             };
             assert_eq!(read_str, message);
@@ -1227,8 +1228,8 @@ mod test {
             let stem = f.filestem_str().unwrap();
             let root = stem.as_bytes()[0] - b'0';
             let name = stem.as_bytes()[1] - b'0';
-            assert!(cur[root as uint] < name);
-            cur[root as uint] = name;
+            assert!(cur[root as usize] < name);
+            cur[root as usize] = name;
         }
 
         check!(rmdir_recursive(dir));
@@ -1532,7 +1533,7 @@ mod test {
                    b"foobar\0\0\0\0".to_vec());
 
         // Truncate to a smaller length, don't seek, and then write something.
-        // Ensure that the intermediate zeroes are all filled in (we're seeked
+        // Ensure that the intermediate zeroes are all filled in (we have `seek`ed
         // past the end of the file).
         check!(file.truncate(2));
         assert_eq!(check!(file.stat()).size, 2);
@@ -1639,7 +1640,7 @@ mod test {
 
         check!(File::create(&tmpdir.join("test")).write(&bytes));
         let actual = check!(File::open(&tmpdir.join("test")).read_to_end());
-        assert!(actual == bytes.as_slice());
+        assert!(actual == &bytes[..]);
     }
 
     #[test]

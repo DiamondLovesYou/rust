@@ -59,7 +59,6 @@ fn double_imm_borrow() {
 fn no_mut_then_imm_borrow() {
     let x = RefCell::new(0);
     let _b1 = x.borrow_mut();
-    assert!(x.try_borrow().is_none());
     assert_eq!(x.borrow_state(), BorrowState::Writing);
 }
 
@@ -67,7 +66,6 @@ fn no_mut_then_imm_borrow() {
 fn no_imm_then_borrow_mut() {
     let x = RefCell::new(0);
     let _b1 = x.borrow();
-    assert!(x.try_borrow_mut().is_none());
     assert_eq!(x.borrow_state(), BorrowState::Reading);
 }
 
@@ -76,7 +74,6 @@ fn no_double_borrow_mut() {
     let x = RefCell::new(0);
     assert_eq!(x.borrow_state(), BorrowState::Unused);
     let _b1 = x.borrow_mut();
-    assert!(x.try_borrow_mut().is_none());
     assert_eq!(x.borrow_state(), BorrowState::Writing);
 }
 
@@ -105,7 +102,7 @@ fn double_borrow_single_release_no_borrow_mut() {
     {
         let _b2 = x.borrow();
     }
-    assert!(x.try_borrow_mut().is_none());
+    assert_eq!(x.borrow_state(), BorrowState::Reading);
 }
 
 #[test]
@@ -122,31 +119,31 @@ fn clone_ref_updates_flag() {
     let x = RefCell::new(0);
     {
         let b1 = x.borrow();
-        assert!(x.try_borrow_mut().is_none());
+        assert_eq!(x.borrow_state(), BorrowState::Reading);
         {
             let _b2 = clone_ref(&b1);
-            assert!(x.try_borrow_mut().is_none());
+            assert_eq!(x.borrow_state(), BorrowState::Reading);
         }
-        assert!(x.try_borrow_mut().is_none());
+        assert_eq!(x.borrow_state(), BorrowState::Reading);
     }
-    assert!(x.try_borrow_mut().is_some());
+    assert_eq!(x.borrow_state(), BorrowState::Unused);
 }
 
 #[test]
 fn as_unsafe_cell() {
-    let c1: Cell<uint> = Cell::new(0);
+    let c1: Cell<usize> = Cell::new(0);
     c1.set(1);
     assert_eq!(1, unsafe { *c1.as_unsafe_cell().get() });
 
-    let c2: Cell<uint> = Cell::new(0);
+    let c2: Cell<usize> = Cell::new(0);
     unsafe { *c2.as_unsafe_cell().get() = 1; }
     assert_eq!(1, c2.get());
 
-    let r1: RefCell<uint> = RefCell::new(0);
+    let r1: RefCell<usize> = RefCell::new(0);
     *r1.borrow_mut() = 1;
     assert_eq!(1, unsafe { *r1.as_unsafe_cell().get() });
 
-    let r2: RefCell<uint> = RefCell::new(0);
+    let r2: RefCell<usize> = RefCell::new(0);
     unsafe { *r2.as_unsafe_cell().get() = 1; }
     assert_eq!(1, *r2.borrow());
 }

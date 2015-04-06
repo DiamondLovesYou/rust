@@ -12,27 +12,27 @@
 
 // used by the rpass test
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct Struct;
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum Unit {
     UnitVariant,
     Argument(Struct)
 }
 
-#[derive(Copy)]
-pub struct TupleStruct(pub uint, pub &'static str);
+#[derive(Copy, Clone)]
+pub struct TupleStruct(pub usize, pub &'static str);
 
 // used by the cfail test
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct StructWithFields {
-    foo: int,
+    foo: isize,
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum EnumWithVariants {
     EnumVariant,
-    EnumVariantArg(int)
+    EnumVariantArg(isize)
 }

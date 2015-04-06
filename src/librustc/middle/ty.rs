@@ -58,21 +58,22 @@ use middle::subst::{self, ParamSpace, Subst, Substs, VecPerParamSpace};
 use middle::traits;
 use middle::ty;
 use middle::ty_fold::{self, TypeFoldable, TypeFolder};
-use middle::ty_walk::TypeWalker;
+use middle::ty_walk::{self, TypeWalker};
 use util::ppaux::{note_and_explain_region, bound_region_ptr_to_string};
 use util::ppaux::ty_to_string;
 use util::ppaux::{Repr, UserString};
 use util::common::{memoized, ErrorReported};
 use util::nodemap::{NodeMap, NodeSet, DefIdMap, DefIdSet};
-use util::nodemap::{FnvHashMap};
+use util::nodemap::FnvHashMap;
 
 use arena::TypedArena;
 use std::borrow::{Borrow, Cow};
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, RefCell, Ref};
 use std::cmp;
 use std::fmt;
 use std::hash::{Hash, SipHasher, Hasher};
 use std::mem;
+use std::num::ToPrimitive;
 use std::ops;
 use std::rc::Rc;
 use std::vec::IntoIter;
@@ -83,10 +84,13 @@ use syntax::ast::{CrateNum, DefId, Ident, ItemTrait, LOCAL_CRATE};
 use syntax::ast::{MutImmutable, MutMutable, Name, NamedField, NodeId};
 use syntax::ast::{StmtExpr, StmtSemi, StructField, UnnamedField, Visibility};
 use syntax::ast_util::{self, is_local, lit_is_str, local_def};
-use syntax::attr::{self, AttrMetaMethods};
+use syntax::attr::{self, AttrMetaMethods, SignedInt, UnsignedInt};
 use syntax::codemap::Span;
 use syntax::parse::token::{self, InternedString, special_idents};
-use syntax::{ast, ast_map};
+use syntax::print::pprust;
+use syntax::ptr::P;
+use syntax::ast;
+use syntax::ast_map::{self, LinkedPath};
 
 pub type Disr = u64;
 
@@ -258,11 +262,11 @@ pub struct field_ty {
 
 // Contains information needed to resolve types and (in the future) look up
 // the types of AST nodes.
-#[derive(Copy, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct creader_cache_key {
     pub cnum: CrateNum,
-    pub pos: uint,
-    pub len: uint
+    pub pos: usize,
+    pub len: usize
 }
 
 #[derive(Clone, PartialEq, RustcDecodable, RustcEncodable)]
@@ -288,18 +292,18 @@ pub enum AutoAdjustment<'tcx> {
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum UnsizeKind<'tcx> {
-    // [T, ..n] -> [T], the uint field is n.
-    UnsizeLength(uint),
+    // [T, ..n] -> [T], the usize field is n.
+    UnsizeLength(usize),
     // An unsize coercion applied to the tail field of a struct.
-    // The uint is the index of the type parameter which is unsized.
-    UnsizeStruct(Box<UnsizeKind<'tcx>>, uint),
+    // The usize is the index of the type parameter which is unsized.
+    UnsizeStruct(Box<UnsizeKind<'tcx>>, usize),
     UnsizeVtable(TyTrait<'tcx>, /* the self type of the trait */ Ty<'tcx>),
     UnsizeUpcast(Ty<'tcx>),
 }
 
 #[derive(Clone, Debug)]
 pub struct AutoDerefRef<'tcx> {
-    pub autoderefs: uint,
+    pub autoderefs: usize,
     pub autoref: Option<AutoRef<'tcx>>
 }
 
@@ -423,7 +427,7 @@ pub fn type_of_adjust<'tcx>(cx: &ctxt<'tcx>, adj: &AutoAdjustment<'tcx>) -> Opti
 #[derive(Clone, Copy, RustcEncodable, RustcDecodable, PartialEq, PartialOrd, Debug)]
 pub struct param_index {
     pub space: subst::ParamSpace,
-    pub index: uint
+    pub index: usize
 }
 
 #[derive(Clone, Debug)]
@@ -452,10 +456,10 @@ pub struct MethodParam<'tcx> {
     // instantiated with fresh variables at this point.
     pub trait_ref: Rc<ty::TraitRef<'tcx>>,
 
-    // index of uint in the list of trait items. Note that this is NOT
+    // index of usize in the list of trait items. Note that this is NOT
     // the index into the vtable, because the list of trait items
     // includes associated types.
-    pub method_num: uint,
+    pub method_num: usize,
 
     /// The impl for the trait from which the method comes. This
     /// should only be used for certain linting/heuristic purposes
@@ -474,13 +478,13 @@ pub struct MethodObject<'tcx> {
     pub object_trait_id: ast::DefId,
 
     // index of the method to be invoked amongst the trait's items
-    pub method_num: uint,
+    pub method_num: usize,
 
     // index into the actual runtime vtable.
     // the vtable is formed by concatenating together the method lists of
     // the base object trait and all supertraits; this is the index into
     // that vtable
-    pub vtable_index: uint,
+    pub vtable_index: usize,
 }
 
 #[derive(Clone)]
@@ -511,7 +515,7 @@ pub struct MethodCall {
 #[derive(Clone, PartialEq, Eq, Hash, Debug, RustcEncodable, RustcDecodable, Copy)]
 pub enum ExprAdjustment {
     NoAdjustment,
-    AutoDeref(uint),
+    AutoDeref(usize),
     AutoObject
 }
 
@@ -530,7 +534,7 @@ impl MethodCall {
         }
     }
 
-    pub fn autoderef(expr_id: ast::NodeId, autoderef: uint) -> MethodCall {
+    pub fn autoderef(expr_id: ast::NodeId, autoderef: usize) -> MethodCall {
         MethodCall {
             expr_id: expr_id,
             adjustment: AutoDeref(1 + autoderef)
@@ -564,7 +568,7 @@ pub enum vtable_origin<'tcx> {
       The first argument is the param index (identifying T in the example),
       and the second is the bound number (identifying baz)
      */
-    vtable_param(param_index, uint),
+    vtable_param(param_index, usize),
 
     /*
       Vtable automatically generated for a closure. The def ID is the
@@ -592,7 +596,7 @@ pub type ObjectCastMap<'tcx> = RefCell<NodeMap<ty::PolyTraitRef<'tcx>>>;
 /// will push one or more such restriction into the
 /// `transmute_restrictions` vector during `intrinsicck`. They are
 /// then checked during `trans` by the fn `check_intrinsics`.
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct TransmuteRestriction<'tcx> {
     /// The span whence the restriction comes.
     pub span: Span,
@@ -639,12 +643,12 @@ impl<'tcx> CtxtArenas<'tcx> {
 pub struct CommonTypes<'tcx> {
     pub bool: Ty<'tcx>,
     pub char: Ty<'tcx>,
-    pub int: Ty<'tcx>,
+    pub isize: Ty<'tcx>,
     pub i8: Ty<'tcx>,
     pub i16: Ty<'tcx>,
     pub i32: Ty<'tcx>,
     pub i64: Ty<'tcx>,
-    pub uint: Ty<'tcx>,
+    pub usize: Ty<'tcx>,
     pub u8: Ty<'tcx>,
     pub u16: Ty<'tcx>,
     pub u32: Ty<'tcx>,
@@ -685,7 +689,7 @@ pub struct ctxt<'tcx> {
     /// Stores the types for various nodes in the AST.  Note that this table
     /// is not guaranteed to be populated until after typeck.  See
     /// typeck::check::fn_ctxt for details.
-    pub node_types: RefCell<NodeMap<Ty<'tcx>>>,
+    node_types: RefCell<NodeMap<Ty<'tcx>>>,
 
     /// Stores the type parameters which were substituted to obtain the type
     /// of this node.  This only applies to nodes that refer to entities
@@ -850,6 +854,13 @@ pub struct ctxt<'tcx> {
     pub const_qualif_map: RefCell<NodeMap<check_const::ConstQualif>>,
 }
 
+impl<'tcx> ctxt<'tcx> {
+    pub fn node_types(&self) -> Ref<NodeMap<Ty<'tcx>>> { self.node_types.borrow() }
+    pub fn node_type_insert(&self, id: NodeId, ty: Ty<'tcx>) {
+        self.node_types.borrow_mut().insert(id, ty);
+    }
+}
+
 // Flags that we track on types. These flags are propagated upwards
 // through the type during type construction, so that we can quickly
 // check whether the type has various kinds of types in it without
@@ -875,12 +886,12 @@ macro_rules! sty_debug_print {
         // variable names.
         mod inner {
             use middle::ty;
-            #[derive(Copy)]
+            #[derive(Copy, Clone)]
             struct DebugStat {
-                total: uint,
-                region_infer: uint,
-                ty_infer: uint,
-                both_infer: uint,
+                total: usize,
+                region_infer: usize,
+                ty_infer: usize,
+                both_infer: usize,
             }
 
             pub fn go(tcx: &ty::ctxt) {
@@ -1024,7 +1035,7 @@ pub fn type_has_late_bound_regions(ty: Ty) -> bool {
 ///
 /// So, for example, consider a type like the following, which has two binders:
 ///
-///    for<'a> fn(x: for<'b> fn(&'a int, &'b int))
+///    for<'a> fn(x: for<'b> fn(&'a isize, &'b isize))
 ///    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ outer scope
 ///                  ^~~~~~~~~~~~~~~~~~~~~~~~~~~~  inner scope
 ///
@@ -1108,16 +1119,16 @@ pub type PolyFnSig<'tcx> = Binder<FnSig<'tcx>>;
 
 impl<'tcx> PolyFnSig<'tcx> {
     pub fn inputs(&self) -> ty::Binder<Vec<Ty<'tcx>>> {
-        ty::Binder(self.0.inputs.clone())
+        self.map_bound_ref(|fn_sig| fn_sig.inputs.clone())
     }
-    pub fn input(&self, index: uint) -> ty::Binder<Ty<'tcx>> {
-        ty::Binder(self.0.inputs[index])
+    pub fn input(&self, index: usize) -> ty::Binder<Ty<'tcx>> {
+        self.map_bound_ref(|fn_sig| fn_sig.inputs[index])
     }
     pub fn output(&self) -> ty::Binder<FnOutput<'tcx>> {
-        ty::Binder(self.0.output.clone())
+        self.map_bound_ref(|fn_sig| fn_sig.output.clone())
     }
     pub fn variadic(&self) -> bool {
-        self.0.variadic
+        self.skip_binder().variadic
     }
 }
 
@@ -1132,7 +1143,7 @@ pub struct ParamTy {
 /// regions (and perhaps later types) in a higher-ranked setting. In
 /// particular, imagine a type like this:
 ///
-///     for<'a> fn(for<'b> fn(&'b int, &'a int), &'a char)
+///     for<'a> fn(for<'b> fn(&'b isize, &'a isize), &'a char)
 ///     ^          ^            |        |         |
 ///     |          |            |        |         |
 ///     |          +------------+ 1      |         |
@@ -1149,11 +1160,11 @@ pub struct ParamTy {
 /// count the number of binders, inside out. Some examples should help
 /// clarify what I mean.
 ///
-/// Let's start with the reference type `&'b int` that is the first
+/// Let's start with the reference type `&'b isize` that is the first
 /// argument to the inner function. This region `'b` is assigned a De
 /// Bruijn index of 1, meaning "the innermost binder" (in this case, a
 /// fn). The region `'a` that appears in the second argument type (`&'a
-/// int`) would then be assigned a De Bruijn index of 2, meaning "the
+/// isize`) would then be assigned a De Bruijn index of 2, meaning "the
 /// second-innermost binder". (These indices are written on the arrays
 /// in the diagram).
 ///
@@ -1234,14 +1245,14 @@ pub enum BorrowKind {
     /// implicit closure bindings. It is needed when you the closure
     /// is borrowing or mutating a mutable referent, e.g.:
     ///
-    ///    let x: &mut int = ...;
+    ///    let x: &mut isize = ...;
     ///    let y = || *x += 5;
     ///
     /// If we were to try to translate this closure into a more explicit
     /// form, we'd encounter an error with the code as written:
     ///
-    ///    struct Env { x: & &mut int }
-    ///    let x: &mut int = ...;
+    ///    struct Env { x: & &mut isize }
+    ///    let x: &mut isize = ...;
     ///    let y = (&mut Env { &x }, fn_ptr);  // Closure is pair of env and fn
     ///    fn fn_ptr(env: &mut Env) { **env.x += 5; }
     ///
@@ -1249,8 +1260,8 @@ pub enum BorrowKind {
     /// in an aliasable location. To solve, you'd have to translate with
     /// an `&mut` borrow:
     ///
-    ///    struct Env { x: & &mut int }
-    ///    let x: &mut int = ...;
+    ///    struct Env { x: & &mut isize }
+    ///    let x: &mut isize = ...;
     ///    let y = (&mut Env { &mut x }, fn_ptr); // changed from &x to &mut x
     ///    fn fn_ptr(env: &mut Env) { **env.x += 5; }
     ///
@@ -1361,7 +1372,7 @@ pub enum sty<'tcx> {
     ty_enum(DefId, &'tcx Substs<'tcx>),
     ty_uniq(Ty<'tcx>),
     ty_str,
-    ty_vec(Ty<'tcx>, Option<uint>), // Second field is length.
+    ty_vec(Ty<'tcx>, Option<usize>), // Second field is length.
     ty_ptr(mt<'tcx>),
     ty_rptr(&'tcx Region, mt<'tcx>),
 
@@ -1491,7 +1502,7 @@ impl<'tcx> PolyTraitRef<'tcx> {
 }
 
 /// Binder is a binder for higher-ranked lifetimes. It is part of the
-/// compiler's representation for things like `for<'a> Fn(&'a int)`
+/// compiler's representation for things like `for<'a> Fn(&'a isize)`
 /// (which would be represented by the type `PolyTraitRef ==
 /// Binder<TraitRef>`). Note that when we skolemize, instantiate,
 /// erase, or otherwise "discharge" these bound regions, we change the
@@ -1518,6 +1529,22 @@ impl<T> Binder<T> {
     ///   a type parameter `X`, since the type `X`  does not reference any regions
     pub fn skip_binder(&self) -> &T {
         &self.0
+    }
+
+    pub fn as_ref(&self) -> Binder<&T> {
+        ty::Binder(&self.0)
+    }
+
+    pub fn map_bound_ref<F,U>(&self, f: F) -> Binder<U>
+        where F: FnOnce(&T) -> U
+    {
+        self.as_ref().map_bound(f)
+    }
+
+    pub fn map_bound<F,U>(self, f: F) -> Binder<U>
+        where F: FnOnce(T) -> U
+    {
+        ty::Binder(f(self.0))
     }
 }
 
@@ -1552,9 +1579,9 @@ pub enum type_err<'tcx> {
     terr_ptr_mutability,
     terr_ref_mutability,
     terr_vec_mutability,
-    terr_tuple_size(expected_found<uint>),
-    terr_fixed_array_size(expected_found<uint>),
-    terr_ty_param_size(expected_found<uint>),
+    terr_tuple_size(expected_found<usize>),
+    terr_fixed_array_size(expected_found<usize>),
+    terr_ty_param_size(expected_found<usize>),
     terr_arg_count,
     terr_regions_does_not_outlive(Region, Region),
     terr_regions_not_same(Region, Region),
@@ -1571,7 +1598,7 @@ pub enum type_err<'tcx> {
     terr_cyclic_ty,
     terr_convergence_mismatch(expected_found<bool>),
     terr_projection_name_mismatched(expected_found<ast::Name>),
-    terr_projection_bounds_length(expected_found<uint>),
+    terr_projection_bounds_length(expected_found<usize>),
 }
 
 /// Bounds suitable for a named type parameter like `A` in `fn foo<A>`
@@ -1600,7 +1627,7 @@ pub type BuiltinBounds = EnumSet<BuiltinBound>;
 
 #[derive(Clone, RustcEncodable, PartialEq, Eq, RustcDecodable, Hash,
            Debug, Copy)]
-#[repr(uint)]
+#[repr(usize)]
 pub enum BuiltinBound {
     BoundSend,
     BoundSized,
@@ -1628,10 +1655,10 @@ pub fn region_existential_bound<'tcx>(r: ty::Region) -> ExistentialBounds<'tcx> 
 }
 
 impl CLike for BuiltinBound {
-    fn to_usize(&self) -> uint {
-        *self as uint
+    fn to_usize(&self) -> usize {
+        *self as usize
     }
-    fn from_usize(v: uint) -> BuiltinBound {
+    fn from_usize(v: usize) -> BuiltinBound {
         unsafe { mem::transmute(v) }
     }
 }
@@ -2062,8 +2089,7 @@ impl<'tcx> ToPolyTraitRef<'tcx> for Rc<TraitRef<'tcx>> {
 
 impl<'tcx> ToPolyTraitRef<'tcx> for PolyTraitPredicate<'tcx> {
     fn to_poly_trait_ref(&self) -> PolyTraitRef<'tcx> {
-        // We are just preserving the binder levels here
-        ty::Binder(self.0.trait_ref.clone())
+        self.map_bound_ref(|trait_pred| trait_pred.trait_ref.clone())
     }
 }
 
@@ -2202,8 +2228,8 @@ impl<'tcx> Predicate<'tcx> {
 ///
 /// Here, the `GenericPredicates` for `Foo` would contain a list of bounds like
 /// `[[], [U:Bar<T>]]`.  Now if there were some particular reference
-/// like `Foo<int,uint>`, then the `InstantiatedPredicates` would be `[[],
-/// [uint:Bar<int>]]`.
+/// like `Foo<isize,usize>`, then the `InstantiatedPredicates` would be `[[],
+/// [usize:Bar<isize>]]`.
 #[derive(Clone, Debug)]
 pub struct InstantiatedPredicates<'tcx> {
     pub predicates: VecPerParamSpace<Predicate<'tcx>>,
@@ -2545,12 +2571,12 @@ impl<'tcx> CommonTypes<'tcx> {
             bool: intern_ty(arena, interner, ty_bool),
             char: intern_ty(arena, interner, ty_char),
             err: intern_ty(arena, interner, ty_err),
-            int: intern_ty(arena, interner, ty_int(ast::TyIs(false))),
+            isize: intern_ty(arena, interner, ty_int(ast::TyIs)),
             i8: intern_ty(arena, interner, ty_int(ast::TyI8)),
             i16: intern_ty(arena, interner, ty_int(ast::TyI16)),
             i32: intern_ty(arena, interner, ty_int(ast::TyI32)),
             i64: intern_ty(arena, interner, ty_int(ast::TyI64)),
-            uint: intern_ty(arena, interner, ty_uint(ast::TyUs(false))),
+            usize: intern_ty(arena, interner, ty_uint(ast::TyUs)),
             u8: intern_ty(arena, interner, ty_uint(ast::TyU8)),
             u16: intern_ty(arena, interner, ty_uint(ast::TyU16)),
             u32: intern_ty(arena, interner, ty_uint(ast::TyU32)),
@@ -2935,7 +2961,7 @@ impl FlagComputation {
 
 pub fn mk_mach_int<'tcx>(tcx: &ctxt<'tcx>, tm: ast::IntTy) -> Ty<'tcx> {
     match tm {
-        ast::TyIs(_)   => tcx.types.int,
+        ast::TyIs   => tcx.types.isize,
         ast::TyI8   => tcx.types.i8,
         ast::TyI16  => tcx.types.i16,
         ast::TyI32  => tcx.types.i32,
@@ -2945,7 +2971,7 @@ pub fn mk_mach_int<'tcx>(tcx: &ctxt<'tcx>, tm: ast::IntTy) -> Ty<'tcx> {
 
 pub fn mk_mach_uint<'tcx>(tcx: &ctxt<'tcx>, tm: ast::UintTy) -> Ty<'tcx> {
     match tm {
-        ast::TyUs(_)   => tcx.types.uint,
+        ast::TyUs   => tcx.types.usize,
         ast::TyU8   => tcx.types.u8,
         ast::TyU16  => tcx.types.u16,
         ast::TyU32  => tcx.types.u32,
@@ -3004,7 +3030,7 @@ pub fn mk_nil_ptr<'tcx>(cx: &ctxt<'tcx>) -> Ty<'tcx> {
     mk_ptr(cx, mt {ty: mk_nil(cx), mutbl: ast::MutImmutable})
 }
 
-pub fn mk_vec<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>, sz: Option<uint>) -> Ty<'tcx> {
+pub fn mk_vec<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>, sz: Option<usize>) -> Ty<'tcx> {
     mk_t(cx, ty_vec(ty, sz))
 }
 
@@ -3022,6 +3048,10 @@ pub fn mk_tup<'tcx>(cx: &ctxt<'tcx>, ts: Vec<Ty<'tcx>>) -> Ty<'tcx> {
 
 pub fn mk_nil<'tcx>(cx: &ctxt<'tcx>) -> Ty<'tcx> {
     mk_tup(cx, Vec::new())
+}
+
+pub fn mk_bool<'tcx>(cx: &ctxt<'tcx>) -> Ty<'tcx> {
+    mk_t(cx, ty_bool)
 }
 
 pub fn mk_bare_fn<'tcx>(cx: &ctxt<'tcx>,
@@ -3130,29 +3160,19 @@ impl<'tcx> TyS<'tcx> {
     /// structs or variants. For example:
     ///
     /// ```notrust
-    /// int => { int }
-    /// Foo<Bar<int>> => { Foo<Bar<int>>, Bar<int>, int }
-    /// [int] => { [int], int }
+    /// isize => { isize }
+    /// Foo<Bar<isize>> => { Foo<Bar<isize>>, Bar<isize>, isize }
+    /// [isize] => { [isize], isize }
     /// ```
     pub fn walk(&'tcx self) -> TypeWalker<'tcx> {
         TypeWalker::new(self)
     }
 
-    /// Iterator that walks types reachable from `self`, in
-    /// depth-first order. Note that this is a shallow walk. For
-    /// example:
-    ///
-    /// ```notrust
-    /// int => { }
-    /// Foo<Bar<int>> => { Bar<int>, int }
-    /// [int] => { int }
-    /// ```
-    pub fn walk_children(&'tcx self) -> TypeWalker<'tcx> {
-        // Walks type reachable from `self` but not `self
-        let mut walker = self.walk();
-        let r = walker.next();
-        assert_eq!(r, Some(self));
-        walker
+    /// Iterator that walks the immediate children of `self`.  Hence
+    /// `Foo<Bar<i32>, u32>` yields the sequence `[Bar<i32>, u32]`
+    /// (but not `i32`, like `walk`).
+    pub fn walk_shallow(&'tcx self) -> IntoIter<Ty<'tcx>> {
+        ty_walk::walk_shallow(self)
     }
 
     pub fn as_opt_param_ty(&self) -> Option<ty::ParamTy> {
@@ -3343,7 +3363,7 @@ pub fn simd_type<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> Ty<'tcx> {
     }
 }
 
-pub fn simd_size(cx: &ctxt, ty: Ty) -> uint {
+pub fn simd_size(cx: &ctxt, ty: Ty) -> usize {
     match ty.sty {
         ty_struct(did, _) => {
             let fields = lookup_struct_fields(cx, did);
@@ -3391,8 +3411,12 @@ pub fn type_is_scalar(ty: Ty) -> bool {
 /// Returns true if this type is a floating point type and false otherwise.
 pub fn type_is_floating_point(ty: Ty) -> bool {
     match ty.sty {
-        ty_float(_) => true,
-        _ => false,
+        ty_float(_) |
+        ty_infer(FloatVar(_)) =>
+            true,
+
+        _ =>
+            false,
     }
 }
 
@@ -3611,8 +3635,8 @@ pub fn type_contents<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> TypeContents {
         cache.insert(ty, TC::None);
 
         let result = match ty.sty {
-            // uint and int are ffi-unsafe
-            ty_uint(ast::TyUs(_)) | ty_int(ast::TyIs(_)) => {
+            // usize and isize are ffi-unsafe
+            ty_uint(ast::TyUs) | ty_int(ast::TyIs) => {
                 TC::ReachesFfiUnsafe
             }
 
@@ -3979,7 +4003,7 @@ pub fn is_instantiable<'tcx>(cx: &ctxt<'tcx>, r_ty: Ty<'tcx>) -> bool {
 ///
 /// The ordering of the cases is significant. They are sorted so that cmp::max
 /// will keep the "more erroneous" of two values.
-#[derive(Copy, PartialOrd, Ord, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialOrd, Ord, Eq, PartialEq, Debug)]
 pub enum Representability {
     Representable,
     ContainsRecursive,
@@ -4175,7 +4199,7 @@ pub fn type_is_fresh(ty: Ty) -> bool {
 
 pub fn type_is_uint(ty: Ty) -> bool {
     match ty.sty {
-      ty_infer(IntVar(_)) | ty_uint(ast::TyUs(_)) => true,
+      ty_infer(IntVar(_)) | ty_uint(ast::TyUs) => true,
       _ => false
     }
 }
@@ -4221,7 +4245,7 @@ pub fn type_is_signed(ty: Ty) -> bool {
 
 pub fn type_is_machine(ty: Ty) -> bool {
     match ty.sty {
-        ty_int(ast::TyIs(_)) | ty_uint(ast::TyUs(_)) => false,
+        ty_int(ast::TyIs) | ty_uint(ast::TyUs) => false,
         ty_int(..) | ty_uint(..) | ty_float(..) => true,
         _ => false
     }
@@ -4292,7 +4316,7 @@ pub fn array_element_ty<'tcx>(tcx: &ctxt<'tcx>, ty: Ty<'tcx>) -> Option<Ty<'tcx>
 /// For an enum `t`, `variant` is None only if `t` is a univariant enum.
 pub fn positional_element_ty<'tcx>(cx: &ctxt<'tcx>,
                                    ty: Ty<'tcx>,
-                                   i: uint,
+                                   i: usize,
                                    variant: Option<ast::DefId>) -> Option<Ty<'tcx>> {
 
     match (&ty.sty, variant) {
@@ -4468,8 +4492,8 @@ pub fn pat_ty_opt<'tcx>(cx: &ctxt<'tcx>, pat: &ast::Pat) -> Option<Ty<'tcx>> {
 // adjustments.  See `expr_ty_adjusted()` instead.
 //
 // NB (2): This type doesn't provide type parameter substitutions; e.g. if you
-// ask for the type of "id" in "id(3)", it will return "fn(&int) -> int"
-// instead of "fn(ty) -> T with T = int".
+// ask for the type of "id" in "id(3)", it will return "fn(&isize) -> isize"
+// instead of "fn(ty) -> T with T = isize".
 pub fn expr_ty<'tcx>(cx: &ctxt<'tcx>, expr: &ast::Expr) -> Ty<'tcx> {
     return node_id_to_type(cx, expr.id);
 }
@@ -4710,7 +4734,7 @@ pub fn expr_is_lval(tcx: &ctxt, e: &ast::Expr) -> bool {
 /// two kinds of rvalues is an artifact of trans which reflects how we will
 /// generate code for that kind of expression.  See trans/expr.rs for more
 /// information.
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum ExprKind {
     LvalueExpr,
     RvalueDpsExpr,
@@ -4879,7 +4903,7 @@ pub fn stmt_node_id(s: &ast::Stmt) -> ast::NodeId {
 }
 
 pub fn field_idx_strict(tcx: &ctxt, name: ast::Name, fields: &[field])
-                     -> uint {
+                     -> usize {
     let mut i = 0;
     for f in fields { if f.name == name { return i; } i += 1; }
     tcx.sess.bug(&format!(
@@ -4891,7 +4915,7 @@ pub fn field_idx_strict(tcx: &ctxt, name: ast::Name, fields: &[field])
 }
 
 pub fn impl_or_trait_item_idx(id: ast::Name, trait_items: &[ImplOrTraitItem])
-                              -> Option<uint> {
+                              -> Option<usize> {
     trait_items.iter().position(|m| m.name() == id)
 }
 
@@ -5163,7 +5187,7 @@ fn lookup_locally_or_in_crate_store<V, F>(descr: &str,
     v
 }
 
-pub fn trait_item<'tcx>(cx: &ctxt<'tcx>, trait_did: ast::DefId, idx: uint)
+pub fn trait_item<'tcx>(cx: &ctxt<'tcx>, trait_did: ast::DefId, idx: usize)
                         -> ImplOrTraitItem<'tcx> {
     let method_def_id = (*ty::trait_item_def_ids(cx, trait_did))[idx].def_id();
     impl_or_trait_item(cx, method_def_id)
@@ -5238,10 +5262,10 @@ pub fn is_associated_type(cx: &ctxt, id: ast::DefId) -> bool {
 pub fn associated_type_parameter_index(cx: &ctxt,
                                        trait_def: &TraitDef,
                                        associated_type_id: ast::DefId)
-                                       -> uint {
+                                       -> usize {
     for type_parameter_def in trait_def.generics.types.iter() {
         if type_parameter_def.def_id == associated_type_id {
-            return type_parameter_def.index as uint
+            return type_parameter_def.index as usize
         }
     }
     cx.sess.bug("couldn't find associated type parameter index")
@@ -5406,7 +5430,7 @@ pub fn item_path_str(cx: &ctxt, id: ast::DefId) -> String {
     with_path(cx, id, |path| ast_map::path_to_string(path)).to_string()
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum DtorKind {
     NoDtor,
     TraitDtor(DefId, bool)
@@ -5451,7 +5475,7 @@ pub fn with_path<T, F>(cx: &ctxt, id: ast::DefId, f: F) -> T where
     if id.krate == ast::LOCAL_CRATE {
         cx.map.with_path(id.node, f)
     } else {
-        f(csearch::get_item_path(cx, id).iter().cloned().chain(None))
+        f(csearch::get_item_path(cx, id).iter().cloned().chain(LinkedPath::empty()))
     }
 }
 
@@ -5466,64 +5490,268 @@ pub fn type_is_empty(cx: &ctxt, ty: Ty) -> bool {
      }
 }
 
+trait IntTypeExt {
+    fn to_ty<'tcx>(&self, cx: &ctxt<'tcx>) -> Ty<'tcx>;
+    fn i64_to_disr(&self, val: i64) -> Option<Disr>;
+    fn u64_to_disr(&self, val: u64) -> Option<Disr>;
+    fn disr_incr(&self, val: Disr) -> Option<Disr>;
+    fn disr_string(&self, val: Disr) -> String;
+    fn disr_wrap_incr(&self, val: Option<Disr>) -> Disr;
+}
+
+impl IntTypeExt for attr::IntType {
+    fn to_ty<'tcx>(&self, cx: &ctxt<'tcx>) -> Ty<'tcx> {
+        match *self {
+            SignedInt(ast::TyI8)      => cx.types.i8,
+            SignedInt(ast::TyI16)     => cx.types.i16,
+            SignedInt(ast::TyI32)     => cx.types.i32,
+            SignedInt(ast::TyI64)     => cx.types.i64,
+            SignedInt(ast::TyIs)   => cx.types.isize,
+            UnsignedInt(ast::TyU8)    => cx.types.u8,
+            UnsignedInt(ast::TyU16)   => cx.types.u16,
+            UnsignedInt(ast::TyU32)   => cx.types.u32,
+            UnsignedInt(ast::TyU64)   => cx.types.u64,
+            UnsignedInt(ast::TyUs) => cx.types.usize,
+        }
+    }
+
+    fn i64_to_disr(&self, val: i64) -> Option<Disr> {
+        match *self {
+            SignedInt(ast::TyI8)    => val.to_i8()  .map(|v| v as Disr),
+            SignedInt(ast::TyI16)   => val.to_i16() .map(|v| v as Disr),
+            SignedInt(ast::TyI32)   => val.to_i32() .map(|v| v as Disr),
+            SignedInt(ast::TyI64)   => val.to_i64() .map(|v| v as Disr),
+            UnsignedInt(ast::TyU8)  => val.to_u8()  .map(|v| v as Disr),
+            UnsignedInt(ast::TyU16) => val.to_u16() .map(|v| v as Disr),
+            UnsignedInt(ast::TyU32) => val.to_u32() .map(|v| v as Disr),
+            UnsignedInt(ast::TyU64) => val.to_u64() .map(|v| v as Disr),
+
+            UnsignedInt(ast::TyUs) |
+            SignedInt(ast::TyIs) => unreachable!(),
+        }
+    }
+
+    fn u64_to_disr(&self, val: u64) -> Option<Disr> {
+        match *self {
+            SignedInt(ast::TyI8)    => val.to_i8()  .map(|v| v as Disr),
+            SignedInt(ast::TyI16)   => val.to_i16() .map(|v| v as Disr),
+            SignedInt(ast::TyI32)   => val.to_i32() .map(|v| v as Disr),
+            SignedInt(ast::TyI64)   => val.to_i64() .map(|v| v as Disr),
+            UnsignedInt(ast::TyU8)  => val.to_u8()  .map(|v| v as Disr),
+            UnsignedInt(ast::TyU16) => val.to_u16() .map(|v| v as Disr),
+            UnsignedInt(ast::TyU32) => val.to_u32() .map(|v| v as Disr),
+            UnsignedInt(ast::TyU64) => val.to_u64() .map(|v| v as Disr),
+
+            UnsignedInt(ast::TyUs) |
+            SignedInt(ast::TyIs) => unreachable!(),
+        }
+    }
+
+    fn disr_incr(&self, val: Disr) -> Option<Disr> {
+        macro_rules! add1 {
+            ($e:expr) => { $e.and_then(|v|v.checked_add(1)).map(|v| v as Disr) }
+        }
+        match *self {
+            // SignedInt repr means we *want* to reinterpret the bits
+            // treating the highest bit of Disr as a sign-bit, so
+            // cast to i64 before range-checking.
+            SignedInt(ast::TyI8)    => add1!((val as i64).to_i8()),
+            SignedInt(ast::TyI16)   => add1!((val as i64).to_i16()),
+            SignedInt(ast::TyI32)   => add1!((val as i64).to_i32()),
+            SignedInt(ast::TyI64)   => add1!(Some(val as i64)),
+
+            UnsignedInt(ast::TyU8)  => add1!(val.to_u8()),
+            UnsignedInt(ast::TyU16) => add1!(val.to_u16()),
+            UnsignedInt(ast::TyU32) => add1!(val.to_u32()),
+            UnsignedInt(ast::TyU64) => add1!(Some(val)),
+
+            UnsignedInt(ast::TyUs) |
+            SignedInt(ast::TyIs) => unreachable!(),
+        }
+    }
+
+    // This returns a String because (1.) it is only used for
+    // rendering an error message and (2.) a string can represent the
+    // full range from `i64::MIN` through `u64::MAX`.
+    fn disr_string(&self, val: Disr) -> String {
+        match *self {
+            SignedInt(ast::TyI8)    => format!("{}", val as i8 ),
+            SignedInt(ast::TyI16)   => format!("{}", val as i16),
+            SignedInt(ast::TyI32)   => format!("{}", val as i32),
+            SignedInt(ast::TyI64)   => format!("{}", val as i64),
+            UnsignedInt(ast::TyU8)  => format!("{}", val as u8 ),
+            UnsignedInt(ast::TyU16) => format!("{}", val as u16),
+            UnsignedInt(ast::TyU32) => format!("{}", val as u32),
+            UnsignedInt(ast::TyU64) => format!("{}", val as u64),
+
+            UnsignedInt(ast::TyUs) |
+            SignedInt(ast::TyIs) => unreachable!(),
+        }
+    }
+
+    fn disr_wrap_incr(&self, val: Option<Disr>) -> Disr {
+        macro_rules! add1 {
+            ($e:expr) => { ($e).wrapping_add(1) as Disr }
+        }
+        let val = val.unwrap_or(ty::INITIAL_DISCRIMINANT_VALUE);
+        match *self {
+            SignedInt(ast::TyI8)    => add1!(val as i8 ),
+            SignedInt(ast::TyI16)   => add1!(val as i16),
+            SignedInt(ast::TyI32)   => add1!(val as i32),
+            SignedInt(ast::TyI64)   => add1!(val as i64),
+            UnsignedInt(ast::TyU8)  => add1!(val as u8 ),
+            UnsignedInt(ast::TyU16) => add1!(val as u16),
+            UnsignedInt(ast::TyU32) => add1!(val as u32),
+            UnsignedInt(ast::TyU64) => add1!(val as u64),
+
+            UnsignedInt(ast::TyUs) |
+            SignedInt(ast::TyIs) => unreachable!(),
+        }
+    }
+}
+
+/// Returns `(normalized_type, ty)`, where `normalized_type` is the
+/// IntType representation of one of {i64,i32,i16,i8,u64,u32,u16,u8},
+/// and `ty` is the original type (i.e. may include `isize` or
+/// `usize`).
+pub fn enum_repr_type<'tcx>(cx: &ctxt<'tcx>,
+                            opt_hint: Option<&attr::ReprAttr>)
+                            -> (attr::IntType, Ty<'tcx>)
+{
+    let repr_type = match opt_hint {
+        // Feed in the given type
+        Some(&attr::ReprInt(_, int_t)) => int_t,
+        // ... but provide sensible default if none provided
+        //
+        // NB. Historically `fn enum_variants` generate i64 here, while
+        // rustc_typeck::check would generate isize.
+        _ => SignedInt(ast::TyIs),
+    };
+
+    let repr_type_ty = repr_type.to_ty(cx);
+    let repr_type = match repr_type {
+        SignedInt(ast::TyIs) =>
+            SignedInt(cx.sess.target.int_type),
+        UnsignedInt(ast::TyUs) =>
+            UnsignedInt(cx.sess.target.uint_type),
+        other => other
+    };
+
+    (repr_type, repr_type_ty)
+}
+
+fn report_discrim_overflow(cx: &ctxt,
+                           variant_span: Span,
+                           variant_name: &str,
+                           repr_type: attr::IntType,
+                           prev_val: Disr) {
+    let computed_value = repr_type.disr_wrap_incr(Some(prev_val));
+    let computed_value = repr_type.disr_string(computed_value);
+    let prev_val = repr_type.disr_string(prev_val);
+    let repr_type = repr_type.to_ty(cx).user_string(cx);
+    span_err!(cx.sess, variant_span, E0370,
+              "enum discriminant overflowed on value after {}: {}; \
+               set explicitly via {} = {} if that is desired outcome",
+              prev_val, repr_type, variant_name, computed_value);
+}
+
+// This computes the discriminant values for the sequence of Variants
+// attached to a particular enum, taking into account the #[repr] (if
+// any) provided via the `opt_hint`.
+fn compute_enum_variants<'tcx>(cx: &ctxt<'tcx>,
+                               vs: &'tcx [P<ast::Variant>],
+                               opt_hint: Option<&attr::ReprAttr>)
+                               -> Vec<Rc<ty::VariantInfo<'tcx>>> {
+    let mut variants: Vec<Rc<ty::VariantInfo>> = Vec::new();
+    let mut prev_disr_val: Option<ty::Disr> = None;
+
+    let (repr_type, repr_type_ty) = ty::enum_repr_type(cx, opt_hint);
+
+    for v in vs {
+        // If the discriminant value is specified explicitly in the
+        // enum, check whether the initialization expression is valid,
+        // otherwise use the last value plus one.
+        let current_disr_val;
+
+        // This closure marks cases where, when an error occurs during
+        // the computation, attempt to assign a (hopefully) fresh
+        // value to avoid spurious error reports downstream.
+        let attempt_fresh_value = move || -> Disr {
+            repr_type.disr_wrap_incr(prev_disr_val)
+        };
+
+        match v.node.disr_expr {
+            Some(ref e) => {
+                debug!("disr expr, checking {}", pprust::expr_to_string(&**e));
+
+                // check_expr (from check_const pass) doesn't guarantee
+                // that the expression is in a form that eval_const_expr can
+                // handle, so we may still get an internal compiler error
+                //
+                // pnkfelix: The above comment was transcribed from
+                // the version of this code taken from rustc_typeck.
+                // Presumably the implication is that we need to deal
+                // with such ICE's as they arise.
+                //
+                // Since this can be called from `ty::enum_variants`
+                // anyway, best thing is to make `eval_const_expr`
+                // more robust (on case-by-case basis).
+
+                match const_eval::eval_const_expr_partial(cx, &**e, Some(repr_type_ty)) {
+                    Ok(const_eval::const_int(val)) => current_disr_val = val as Disr,
+                    Ok(const_eval::const_uint(val)) => current_disr_val = val as Disr,
+                    Ok(_) => {
+                        span_err!(cx.sess, e.span, E0079,
+                                  "expected signed integer constant");
+                        current_disr_val = attempt_fresh_value();
+                    }
+                    Err(ref err) => {
+                        span_err!(cx.sess, err.span, E0080,
+                                  "constant evaluation error: {}",
+                                  err.description());
+                        current_disr_val = attempt_fresh_value();
+                    }
+                }
+            },
+            None => {
+                current_disr_val = match prev_disr_val {
+                    Some(prev_disr_val) => {
+                        if let Some(v) = repr_type.disr_incr(prev_disr_val) {
+                            v
+                        } else {
+                            report_discrim_overflow(cx, v.span, v.node.name.as_str(),
+                                                    repr_type, prev_disr_val);
+                            attempt_fresh_value()
+                        }
+                    }
+                    None => ty::INITIAL_DISCRIMINANT_VALUE
+                }
+            }
+        }
+
+        let variant_info = Rc::new(VariantInfo::from_ast_variant(cx, &**v, current_disr_val));
+        prev_disr_val = Some(current_disr_val);
+
+        variants.push(variant_info);
+    }
+
+    return variants;
+}
+
 pub fn enum_variants<'tcx>(cx: &ctxt<'tcx>, id: ast::DefId)
                            -> Rc<Vec<Rc<VariantInfo<'tcx>>>> {
-    use std::num::Int; // For checked_add
     memoized(&cx.enum_var_cache, id, |id: ast::DefId| {
         if ast::LOCAL_CRATE != id.krate {
             Rc::new(csearch::get_enum_variants(cx, id))
         } else {
-            /*
-              Although both this code and check_enum_variants in typeck/check
-              call eval_const_expr, it should never get called twice for the same
-              expr, since check_enum_variants also updates the enum_var_cache
-             */
             match cx.map.get(id.node) {
                 ast_map::NodeItem(ref item) => {
                     match item.node {
                         ast::ItemEnum(ref enum_definition, _) => {
-                            let mut last_discriminant: Option<Disr> = None;
-                            Rc::new(enum_definition.variants.iter().map(|variant| {
-
-                                let mut discriminant = INITIAL_DISCRIMINANT_VALUE;
-                                if let Some(ref e) = variant.node.disr_expr {
-                                    // Preserve all values, and prefer signed.
-                                    let ty = Some(cx.types.i64);
-                                    match const_eval::eval_const_expr_partial(cx, &**e, ty) {
-                                        Ok(const_eval::const_int(val)) => {
-                                            discriminant = val as Disr;
-                                        }
-                                        Ok(const_eval::const_uint(val)) => {
-                                            discriminant = val as Disr;
-                                        }
-                                        Ok(_) => {
-                                            span_err!(cx.sess, e.span, E0304,
-                                                      "expected signed integer constant");
-                                        }
-                                        Err(err) => {
-                                            span_err!(cx.sess, err.span, E0305,
-                                                      "constant evaluation error: {}",
-                                                      err.description());
-                                        }
-                                    }
-                                } else {
-                                    if let Some(val) = last_discriminant {
-                                        if let Some(v) = val.checked_add(1) {
-                                            discriminant = v
-                                        } else {
-                                            cx.sess.span_err(
-                                                variant.span,
-                                                &format!("Discriminant overflowed!"));
-                                        }
-                                    } else {
-                                        discriminant = INITIAL_DISCRIMINANT_VALUE;
-                                    }
-                                }
-
-                                last_discriminant = Some(discriminant);
-                                Rc::new(VariantInfo::from_ast_variant(cx, &**variant,
-                                                                      discriminant))
-                            }).collect())
+                            Rc::new(compute_enum_variants(
+                                cx,
+                                &enum_definition.variants,
+                                lookup_repr_hints(cx, id).get(0)))
                         }
                         _ => {
                             cx.sess.bug("enum_variants: id not bound to an enum")
@@ -5669,9 +5897,7 @@ pub fn lookup_field_type<'tcx>(tcx: &ctxt<'tcx>,
         node_id_to_type(tcx, id.node)
     } else {
         let mut tcache = tcx.tcache.borrow_mut();
-        let pty = tcache.entry(id).get().unwrap_or_else(
-            |vacant_entry| vacant_entry.insert(csearch::get_field_type(tcx, struct_id, id)));
-        pty.ty
+        tcache.entry(id).or_insert_with(|| csearch::get_field_type(tcx, struct_id, id)).ty
     };
     ty.subst(tcx, substs)
 }
@@ -5792,85 +6018,13 @@ pub fn closure_upvars<'tcx>(typer: &mc::Typer<'tcx>,
     }
 }
 
-pub fn is_binopable<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>, op: ast::BinOp) -> bool {
-    #![allow(non_upper_case_globals)]
-    const tycat_other: int = 0;
-    const tycat_bool: int = 1;
-    const tycat_char: int = 2;
-    const tycat_int: int = 3;
-    const tycat_float: int = 4;
-    const tycat_raw_ptr: int = 6;
-
-    const opcat_add: int = 0;
-    const opcat_sub: int = 1;
-    const opcat_mult: int = 2;
-    const opcat_shift: int = 3;
-    const opcat_rel: int = 4;
-    const opcat_eq: int = 5;
-    const opcat_bit: int = 6;
-    const opcat_logic: int = 7;
-    const opcat_mod: int = 8;
-
-    fn opcat(op: ast::BinOp) -> int {
-        match op.node {
-          ast::BiAdd => opcat_add,
-          ast::BiSub => opcat_sub,
-          ast::BiMul => opcat_mult,
-          ast::BiDiv => opcat_mult,
-          ast::BiRem => opcat_mod,
-          ast::BiAnd => opcat_logic,
-          ast::BiOr => opcat_logic,
-          ast::BiBitXor => opcat_bit,
-          ast::BiBitAnd => opcat_bit,
-          ast::BiBitOr => opcat_bit,
-          ast::BiShl => opcat_shift,
-          ast::BiShr => opcat_shift,
-          ast::BiEq => opcat_eq,
-          ast::BiNe => opcat_eq,
-          ast::BiLt => opcat_rel,
-          ast::BiLe => opcat_rel,
-          ast::BiGe => opcat_rel,
-          ast::BiGt => opcat_rel
-        }
-    }
-
-    fn tycat<'tcx>(cx: &ctxt<'tcx>, ty: Ty<'tcx>) -> int {
-        if type_is_simd(cx, ty) {
-            return tycat(cx, simd_type(cx, ty))
-        }
-        match ty.sty {
-          ty_char => tycat_char,
-          ty_bool => tycat_bool,
-          ty_int(_) | ty_uint(_) | ty_infer(IntVar(_)) => tycat_int,
-          ty_float(_) | ty_infer(FloatVar(_)) => tycat_float,
-          ty_ptr(_) => tycat_raw_ptr,
-          _ => tycat_other
-        }
-    }
-
-    const t: bool = true;
-    const f: bool = false;
-
-    let tbl = [
-    //           +, -, *, shift, rel, ==, bit, logic, mod
-    /*other*/   [f, f, f, f,     f,   f,  f,   f,     f],
-    /*bool*/    [f, f, f, f,     t,   t,  t,   t,     f],
-    /*char*/    [f, f, f, f,     t,   t,  f,   f,     f],
-    /*int*/     [t, t, t, t,     t,   t,  t,   f,     t],
-    /*float*/   [t, t, t, f,     t,   t,  f,   f,     f],
-    /*bot*/     [t, t, t, t,     t,   t,  t,   t,     t],
-    /*raw ptr*/ [f, f, f, f,     t,   t,  f,   f,     f]];
-
-    return tbl[tycat(cx, ty) as uint ][opcat(op) as uint];
-}
-
 // Returns the repeat count for a repeating vector expression.
-pub fn eval_repeat_count(tcx: &ctxt, count_expr: &ast::Expr) -> uint {
-    match const_eval::eval_const_expr_partial(tcx, count_expr, Some(tcx.types.uint)) {
+pub fn eval_repeat_count(tcx: &ctxt, count_expr: &ast::Expr) -> usize {
+    match const_eval::eval_const_expr_partial(tcx, count_expr, Some(tcx.types.usize)) {
         Ok(val) => {
             let found = match val {
-                const_eval::const_uint(count) => return count as uint,
-                const_eval::const_int(count) if count >= 0 => return count as uint,
+                const_eval::const_uint(count) => return count as usize,
+                const_eval::const_int(count) if count >= 0 => return count as usize,
                 const_eval::const_int(_) => "negative integer",
                 const_eval::const_float(_) => "float",
                 const_eval::const_str(_) => "string",
@@ -5883,19 +6037,20 @@ pub fn eval_repeat_count(tcx: &ctxt, count_expr: &ast::Expr) -> uint {
                 "expected positive integer for repeat count, found {}",
                 found);
         }
-        Err(_) => {
+        Err(err) => {
+            let err_description = err.description();
             let found = match count_expr.node {
                 ast::ExprPath(None, ast::Path {
                     global: false,
                     ref segments,
                     ..
                 }) if segments.len() == 1 =>
-                    "variable",
+                    format!("{}", "found variable"),
                 _ =>
-                    "non-constant expression"
+                    format!("but {}", err_description),
             };
             span_err!(tcx.sess, count_expr.span, E0307,
-                "expected constant integer for repeat count, found {}",
+                "expected constant integer for repeat count, {}",
                 found);
         }
     }
@@ -6739,7 +6894,7 @@ pub fn liberate_late_bound_regions<'tcx, T>(
 pub fn count_late_bound_regions<'tcx, T>(
     tcx: &ty::ctxt<'tcx>,
     value: &Binder<T>)
-    -> uint
+    -> usize
     where T : TypeFoldable<'tcx> + Repr<'tcx>
 {
     let (_, skol_map) = replace_late_bound_regions(tcx, value, |_| ty::ReStatic);
@@ -6753,6 +6908,30 @@ pub fn binds_late_bound_regions<'tcx, T>(
     where T : TypeFoldable<'tcx> + Repr<'tcx>
 {
     count_late_bound_regions(tcx, value) > 0
+}
+
+/// Flattens two binding levels into one. So `for<'a> for<'b> Foo`
+/// becomes `for<'a,'b> Foo`.
+pub fn flatten_late_bound_regions<'tcx, T>(
+    tcx: &ty::ctxt<'tcx>,
+    bound2_value: &Binder<Binder<T>>)
+    -> Binder<T>
+    where T: TypeFoldable<'tcx> + Repr<'tcx>
+{
+    let bound0_value = bound2_value.skip_binder().skip_binder();
+    let value = ty_fold::fold_regions(tcx, bound0_value, |region, current_depth| {
+        match region {
+            ty::ReLateBound(debruijn, br) if debruijn.depth >= current_depth => {
+                // should be true if no escaping regions from bound2_value
+                assert!(debruijn.depth - current_depth <= 1);
+                ty::ReLateBound(DebruijnIndex::new(current_depth), br)
+            }
+            _ => {
+                region
+            }
+        }
+    });
+    Binder(value)
 }
 
 pub fn no_late_bound_regions<'tcx, T>(
@@ -6785,8 +6964,8 @@ pub fn erase_late_bound_regions<'tcx, T>(
 ///
 /// The chief purpose of this function is to canonicalize regions so that two
 /// `FnSig`s or `TraitRef`s which are equivalent up to region naming will become
-/// structurally identical.  For example, `for<'a, 'b> fn(&'a int, &'b int)` and
-/// `for<'a, 'b> fn(&'b int, &'a int)` will become identical after anonymization.
+/// structurally identical.  For example, `for<'a, 'b> fn(&'a isize, &'b isize)` and
+/// `for<'a, 'b> fn(&'b isize, &'a isize)` will become identical after anonymization.
 pub fn anonymize_late_bound_regions<'tcx, T>(
     tcx: &ctxt<'tcx>,
     sig: &Binder<T>)
@@ -6819,9 +6998,7 @@ pub fn replace_late_bound_regions<'tcx, T, F>(
         debug!("region={}", region.repr(tcx));
         match region {
             ty::ReLateBound(debruijn, br) if debruijn.depth == current_depth => {
-                let region =
-                    * map.entry(br).get().unwrap_or_else(
-                        |vacant_entry| vacant_entry.insert(mapf(br)));
+                let region = *map.entry(br).or_insert_with(|| mapf(br));
 
                 if let ty::ReLateBound(debruijn1, br) = region {
                     // If the callback returns a late-bound region,
@@ -6977,7 +7154,7 @@ pub fn make_substs_for_receiver_types<'tcx>(tcx: &ty::ctxt<'tcx>,
     trait_ref.substs.clone().with_method(meth_tps, meth_regions)
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum CopyImplementationError {
     FieldDoesNotImplementCopy(ast::Name),
     VariantDoesNotImplementCopy(ast::Name),
@@ -7090,6 +7267,12 @@ impl<'tcx> RegionEscape for Predicate<'tcx> {
             Predicate::TypeOutlives(ref data) => data.has_regions_escaping_depth(depth),
             Predicate::Projection(ref data) => data.has_regions_escaping_depth(depth),
         }
+    }
+}
+
+impl<'tcx,P:RegionEscape> RegionEscape for traits::Obligation<'tcx,P> {
+    fn has_regions_escaping_depth(&self, depth: u32) -> bool {
+        self.predicate.has_regions_escaping_depth(depth)
     }
 }
 

@@ -35,7 +35,6 @@ use syntax::parse::token::InternedString;
 
 use getopts;
 use std::collections::HashMap;
-use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::env;
 
 use std::fmt;
@@ -249,7 +248,7 @@ pub fn basic_options() -> Options {
 // users can have their own entry
 // functions that don't start a
 // scheduler
-#[derive(Copy, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum EntryFnType {
     EntryMain,
     EntryStart,
@@ -317,7 +316,7 @@ macro_rules! options {
     {
         let mut op = $defaultfn();
         for option in matches.opt_strs($prefix) {
-            let mut iter = option.splitn(1, '=');
+            let mut iter = option.splitn(2, '=');
             let key = iter.next().unwrap();
             let value = iter.next();
             let option_to_lookup = key.replace("-", "_");
@@ -451,14 +450,14 @@ macro_rules! options {
             }
         }
 
-        fn parse_uint(slot: &mut uint, v: Option<&str>) -> bool {
+        fn parse_uint(slot: &mut usize, v: Option<&str>) -> bool {
             match v.and_then(|s| s.parse().ok()) {
                 Some(i) => { *slot = i; true },
                 None => false
             }
         }
 
-        fn parse_opt_uint(slot: &mut Option<uint>, v: Option<&str>) -> bool {
+        fn parse_opt_uint(slot: &mut Option<usize>, v: Option<&str>) -> bool {
             match v {
                 Some(s) => { *slot = s.parse().ok(); slot.is_some() }
                 None => { *slot = None; true }
@@ -532,7 +531,7 @@ options! {CodegenOptions, CodegenSetter, basic_codegen_options,
          "extra data to put in each output filename"),
     cross_path: Option<String> = (None, parse_opt_string,
         "the path to the target specific toolchain"),
-    codegen_units: uint = (1, parse_uint,
+    codegen_units: usize = (1, parse_uint,
         "divide crate into N units to optimize in parallel"),
     remark: Passes = (SomePasses(Vec::new()), parse_passes,
         "print remarks for these optimization passes (space separated, or \"all\")"),
@@ -543,10 +542,10 @@ options! {CodegenOptions, CodegenSetter, basic_codegen_options,
     stable_pexe: bool = (false, parse_bool,
         "write finalized, stable PNaCl bitcode. PNaCl binaries only. Combine with --emit=link,bc \
          if you'd like debugging info."),
-    debuginfo: Option<uint> = (None, parse_opt_uint,
+    debuginfo: Option<usize> = (None, parse_opt_uint,
         "debug info emission level, 0 = no debug info, 1 = line tables only, \
          2 = full debug info with variable and type information"),
-    opt_level: Option<uint> = (None, parse_opt_uint,
+    opt_level: Option<usize> = (None, parse_opt_uint,
         "Optimize with possible levels 0-3"),
     debug_assertions: Option<bool> = (None, parse_opt_bool,
         "explicitly enable the cfg(debug_assertions) directive"),
@@ -623,6 +622,8 @@ options! {DebuggingOptions, DebuggingSetter, basic_debugging_options,
           "Print the size of enums and their variants"),
     force_overflow_checks: Option<bool> = (None, parse_opt_bool,
           "Force overflow checks on or off"),
+    force_dropflag_checks: Option<bool> = (None, parse_opt_bool,
+          "Force drop flag checks on or off"),
 }
 
 pub fn default_lib_output() -> CrateType {
@@ -975,25 +976,7 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
     }
 
     let libs = matches.opt_strs("l").into_iter().map(|s| {
-        let mut parts = s.splitn(1, '=');
-        let kind = parts.next().unwrap();
-        if let Some(name) = parts.next() {
-            let kind = match kind {
-                "dylib" => cstore::NativeUnknown,
-                "framework" => cstore::NativeFramework,
-                "static" => cstore::NativeStatic,
-                s => {
-                    early_error(&format!("unknown library kind `{}`, expected \
-                                          one of dylib, framework, or static",
-                                         s));
-                }
-            };
-            return (name.to_string(), kind)
-        }
-
-        // FIXME(acrichto) remove this once crates have stopped using it, this
-        //                 is deprecated behavior now.
-        let mut parts = s.rsplitn(1, ':');
+        let mut parts = s.splitn(2, '=');
         let kind = parts.next().unwrap();
         let (name, kind) = match (parts.next(), kind) {
             (None, name) |
@@ -1045,7 +1028,7 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
 
     let mut externs = HashMap::new();
     for arg in &matches.opt_strs("extern") {
-        let mut parts = arg.splitn(1, '=');
+        let mut parts = arg.splitn(2, '=');
         let name = match parts.next() {
             Some(s) => s,
             None => early_error("--extern value must not be empty"),
@@ -1055,10 +1038,7 @@ pub fn build_session_options(matches: &getopts::Matches) -> Options {
             None => early_error("--extern value must be of the format `foo=bar`"),
         };
 
-        match externs.entry(name.to_string()) {
-            Vacant(entry) => { entry.insert(vec![location.to_string()]); },
-            Occupied(mut entry) => { entry.get_mut().push(location.to_string()); },
-        }
+        externs.entry(name.to_string()).or_insert(vec![]).push(location.to_string());
     }
 
     let crate_name = matches.opt_str("crate-name");

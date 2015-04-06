@@ -35,13 +35,12 @@ use middle::ty::{self, Ty};
 use middle::{def, pat_util, stability};
 use middle::const_eval::{eval_const_expr_partial, const_int, const_uint};
 use middle::cfg;
-use util::ppaux::{ty_to_string};
+use util::ppaux::ty_to_string;
 use util::nodemap::{FnvHashMap, NodeSet};
 use lint::{Level, Context, LintPass, LintArray, Lint};
 
-use std::collections::BitSet;
+use std::collections::{HashSet, BitSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
-use std::num::SignedInt;
 use std::{cmp, slice};
 use std::{i8, i16, i32, i64, u8, u16, u32, u64, f32, f64};
 
@@ -64,7 +63,7 @@ declare_lint! {
     "suggest using `loop { }` instead of `while true { }`"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct WhileTrue;
 
 impl LintPass for WhileTrue {
@@ -108,7 +107,7 @@ declare_lint! {
     "shift exceeds the type's number of bits"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct TypeLimits {
     /// Id of the last visited negated expression
     negated_expr_id: ast::NodeId,
@@ -117,7 +116,7 @@ pub struct TypeLimits {
 impl TypeLimits {
     pub fn new() -> TypeLimits {
         TypeLimits {
-            negated_expr_id: -1,
+            negated_expr_id: !0,
         }
     }
 }
@@ -180,7 +179,7 @@ impl LintPass for TypeLimits {
                             if let ast::LitInt(shift, _) = lit.node { shift >= bits }
                             else { false }
                         } else {
-                            match eval_const_expr_partial(cx.tcx, &**r, Some(cx.tcx.types.uint)) {
+                            match eval_const_expr_partial(cx.tcx, &**r, Some(cx.tcx.types.usize)) {
                                 Ok(const_int(shift)) => { shift as u64 >= bits },
                                 Ok(const_uint(shift)) => { shift >= bits },
                                 _ => { false }
@@ -199,7 +198,7 @@ impl LintPass for TypeLimits {
                         match lit.node {
                             ast::LitInt(v, ast::SignedIntLit(_, ast::Plus)) |
                             ast::LitInt(v, ast::UnsuffixedIntLit(ast::Plus)) => {
-                                let int_type = if let ast::TyIs(_) = t {
+                                let int_type = if let ast::TyIs = t {
                                     cx.sess().target.int_type
                                 } else {
                                     t
@@ -218,7 +217,7 @@ impl LintPass for TypeLimits {
                         };
                     },
                     ty::ty_uint(t) => {
-                        let uint_type = if let ast::TyUs(_) = t {
+                        let uint_type = if let ast::TyUs = t {
                             cx.sess().target.uint_type
                         } else {
                             t
@@ -283,7 +282,7 @@ impl LintPass for TypeLimits {
         // warnings are consistent between 32- and 64-bit platforms
         fn int_ty_range(int_ty: ast::IntTy) -> (i64, i64) {
             match int_ty {
-                ast::TyIs(_) => (i64::MIN,        i64::MAX),
+                ast::TyIs => (i64::MIN,        i64::MAX),
                 ast::TyI8 =>    (i8::MIN  as i64, i8::MAX  as i64),
                 ast::TyI16 =>   (i16::MIN as i64, i16::MAX as i64),
                 ast::TyI32 =>   (i32::MIN as i64, i32::MAX as i64),
@@ -293,7 +292,7 @@ impl LintPass for TypeLimits {
 
         fn uint_ty_range(uint_ty: ast::UintTy) -> (u64, u64) {
             match uint_ty {
-                ast::TyUs(_) => (u64::MIN,         u64::MAX),
+                ast::TyUs => (u64::MIN,         u64::MAX),
                 ast::TyU8 =>    (u8::MIN   as u64, u8::MAX   as u64),
                 ast::TyU16 =>   (u16::MIN  as u64, u16::MAX  as u64),
                 ast::TyU32 =>   (u32::MIN  as u64, u32::MAX  as u64),
@@ -310,7 +309,7 @@ impl LintPass for TypeLimits {
 
         fn int_ty_bits(int_ty: ast::IntTy, target_int_ty: ast::IntTy) -> u64 {
             match int_ty {
-                ast::TyIs(_) => int_ty_bits(target_int_ty, target_int_ty),
+                ast::TyIs => int_ty_bits(target_int_ty, target_int_ty),
                 ast::TyI8 =>    i8::BITS  as u64,
                 ast::TyI16 =>   i16::BITS as u64,
                 ast::TyI32 =>   i32::BITS as u64,
@@ -320,7 +319,7 @@ impl LintPass for TypeLimits {
 
         fn uint_ty_bits(uint_ty: ast::UintTy, target_uint_ty: ast::UintTy) -> u64 {
             match uint_ty {
-                ast::TyUs(_) => uint_ty_bits(target_uint_ty, target_uint_ty),
+                ast::TyUs => uint_ty_bits(target_uint_ty, target_uint_ty),
                 ast::TyU8 =>    u8::BITS  as u64,
                 ast::TyU16 =>   u16::BITS as u64,
                 ast::TyU32 =>   u32::BITS as u64,
@@ -395,12 +394,12 @@ struct ImproperCTypesVisitor<'a, 'tcx: 'a> {
 impl<'a, 'tcx> ImproperCTypesVisitor<'a, 'tcx> {
     fn check_def(&mut self, sp: Span, id: ast::NodeId) {
         match self.cx.tcx.def_map.borrow().get(&id).unwrap().full_def() {
-            def::DefPrimTy(ast::TyInt(ast::TyIs(_))) => {
+            def::DefPrimTy(ast::TyInt(ast::TyIs)) => {
                 self.cx.span_lint(IMPROPER_CTYPES, sp,
                                   "found rust type `isize` in foreign module, while \
                                    libc::c_int or libc::c_long should be used");
             }
-            def::DefPrimTy(ast::TyUint(ast::TyUs(_))) => {
+            def::DefPrimTy(ast::TyUint(ast::TyUs)) => {
                 self.cx.span_lint(IMPROPER_CTYPES, sp,
                                   "found rust type `usize` in foreign module, while \
                                    libc::c_uint or libc::c_ulong should be used");
@@ -432,7 +431,7 @@ impl<'a, 'tcx, 'v> Visitor<'v> for ImproperCTypesVisitor<'a, 'tcx> {
     }
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct ImproperCTypes;
 
 impl LintPass for ImproperCTypes {
@@ -475,7 +474,7 @@ declare_lint! {
     "use of owned (Box type) heap memory"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct BoxPointers;
 
 impl BoxPointers {
@@ -622,7 +621,7 @@ declare_lint! {
     "detects attributes that were not used by the compiler"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct UnusedAttributes;
 
 impl LintPass for UnusedAttributes {
@@ -663,7 +662,7 @@ declare_lint! {
     "path statements with no effect"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct PathStatements;
 
 impl LintPass for PathStatements {
@@ -697,7 +696,7 @@ declare_lint! {
     "unused result of an expression in a statement"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct UnusedResults;
 
 impl LintPass for UnusedResults {
@@ -765,7 +764,7 @@ declare_lint! {
     "types, variants, traits and type parameters should have camel case names"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct NonCamelCaseTypes;
 
 impl NonCamelCaseTypes {
@@ -875,7 +874,7 @@ declare_lint! {
     "methods, functions, lifetime parameters and modules should have snake case names"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct NonSnakeCase;
 
 impl NonSnakeCase {
@@ -1015,7 +1014,7 @@ declare_lint! {
     "static constants should have uppercase identifiers"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct NonUpperCaseGlobals;
 
 impl NonUpperCaseGlobals {
@@ -1073,7 +1072,7 @@ declare_lint! {
     "`if`, `match`, `while` and `return` do not need parentheses"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct UnusedParens;
 
 impl UnusedParens {
@@ -1167,7 +1166,7 @@ declare_lint! {
     "unnecessary braces around an imported item"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct UnusedImportBraces;
 
 impl LintPass for UnusedImportBraces {
@@ -1197,7 +1196,7 @@ declare_lint! {
     "using `Struct { x: x }` instead of `Struct { x }`"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct NonShorthandFieldPatterns;
 
 impl LintPass for NonShorthandFieldPatterns {
@@ -1234,7 +1233,7 @@ declare_lint! {
     "unnecessary use of an `unsafe` block"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct UnusedUnsafe;
 
 impl LintPass for UnusedUnsafe {
@@ -1259,7 +1258,7 @@ declare_lint! {
     "usage of `unsafe` code"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct UnsafeCode;
 
 impl LintPass for UnsafeCode {
@@ -1320,7 +1319,7 @@ declare_lint! {
     "detect mut variables which don't need to be mutable"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct UnusedMut;
 
 impl UnusedMut {
@@ -1389,7 +1388,7 @@ declare_lint! {
     "detects unnecessary allocations that can be eliminated"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct UnusedAllocation;
 
 impl LintPass for UnusedAllocation {
@@ -1437,6 +1436,9 @@ pub struct MissingDoc {
     /// Stack of whether #[doc(hidden)] is set
     /// at each level which has lint attributes.
     doc_hidden_stack: Vec<bool>,
+
+    /// Private traits or trait items that leaked through. Don't check their methods.
+    private_traits: HashSet<ast::NodeId>,
 }
 
 impl MissingDoc {
@@ -1445,6 +1447,7 @@ impl MissingDoc {
             struct_def_stack: vec!(),
             in_variant: false,
             doc_hidden_stack: vec!(false),
+            private_traits: HashSet::new(),
         }
     }
 
@@ -1531,18 +1534,46 @@ impl LintPass for MissingDoc {
             ast::ItemMod(..) => "a module",
             ast::ItemEnum(..) => "an enum",
             ast::ItemStruct(..) => "a struct",
-            ast::ItemTrait(..) => "a trait",
+            ast::ItemTrait(_, _, _, ref items) => {
+                // Issue #11592, traits are always considered exported, even when private.
+                if it.vis == ast::Visibility::Inherited {
+                    self.private_traits.insert(it.id);
+                    for itm in items {
+                        self.private_traits.insert(itm.id);
+                    }
+                    return
+                }
+                "a trait"
+            },
             ast::ItemTy(..) => "a type alias",
+            ast::ItemImpl(_, _, _, Some(ref trait_ref), _, ref impl_items) => {
+                // If the trait is private, add the impl items to private_traits so they don't get
+                // reported for missing docs.
+                let real_trait = ty::trait_ref_to_def_id(cx.tcx, trait_ref);
+                match cx.tcx.map.find(real_trait.node) {
+                    Some(ast_map::NodeItem(item)) => if item.vis == ast::Visibility::Inherited {
+                        for itm in impl_items {
+                            self.private_traits.insert(itm.id);
+                        }
+                    },
+                    _ => { }
+                }
+                return
+            },
             _ => return
         };
+
         self.check_missing_docs_attrs(cx, Some(it.id), &it.attrs, it.span, desc);
     }
 
     fn check_trait_item(&mut self, cx: &Context, trait_item: &ast::TraitItem) {
+        if self.private_traits.contains(&trait_item.id) { return }
+
         let desc = match trait_item.node {
             ast::MethodTraitItem(..) => "a trait method",
             ast::TypeTraitItem(..) => "an associated type"
         };
+
         self.check_missing_docs_attrs(cx, Some(trait_item.id),
                                       &trait_item.attrs,
                                       trait_item.span, desc);
@@ -1594,7 +1625,7 @@ declare_lint! {
     "detects potentially-forgotten implementations of `Copy`"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct MissingCopyImplementations;
 
 impl LintPass for MissingCopyImplementations {
@@ -1709,7 +1740,7 @@ declare_lint! {
 }
 
 /// Checks for use of items with `#[deprecated]` attributes
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct Stability;
 
 impl Stability {
@@ -1769,7 +1800,7 @@ declare_lint! {
     "functions that cannot return without calling themselves"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct UnconditionalRecursion;
 
 
@@ -1960,7 +1991,7 @@ declare_lint! {
     "compiler plugin used as ordinary library in non-plugin crate"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct PluginAsLibrary;
 
 impl LintPass for PluginAsLibrary {
@@ -2014,7 +2045,7 @@ declare_lint! {
     "const items will not have their symbols exported"
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct InvalidNoMangleItems;
 
 impl LintPass for InvalidNoMangleItems {
@@ -2057,7 +2088,7 @@ impl LintPass for InvalidNoMangleItems {
 }
 
 /// Forbids using the `#[feature(...)]` attribute
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct UnstableFeatures;
 
 declare_lint! {

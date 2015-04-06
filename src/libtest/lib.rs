@@ -38,19 +38,16 @@
 #![feature(box_syntax)]
 #![feature(collections)]
 #![feature(core)]
-#![feature(int_uint)]
 #![feature(rustc_private)]
 #![feature(staged_api)]
 #![feature(std_misc)]
 #![feature(libc)]
 #![feature(set_stdio)]
-#![feature(os)]
-#![feature(convert)]
 #![cfg_attr(test, feature(old_io))]
 
 extern crate getopts;
 extern crate serialize;
-extern crate "serialize" as rustc_serialize;
+extern crate serialize as rustc_serialize;
 extern crate term;
 extern crate libc;
 
@@ -65,6 +62,7 @@ use self::OutputLocation::*;
 use stats::Stats;
 use getopts::{OptGroup, optflag, optopt};
 use serialize::Encodable;
+use std::boxed::FnBox;
 use term::Terminal;
 use term::color::{Color, RED, YELLOW, GREEN, CYAN};
 
@@ -78,11 +76,11 @@ use std::io::prelude::*;
 use std::io;
 use std::iter::repeat;
 use std::num::{Float, Int};
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::thunk::{Thunk, Invoke};
+use std::thunk::Thunk;
 use std::time::Duration;
 
 // to be used by rustc to compile tests in libtest
@@ -129,7 +127,7 @@ enum NamePadding {
 }
 
 impl TestDesc {
-    fn padded_name(&self, column_count: uint, align: NamePadding) -> String {
+    fn padded_name(&self, column_count: usize, align: NamePadding) -> String {
         let mut name = String::from_str(self.name.as_slice());
         let fill = column_count.saturating_sub(name.len());
         let mut pad = repeat(" ").take(fill).collect::<String>();
@@ -161,7 +159,7 @@ pub enum TestFn {
     StaticBenchFn(fn(&mut Bencher)),
     StaticMetricFn(fn(&mut MetricMap)),
     DynTestFn(Thunk<'static>),
-    DynMetricFn(Box<for<'a> Invoke<&'a mut MetricMap>+'static>),
+    DynMetricFn(Box<FnBox(&mut MetricMap)+Send>),
     DynBenchFn(Box<TDynBenchFn+'static>)
 }
 
@@ -196,7 +194,7 @@ impl fmt::Debug for TestFn {
 /// This is fed into functions marked with `#[bench]` to allow for
 /// set-up & tear-down before running a piece of code repeatedly via a
 /// call to `iter`.
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct Bencher {
     iterations: u64,
     dur: Duration,
@@ -283,7 +281,7 @@ pub fn test_main_static(args: env::Args, tests: &[TestDescAndFn]) {
     test_main(&args, owned_tests)
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum ColorConfig {
     AutoColor,
     AlwaysColor,
@@ -299,11 +297,11 @@ pub struct TestOpts {
     pub ratchet_metrics: Option<PathBuf>,
     pub ratchet_noise_percent: Option<f64>,
     pub save_metrics: Option<PathBuf>,
-    pub test_shard: Option<(uint,uint)>,
+    pub test_shard: Option<(usize,usize)>,
     pub nocapture: bool,
     pub color: ColorConfig,
     pub show_boxplot: bool,
-    pub boxplot_width: uint,
+    pub boxplot_width: usize,
     pub show_all_stats: bool,
 }
 
@@ -369,7 +367,7 @@ The FILTER regex is tested against the name of all tests to run, and
 only those tests that match are run.
 
 By default, all tests are run in parallel. This can be altered with the
-RUST_TEST_THRADS environment variable when running tests (set it to 1).
+RUST_TEST_THREADS environment variable when running tests (set it to 1).
 
 All tests have their standard output and standard error captured by default.
 This can be overridden with the --nocapture flag or the RUST_TEST_NOCAPTURE=1
@@ -477,13 +475,13 @@ pub fn parse_opts(args: &[String]) -> Option<OptRes> {
     Some(Ok(test_opts))
 }
 
-pub fn opt_shard(maybestr: Option<String>) -> Option<(uint,uint)> {
+pub fn opt_shard(maybestr: Option<String>) -> Option<(usize,usize)> {
     match maybestr {
         None => None,
         Some(s) => {
             let mut it = s.split('.');
-            match (it.next().and_then(|s| s.parse::<uint>().ok()),
-                   it.next().and_then(|s| s.parse::<uint>().ok()),
+            match (it.next().and_then(|s| s.parse::<usize>().ok()),
+                   it.next().and_then(|s| s.parse::<usize>().ok()),
                    it.next()) {
                 (Some(a), Some(b), None) => {
                     if a <= 0 || a > b {
@@ -502,7 +500,7 @@ pub fn opt_shard(maybestr: Option<String>) -> Option<(uint,uint)> {
 #[derive(Clone, PartialEq)]
 pub struct BenchSamples {
     ns_iter_summ: stats::Summary<f64>,
-    mb_s: uint,
+    mb_s: usize,
 }
 
 #[derive(Clone, PartialEq)]
@@ -525,14 +523,14 @@ struct ConsoleTestState<T> {
     log_out: Option<File>,
     out: OutputLocation<T>,
     use_color: bool,
-    total: uint,
-    passed: uint,
-    failed: uint,
-    ignored: uint,
-    measured: uint,
+    total: usize,
+    passed: usize,
+    failed: usize,
+    ignored: usize,
+    measured: usize,
     metrics: MetricMap,
     failures: Vec<(TestDesc, Vec<u8> )> ,
-    max_name_len: uint, // number of columns to fill when aligning names
+    max_name_len: usize, // number of columns to fill when aligning names
 }
 
 impl<T: Write> ConsoleTestState<T> {
@@ -616,7 +614,7 @@ impl<T: Write> ConsoleTestState<T> {
         }
     }
 
-    pub fn write_run_start(&mut self, len: uint) -> io::Result<()> {
+    pub fn write_run_start(&mut self, len: usize) -> io::Result<()> {
         self.total = len;
         let noun = if len != 1 { "tests" } else { "test" };
         self.write_plain(&format!("\nrunning {} {}\n", len, noun))
@@ -716,13 +714,13 @@ impl<T: Write> ConsoleTestState<T> {
 pub fn fmt_bench_samples(bs: &BenchSamples) -> String {
     if bs.mb_s != 0 {
         format!("{:>9} ns/iter (+/- {}) = {} MB/s",
-             bs.ns_iter_summ.median as uint,
-             (bs.ns_iter_summ.max - bs.ns_iter_summ.min) as uint,
+             bs.ns_iter_summ.median as usize,
+             (bs.ns_iter_summ.max - bs.ns_iter_summ.min) as usize,
              bs.mb_s)
     } else {
         format!("{:>9} ns/iter (+/- {})",
-             bs.ns_iter_summ.median as uint,
-             (bs.ns_iter_summ.max - bs.ns_iter_summ.min) as uint)
+             bs.ns_iter_summ.median as usize,
+             (bs.ns_iter_summ.max - bs.ns_iter_summ.min) as usize)
     }
 }
 
@@ -770,7 +768,7 @@ pub fn run_tests_console(opts: &TestOpts, tests: Vec<TestDescAndFn> ) -> io::Res
     }
 
     let mut st = try!(ConsoleTestState::new(opts, None::<io::Stdout>));
-    fn len_if_padded(t: &TestDescAndFn) -> uint {
+    fn len_if_padded(t: &TestDescAndFn) -> usize {
         match t.testfn.padding() {
             PadNone => 0,
             PadOnLeft | PadOnRight => t.desc.name.as_slice().len(),
@@ -840,7 +838,7 @@ fn stdout_isatty() -> bool {
 }
 #[cfg(windows)]
 fn stdout_isatty() -> bool {
-    const STD_OUTPUT_HANDLE: libc::DWORD = -11;
+    const STD_OUTPUT_HANDLE: libc::DWORD = -11i32 as libc::DWORD;
     extern "system" {
         fn GetStdHandle(which: libc::DWORD) -> libc::HANDLE;
         fn GetConsoleMode(hConsoleHandle: libc::HANDLE,
@@ -926,10 +924,10 @@ fn run_tests<F>(opts: &TestOpts,
 }
 
 #[allow(deprecated)]
-fn get_concurrency() -> uint {
+fn get_concurrency() -> usize {
     match env::var("RUST_TEST_THREADS") {
         Ok(s) => {
-            let opt_n: Option<uint> = s.parse().ok();
+            let opt_n: Option<usize> = s.parse().ok();
             match opt_n {
                 Some(n) if n > 0 => n,
                 _ => panic!("RUST_TEST_THREADS is `{}`, should be a positive integer.", s)
@@ -939,7 +937,8 @@ fn get_concurrency() -> uint {
             if std::rt::util::limit_thread_creation_due_to_osx_and_valgrind() {
                 1
             } else {
-                std::os::num_cpus()
+                extern { fn rust_get_num_cpus() -> libc::uintptr_t; }
+                unsafe { rust_get_num_cpus() as usize }
             }
         }
     }
@@ -1030,7 +1029,7 @@ pub fn run_test(opts: &TestOpts,
                     io::set_print(box Sink(data2.clone()));
                     io::set_panic(box Sink(data2));
                 }
-                testfn.invoke(())
+                testfn()
             }).unwrap();
             let test_result = calc_result(&desc, result_guard.join());
             let stdout = data.lock().unwrap().to_vec();
@@ -1051,7 +1050,7 @@ pub fn run_test(opts: &TestOpts,
         }
         DynMetricFn(f) => {
             let mut mm = MetricMap::new();
-            f.invoke(&mut mm);
+            f.call_box((&mut mm,));
             monitor_ch.send((desc, TrMetrics(mm), Vec::new())).unwrap();
             return;
         }
@@ -1063,7 +1062,7 @@ pub fn run_test(opts: &TestOpts,
         }
         DynTestFn(f) => run_test_inner(desc, monitor_ch, opts.nocapture, f),
         StaticTestFn(f) => run_test_inner(desc, monitor_ch, opts.nocapture,
-                                          Thunk::new(move|| f()))
+                                          Box::new(move|| f()))
     }
 }
 
@@ -1262,7 +1261,7 @@ pub mod bench {
 
         BenchSamples {
             ns_iter_summ: ns_iter_summ,
-            mb_s: mb_s as uint
+            mb_s: mb_s as usize
         }
     }
 }
@@ -1285,7 +1284,7 @@ mod tests {
                 ignore: true,
                 should_panic: ShouldPanic::No,
             },
-            testfn: DynTestFn(Thunk::new(move|| f())),
+            testfn: DynTestFn(Box::new(move|| f())),
         };
         let (tx, rx) = channel();
         run_test(&TestOpts::new(), false, desc, tx);
@@ -1302,7 +1301,7 @@ mod tests {
                 ignore: true,
                 should_panic: ShouldPanic::No,
             },
-            testfn: DynTestFn(Thunk::new(move|| f())),
+            testfn: DynTestFn(Box::new(move|| f())),
         };
         let (tx, rx) = channel();
         run_test(&TestOpts::new(), false, desc, tx);
@@ -1319,7 +1318,7 @@ mod tests {
                 ignore: false,
                 should_panic: ShouldPanic::Yes(None)
             },
-            testfn: DynTestFn(Thunk::new(move|| f())),
+            testfn: DynTestFn(Box::new(move|| f())),
         };
         let (tx, rx) = channel();
         run_test(&TestOpts::new(), false, desc, tx);
@@ -1336,7 +1335,7 @@ mod tests {
                 ignore: false,
                 should_panic: ShouldPanic::Yes(Some("error message"))
             },
-            testfn: DynTestFn(Thunk::new(move|| f())),
+            testfn: DynTestFn(Box::new(move|| f())),
         };
         let (tx, rx) = channel();
         run_test(&TestOpts::new(), false, desc, tx);
@@ -1353,7 +1352,7 @@ mod tests {
                 ignore: false,
                 should_panic: ShouldPanic::Yes(Some("foobar"))
             },
-            testfn: DynTestFn(Thunk::new(move|| f())),
+            testfn: DynTestFn(Box::new(move|| f())),
         };
         let (tx, rx) = channel();
         run_test(&TestOpts::new(), false, desc, tx);
@@ -1370,7 +1369,7 @@ mod tests {
                 ignore: false,
                 should_panic: ShouldPanic::Yes(None)
             },
-            testfn: DynTestFn(Thunk::new(move|| f())),
+            testfn: DynTestFn(Box::new(move|| f())),
         };
         let (tx, rx) = channel();
         run_test(&TestOpts::new(), false, desc, tx);
@@ -1406,7 +1405,7 @@ mod tests {
                     ignore: true,
                     should_panic: ShouldPanic::No,
                 },
-                testfn: DynTestFn(Thunk::new(move|| {})),
+                testfn: DynTestFn(Box::new(move|| {})),
             },
             TestDescAndFn {
                 desc: TestDesc {
@@ -1414,7 +1413,7 @@ mod tests {
                     ignore: false,
                     should_panic: ShouldPanic::No,
                 },
-                testfn: DynTestFn(Thunk::new(move|| {})),
+                testfn: DynTestFn(Box::new(move|| {})),
             });
         let filtered = filter_tests(&opts, tests);
 
@@ -1431,8 +1430,8 @@ mod tests {
 
         let names =
             vec!("sha1::test".to_string(),
-                 "int::test_to_str".to_string(),
-                 "int::test_pow".to_string(),
+                 "isize::test_to_str".to_string(),
+                 "isize::test_pow".to_string(),
                  "test::do_not_run_ignored_tests".to_string(),
                  "test::ignored_tests_result_in_ignored".to_string(),
                  "test::first_free_arg_should_be_a_filter".to_string(),
@@ -1450,7 +1449,7 @@ mod tests {
                         ignore: false,
                         should_panic: ShouldPanic::No,
                     },
-                    testfn: DynTestFn(Thunk::new(testfn)),
+                    testfn: DynTestFn(Box::new(testfn)),
                 };
                 tests.push(test);
             }
@@ -1459,8 +1458,8 @@ mod tests {
         let filtered = filter_tests(&opts, tests);
 
         let expected =
-            vec!("int::test_pow".to_string(),
-                 "int::test_to_str".to_string(),
+            vec!("isize::test_pow".to_string(),
+                 "isize::test_to_str".to_string(),
                  "sha1::test".to_string(),
                  "test::do_not_run_ignored_tests".to_string(),
                  "test::filter_for_ignored_option".to_string(),

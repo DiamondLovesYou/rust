@@ -125,6 +125,7 @@ pub struct Implementor {
     pub trait_: clean::Type,
     pub for_: clean::Type,
     pub stability: Option<clean::Stability>,
+    pub polarity: Option<clean::ImplPolarity>,
 }
 
 /// Metadata about implementations for a type.
@@ -224,7 +225,7 @@ struct Source<'a>(&'a str);
 // Helper structs for rendering items/sidebars and carrying along contextual
 // information
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 struct Item<'a> {
     cx: &'a Context,
     item: &'a clean::Item,
@@ -498,7 +499,7 @@ fn build_index(krate: &clean::Crate, cache: &mut Cache) -> io::Result<String> {
             try!(write!(&mut w, ","));
         }
         try!(write!(&mut w, r#"[{},"{}","{}",{}"#,
-                    item.ty as uint, item.name, path,
+                    item.ty as usize, item.name, path,
                     item.desc.to_json().to_string()));
         match item.parent {
             Some(nodeid) => {
@@ -522,7 +523,7 @@ fn build_index(krate: &clean::Crate, cache: &mut Cache) -> io::Result<String> {
             try!(write!(&mut w, ","));
         }
         try!(write!(&mut w, r#"[{},"{}"]"#,
-                    short as uint, *fqp.last().unwrap()));
+                    short as usize, *fqp.last().unwrap()));
     }
 
     try!(write!(&mut w, "]}};"));
@@ -635,9 +636,11 @@ fn write_shared(cx: &Context,
             // going on). If they're in different crates then the crate defining
             // the trait will be interested in our implementation.
             if imp.def_id.krate == did.krate { continue }
-            try!(write!(&mut f, r#""{}impl{} {} for {}","#,
+            try!(write!(&mut f, r#""{}impl{} {}{} for {}","#,
                         ConciseStability(&imp.stability),
-                        imp.generics, imp.trait_, imp.for_));
+                        imp.generics,
+                        if imp.polarity == Some(clean::ImplPolarity::Negative) { "!" } else { "" },
+                        imp.trait_, imp.for_));
         }
         try!(writeln!(&mut f, r"];"));
         try!(writeln!(&mut f, "{}", r"
@@ -876,14 +879,13 @@ impl DocFolder for Cache {
         if let clean::ImplItem(ref i) = item.inner {
             match i.trait_ {
                 Some(clean::ResolvedPath{ did, .. }) => {
-                    let v = self.implementors.entry(did).get().unwrap_or_else(
-                        |vacant_entry| vacant_entry.insert(Vec::with_capacity(1)));
-                    v.push(Implementor {
+                    self.implementors.entry(did).or_insert(vec![]).push(Implementor {
                         def_id: item.def_id,
                         generics: i.generics.clone(),
                         trait_: i.trait_.as_ref().unwrap().clone(),
                         for_: i.for_.clone(),
                         stability: item.stability.clone(),
+                        polarity: i.polarity.clone(),
                     });
                 }
                 Some(..) | None => {}
@@ -1080,9 +1082,7 @@ impl DocFolder for Cache {
                         };
 
                         if let Some(did) = did {
-                            let v = self.impls.entry(did).get().unwrap_or_else(
-                                |vacant_entry| vacant_entry.insert(Vec::with_capacity(1)));
-                            v.push(Impl {
+                            self.impls.entry(did).or_insert(vec![]).push(Impl {
                                 impl_: i,
                                 dox: dox,
                                 stability: item.stability.clone(),
@@ -1334,9 +1334,8 @@ impl Context {
                 Some(ref s) => s.to_string(),
             };
             let short = short.to_string();
-            let v = map.entry(short).get().unwrap_or_else(
-                |vacant_entry| vacant_entry.insert(Vec::with_capacity(1)));
-            v.push((myname, Some(plain_summary_line(item.doc_value()))));
+            map.entry(short).or_insert(vec![])
+                .push((myname, Some(plain_summary_line(item.doc_value()))));
         }
 
         for (_, items) in &mut map {
@@ -1572,7 +1571,7 @@ fn item_module(w: &mut fmt::Formatter, cx: &Context,
 
     let mut indices = (0..items.len()).filter(|i| {
         !cx.ignore_private_item(&items[*i])
-    }).collect::<Vec<uint>>();
+    }).collect::<Vec<usize>>();
 
     // the order of item types in the listing
     fn reorder(ty: ItemType) -> u8 {
@@ -1593,7 +1592,7 @@ fn item_module(w: &mut fmt::Formatter, cx: &Context,
         }
     }
 
-    fn cmp(i1: &clean::Item, i2: &clean::Item, idx1: uint, idx2: uint) -> Ordering {
+    fn cmp(i1: &clean::Item, i2: &clean::Item, idx1: usize, idx2: usize) -> Ordering {
         let ty1 = shortty(i1);
         let ty2 = shortty(i2);
         if ty1 == ty2 {

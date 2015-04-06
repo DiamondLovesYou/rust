@@ -13,9 +13,9 @@
 
 use std::cell::Cell;
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 enum newtype {
-    newvar(int)
+    newvar(isize)
 }
 
 pub fn main() {

@@ -86,33 +86,17 @@ pub fn is_shift_binop(b: BinOp_) -> bool {
 
 pub fn is_comparison_binop(b: BinOp_) -> bool {
     match b {
-        BiEq | BiLt | BiLe | BiNe | BiGt | BiGe => true,
-        _ => false
+        BiEq | BiLt | BiLe | BiNe | BiGt | BiGe =>
+            true,
+        BiAnd | BiOr | BiAdd | BiSub | BiMul | BiDiv | BiRem |
+        BiBitXor | BiBitAnd | BiBitOr | BiShl | BiShr =>
+            false,
     }
 }
 
 /// Returns `true` if the binary operator takes its arguments by value
 pub fn is_by_value_binop(b: BinOp_) -> bool {
-    match b {
-        BiAdd | BiSub | BiMul | BiDiv | BiRem | BiBitXor | BiBitAnd | BiBitOr | BiShl | BiShr => {
-            true
-        }
-        _ => false
-    }
-}
-
-/// Returns `true` if the binary operator is symmetric in the sense that LHS
-/// and RHS must have the same type. So the type of LHS can serve as an hint
-/// for the type of RHS and vice versa.
-pub fn is_symmetric_binop(b: BinOp_) -> bool {
-    match b {
-        BiAdd | BiSub | BiMul | BiDiv | BiRem |
-        BiBitXor | BiBitAnd | BiBitOr |
-        BiEq | BiLt | BiLe | BiNe | BiGt | BiGe => {
-            true
-        }
-        _ => false
-    }
+    !is_comparison_binop(b)
 }
 
 /// Returns `true` if the unary operator takes its argument by value
@@ -140,7 +124,7 @@ pub fn is_path(e: P<Expr>) -> bool {
 /// We want to avoid "45int" and "-3int" in favor of "45" and "-3"
 pub fn int_ty_to_string(t: IntTy, val: Option<i64>) -> String {
     let s = match t {
-        TyIs(_) => "isize",
+        TyIs => "isize",
         TyI8 => "i8",
         TyI16 => "i16",
         TyI32 => "i32",
@@ -160,7 +144,7 @@ pub fn int_ty_max(t: IntTy) -> u64 {
     match t {
         TyI8 => 0x80,
         TyI16 => 0x8000,
-        TyIs(_) | TyI32 => 0x80000000, // actually ni about TyIs
+        TyIs | TyI32 => 0x80000000, // actually ni about TyIs
         TyI64 => 0x8000000000000000
     }
 }
@@ -169,7 +153,7 @@ pub fn int_ty_max(t: IntTy) -> u64 {
 /// We want to avoid "42u" in favor of "42us". "42uint" is right out.
 pub fn uint_ty_to_string(t: UintTy, val: Option<u64>) -> String {
     let s = match t {
-        TyUs(_) => "usize",
+        TyUs => "usize",
         TyU8 => "u8",
         TyU16 => "u16",
         TyU32 => "u32",
@@ -186,7 +170,7 @@ pub fn uint_ty_max(t: UintTy) -> u64 {
     match t {
         TyU8 => 0xff,
         TyU16 => 0xffff,
-        TyUs(_) | TyU32 => 0xffffffff, // actually ni about TyUs
+        TyUs | TyU32 => 0xffffffff, // actually ni about TyUs
         TyU64 => 0xffffffffffffffff
     }
 }
@@ -307,7 +291,7 @@ pub fn empty_generics() -> Generics {
 // ______________________________________________________________________
 // Enumerating the IDs which appear in an AST
 
-#[derive(RustcEncodable, RustcDecodable, Debug, Copy)]
+#[derive(Copy, Clone, RustcEncodable, RustcDecodable, Debug)]
 pub struct IdRange {
     pub min: NodeId,
     pub max: NodeId,

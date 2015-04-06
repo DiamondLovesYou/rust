@@ -100,7 +100,7 @@ impl Clone for PipeStream {
 }
 
 impl Reader for PipeStream {
-    fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> {
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
         self.inner.read(buf)
     }
 }
@@ -124,9 +124,9 @@ mod test {
         use os;
         use old_io::pipe::PipeStream;
 
-        let os::Pipe { reader, writer } = unsafe { os::pipe().unwrap() };
-        let out = PipeStream::open(writer);
-        let mut input = PipeStream::open(reader);
+        let (reader, writer) = unsafe { ::sys::os::pipe().unwrap() };
+        let out = PipeStream::open(writer.unwrap());
+        let mut input = PipeStream::open(reader.unwrap());
         let (tx, rx) = channel();
         let _t = thread::spawn(move|| {
             let mut out = out;

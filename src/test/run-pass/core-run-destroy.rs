@@ -26,7 +26,7 @@ use std::old_io::{Process, Command, timer};
 use std::time::Duration;
 use std::str;
 use std::sync::mpsc::channel;
-use std::thread::Thread;
+use std::thread;
 
 macro_rules! succeed { ($e:expr) => (
     match $e { Ok(..) => {}, Err(e) => panic!("panic: {}", e) }
@@ -54,7 +54,7 @@ pub fn sleeper() -> Process {
 
 fn test_destroy_twice() {
     let mut p = sleeper();
-    succeed!(p.signal_exit()); // this shouldnt crash...
+    succeed!(p.signal_exit()); // this shouldn't crash...
     let _ = p.signal_exit(); // ...and nor should this (and nor should the destructor)
 }
 
@@ -88,7 +88,7 @@ pub fn test_destroy_actually_kills(force: bool) {
     let (tx, rx1) = channel();
     let mut t = timer::Timer::new().unwrap();
     let rx2 = t.oneshot(Duration::milliseconds(1000));
-    Thread::spawn(move|| {
+    thread::spawn(move|| {
         select! {
             _ = rx2.recv() => unsafe { libc::exit(1) },
             _ = rx1.recv() => {}

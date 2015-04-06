@@ -59,7 +59,7 @@ fn test_from_elem() {
     // Test on-heap from_elem.
     v = vec![20; 6];
     {
-        let v = v.as_slice();
+        let v = &v[..];
         assert_eq!(v[0], 20);
         assert_eq!(v[1], 20);
         assert_eq!(v[2], 20);
@@ -685,7 +685,7 @@ fn test_capacity() {
 #[test]
 fn test_slice_2() {
     let v = vec![1, 2, 3, 4, 5];
-    let v = v.slice(1, 3);
+    let v = &v[1..3];
     assert_eq!(v.len(), 2);
     assert_eq!(v[0], 2);
     assert_eq!(v[1], 3);
@@ -867,18 +867,18 @@ fn test_splitnator() {
     let xs = &[1,2,3,4,5];
 
     let splits: &[&[_]] = &[&[1,2,3,4,5]];
-    assert_eq!(xs.splitn(0, |x| *x % 2 == 0).collect::<Vec<_>>(),
-               splits);
-    let splits: &[&[_]] = &[&[1], &[3,4,5]];
     assert_eq!(xs.splitn(1, |x| *x % 2 == 0).collect::<Vec<_>>(),
                splits);
+    let splits: &[&[_]] = &[&[1], &[3,4,5]];
+    assert_eq!(xs.splitn(2, |x| *x % 2 == 0).collect::<Vec<_>>(),
+               splits);
     let splits: &[&[_]] = &[&[], &[], &[], &[4,5]];
-    assert_eq!(xs.splitn(3, |_| true).collect::<Vec<_>>(),
+    assert_eq!(xs.splitn(4, |_| true).collect::<Vec<_>>(),
                splits);
 
     let xs: &[i32] = &[];
     let splits: &[&[i32]] = &[&[]];
-    assert_eq!(xs.splitn(1, |x| *x == 5).collect::<Vec<_>>(), splits);
+    assert_eq!(xs.splitn(2, |x| *x == 5).collect::<Vec<_>>(), splits);
 }
 
 #[test]
@@ -886,18 +886,18 @@ fn test_splitnator_mut() {
     let xs = &mut [1,2,3,4,5];
 
     let splits: &[&mut[_]] = &[&mut [1,2,3,4,5]];
-    assert_eq!(xs.splitn_mut(0, |x| *x % 2 == 0).collect::<Vec<_>>(),
-               splits);
-    let splits: &[&mut[_]] = &[&mut [1], &mut [3,4,5]];
     assert_eq!(xs.splitn_mut(1, |x| *x % 2 == 0).collect::<Vec<_>>(),
                splits);
+    let splits: &[&mut[_]] = &[&mut [1], &mut [3,4,5]];
+    assert_eq!(xs.splitn_mut(2, |x| *x % 2 == 0).collect::<Vec<_>>(),
+               splits);
     let splits: &[&mut[_]] = &[&mut [], &mut [], &mut [], &mut [4,5]];
-    assert_eq!(xs.splitn_mut(3, |_| true).collect::<Vec<_>>(),
+    assert_eq!(xs.splitn_mut(4, |_| true).collect::<Vec<_>>(),
                splits);
 
     let xs: &mut [i32] = &mut [];
     let splits: &[&mut[i32]] = &[&mut []];
-    assert_eq!(xs.splitn_mut(1, |x| *x == 5).collect::<Vec<_>>(),
+    assert_eq!(xs.splitn_mut(2, |x| *x == 5).collect::<Vec<_>>(),
                splits);
 }
 
@@ -928,18 +928,19 @@ fn test_rsplitnator() {
     let xs = &[1,2,3,4,5];
 
     let splits: &[&[_]] = &[&[1,2,3,4,5]];
-    assert_eq!(xs.rsplitn(0, |x| *x % 2 == 0).collect::<Vec<_>>(),
-               splits);
-    let splits: &[&[_]] = &[&[5], &[1,2,3]];
     assert_eq!(xs.rsplitn(1, |x| *x % 2 == 0).collect::<Vec<_>>(),
                splits);
+    let splits: &[&[_]] = &[&[5], &[1,2,3]];
+    assert_eq!(xs.rsplitn(2, |x| *x % 2 == 0).collect::<Vec<_>>(),
+               splits);
     let splits: &[&[_]] = &[&[], &[], &[], &[1,2]];
-    assert_eq!(xs.rsplitn(3, |_| true).collect::<Vec<_>>(),
+    assert_eq!(xs.rsplitn(4, |_| true).collect::<Vec<_>>(),
                splits);
 
     let xs: &[i32]  = &[];
     let splits: &[&[i32]] = &[&[]];
-    assert_eq!(xs.rsplitn(1, |x| *x == 5).collect::<Vec<&[i32]>>(), splits);
+    assert_eq!(xs.rsplitn(2, |x| *x == 5).collect::<Vec<&[i32]>>(), splits);
+    assert!(xs.rsplitn(0, |x| *x % 2 == 0).next().is_none());
 }
 
 #[test]
@@ -1088,7 +1089,7 @@ fn test_bytes_set_memory() {
 #[should_panic]
 fn test_overflow_does_not_cause_segfault() {
     let mut v = vec![];
-    v.reserve_exact(-1);
+    v.reserve_exact(!0);
     v.push(1);
     v.push(2);
 }
@@ -1097,7 +1098,7 @@ fn test_overflow_does_not_cause_segfault() {
 #[should_panic]
 fn test_overflow_does_not_cause_segfault_managed() {
     let mut v = vec![Rc::new(1)];
-    v.reserve_exact(-1);
+    v.reserve_exact(!0);
     v.push(Rc::new(2));
 }
 

@@ -94,7 +94,7 @@ pub trait Delegate<'tcx> {
               mode: MutateMode);
 }
 
-#[derive(Copy, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum LoanCause {
     ClosureCapture(Span),
     AddrOf,
@@ -106,20 +106,20 @@ pub enum LoanCause {
     MatchDiscriminant
 }
 
-#[derive(Copy, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum ConsumeMode {
     Copy,                // reference to x where x has a type that copies
     Move(MoveReason),    // reference to x where x has a type that moves
 }
 
-#[derive(Copy, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum MoveReason {
     DirectRefMove,
     PatBindingMove,
     CaptureMove,
 }
 
-#[derive(Copy, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum MatchMode {
     NonBindingMatch,
     BorrowingMatch,
@@ -127,7 +127,7 @@ pub enum MatchMode {
     MovingMatch,
 }
 
-#[derive(Copy, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 enum TrackMatchMode {
     Unknown,
     Definite(MatchMode),
@@ -194,14 +194,14 @@ impl TrackMatchMode {
     }
 }
 
-#[derive(Copy, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum MutateMode {
     Init,
     JustWrite,    // x = y
     WriteAndRead, // x += y
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 enum OverloadedCallType {
     FnOverloadedCall,
     FnMutOverloadedCall,
@@ -823,7 +823,7 @@ impl<'d,'t,'tcx,TYPER:mc::Typer<'tcx>> ExprUseVisitor<'d,'t,'tcx,TYPER> {
     /// `deref()` is declared with `&self`, this is an autoref of `x`.
     fn walk_autoderefs(&mut self,
                        expr: &ast::Expr,
-                       autoderefs: uint) {
+                       autoderefs: usize) {
         debug!("walk_autoderefs expr={} autoderefs={}", expr.repr(self.tcx()), autoderefs);
 
         for i in 0..autoderefs {
@@ -855,7 +855,7 @@ impl<'d,'t,'tcx,TYPER:mc::Typer<'tcx>> ExprUseVisitor<'d,'t,'tcx,TYPER> {
     fn walk_autoref(&mut self,
                     expr: &ast::Expr,
                     autoref: &ty::AutoRef,
-                    n: uint) {
+                    n: usize) {
         debug!("walk_autoref expr={}", expr.repr(self.tcx()));
 
         match *autoref {
@@ -885,6 +885,11 @@ impl<'d,'t,'tcx,TYPER:mc::Typer<'tcx>> ExprUseVisitor<'d,'t,'tcx,TYPER> {
         }
     }
 
+    // When this returns true, it means that the expression *is* a
+    // method-call (i.e. via the operator-overload).  This true result
+    // also implies that walk_overloaded_operator already took care of
+    // recursively processing the input arguments, and thus the caller
+    // should not do so.
     fn walk_overloaded_operator(&mut self,
                                 expr: &ast::Expr,
                                 receiver: &ast::Expr,

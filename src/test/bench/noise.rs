@@ -18,7 +18,7 @@ use std::f32::consts::PI;
 use std::num::Float;
 use std::rand::{Rng, StdRng};
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 struct Vec2 {
     x: f32,
     y: f32,
@@ -29,7 +29,7 @@ fn lerp(a: f32, b: f32, v: f32) -> f32 { a * (1.0 - v) + b * v }
 fn smooth(v: f32) -> f32 { v * v * (3.0 - 2.0 * v) }
 
 fn random_gradient<R: Rng>(r: &mut R) -> Vec2 {
-    let v = PI * 2.0 * r.gen();
+    let v = PI * 2.0 * r.gen::<f32>();
     Vec2 { x: v.cos(), y: v.sin() }
 }
 
@@ -47,7 +47,7 @@ impl Noise2DContext {
         let mut rng = StdRng::new().unwrap();
 
         let mut rgradients = [Vec2 { x: 0.0, y: 0.0 }; 256];
-        for x in &mut rgradients[] {
+        for x in &mut rgradients[..] {
             *x = random_gradient(&mut rng);
         }
 
@@ -61,9 +61,9 @@ impl Noise2DContext {
     }
 
     fn get_gradient(&self, x: i32, y: i32) -> Vec2 {
-        let idx = self.permutations[(x & 255) as uint] +
-                    self.permutations[(y & 255) as uint];
-        self.rgradients[(idx & 255) as uint]
+        let idx = self.permutations[(x & 255) as usize] +
+                    self.permutations[(y & 255) as usize];
+        self.rgradients[(idx & 255) as usize]
     }
 
     fn get_gradients(&self, x: f32, y: f32) -> ([Vec2; 4], [Vec2; 4]) {
@@ -117,7 +117,7 @@ fn main() {
 
     for y in 0..256 {
         for x in 0..256 {
-            let idx = (pixels[y*256+x] / 0.2) as uint;
+            let idx = (pixels[y*256+x] / 0.2) as usize;
             print!("{}", symbols[idx]);
         }
         print!("\n");

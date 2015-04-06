@@ -17,10 +17,10 @@ trait Trait {
     fn f(&self);
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 struct Struct {
-    x: int,
-    y: int,
+    x: isize,
+    y: isize,
 }
 
 impl Trait for Struct {

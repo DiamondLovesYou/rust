@@ -21,12 +21,18 @@ trait Get {
     fn get(&self) -> Self;
 }
 
-impl<T:Copy> Get for T {
-    fn get(&self) -> T { *self }
+trait MyCopy { fn copy(&self) -> Self; }
+impl MyCopy for u16 { fn copy(&self) -> Self { *self } }
+impl MyCopy for u32 { fn copy(&self) -> Self { *self } }
+impl MyCopy for i32 { fn copy(&self) -> Self { *self } }
+impl<T:Copy> MyCopy for Option<T> { fn copy(&self) -> Self { *self } }
+
+impl<T:MyCopy> Get for T {
+    fn get(&self) -> T { self.copy() }
 }
 
-impl<T:Get> Get for Box<T> {
-    fn get(&self) -> Box<T> { box get_it(&**self) }
+impl Get for Box<i32> {
+    fn get(&self) -> Box<i32> { box get_it(&**self) }
 }
 
 fn get_it<T:Get>(t: &T) -> T {

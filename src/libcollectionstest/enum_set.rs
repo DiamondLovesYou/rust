@@ -14,7 +14,7 @@ use collections::enum_set::{CLike, EnumSet};
 
 use self::Foo::*;
 
-#[derive(Copy, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 #[repr(usize)]
 enum Foo {
     A, B, C
@@ -153,19 +153,19 @@ fn test_iterator() {
 
     e1.insert(A);
     let elems: Vec<_> = e1.iter().collect();
-    assert_eq!([A], elems);
+    assert_eq!(elems, [A]);
 
     e1.insert(C);
     let elems: Vec<_> = e1.iter().collect();
-    assert_eq!([A,C], elems);
+    assert_eq!(elems, [A,C]);
 
     e1.insert(C);
     let elems: Vec<_> = e1.iter().collect();
-    assert_eq!([A,C], elems);
+    assert_eq!(elems, [A,C]);
 
     e1.insert(B);
     let elems: Vec<_> = e1.iter().collect();
-    assert_eq!([A,B,C], elems);
+    assert_eq!(elems, [A,B,C]);
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -183,42 +183,42 @@ fn test_operators() {
 
     let e_union = e1 | e2;
     let elems: Vec<_> = e_union.iter().collect();
-    assert_eq!([A,B,C], elems);
+    assert_eq!(elems, [A,B,C]);
 
     let e_intersection = e1 & e2;
     let elems: Vec<_> = e_intersection.iter().collect();
-    assert_eq!([C], elems);
+    assert_eq!(elems, [C]);
 
     // Another way to express intersection
     let e_intersection = e1 - (e1 - e2);
     let elems: Vec<_> = e_intersection.iter().collect();
-    assert_eq!([C], elems);
+    assert_eq!(elems, [C]);
 
     let e_subtract = e1 - e2;
     let elems: Vec<_> = e_subtract.iter().collect();
-    assert_eq!([A], elems);
+    assert_eq!(elems, [A]);
 
     // Bitwise XOR of two sets, aka symmetric difference
     let e_symmetric_diff = e1 ^ e2;
     let elems: Vec<_> = e_symmetric_diff.iter().collect();
-    assert_eq!([A,B], elems);
+    assert_eq!(elems, [A,B]);
 
     // Another way to express symmetric difference
     let e_symmetric_diff = (e1 - e2) | (e2 - e1);
     let elems: Vec<_> = e_symmetric_diff.iter().collect();
-    assert_eq!([A,B], elems);
+    assert_eq!(elems, [A,B]);
 
     // Yet another way to express symmetric difference
     let e_symmetric_diff = (e1 | e2) - (e1 & e2);
     let elems: Vec<_> = e_symmetric_diff.iter().collect();
-    assert_eq!([A,B], elems);
+    assert_eq!(elems, [A,B]);
 }
 
 #[test]
 #[should_panic]
 fn test_overflow() {
     #[allow(dead_code)]
-    #[derive(Copy)]
+    #[derive(Copy, Clone)]
     #[repr(usize)]
     enum Bar {
         V00, V01, V02, V03, V04, V05, V06, V07, V08, V09,

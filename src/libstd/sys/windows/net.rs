@@ -15,11 +15,12 @@ use libc::consts::os::extra::INVALID_SOCKET;
 use libc::{self, c_int, c_void};
 use mem;
 use net::SocketAddr;
+#[allow(deprecated)]
 use num::{SignedInt, Int};
 use rt;
 use sync::{Once, ONCE_INIT};
 use sys::c;
-use sys_common::AsInner;
+use sys_common::{AsInner, FromInner};
 
 pub type wrlen_t = i32;
 
@@ -50,6 +51,7 @@ fn last_error() -> io::Error {
 /// function must be called before another call to the socket API is made.
 ///
 /// FIXME: generics needed?
+#[allow(deprecated)]
 pub fn cvt<T: SignedInt>(t: T) -> io::Result<T> {
     let one: T = Int::one();
     if t == -one {
@@ -67,6 +69,7 @@ pub fn cvt_gai(err: c_int) -> io::Result<()> {
 }
 
 /// Provides the functionality of `cvt` for a closure.
+#[allow(deprecated)]
 pub fn cvt_r<T: SignedInt, F>(mut f: F) -> io::Result<T> where F: FnMut() -> T {
     cvt(f())
 }
@@ -123,10 +126,14 @@ impl Socket {
 
 impl Drop for Socket {
     fn drop(&mut self) {
-        unsafe { cvt(libc::closesocket(self.0)).unwrap(); }
+        let _ = unsafe { libc::closesocket(self.0) };
     }
 }
 
 impl AsInner<libc::SOCKET> for Socket {
     fn as_inner(&self) -> &libc::SOCKET { &self.0 }
+}
+
+impl FromInner<libc::SOCKET> for Socket {
+    fn from_inner(sock: libc::SOCKET) -> Socket { Socket(sock) }
 }

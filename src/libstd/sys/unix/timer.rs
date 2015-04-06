@@ -54,7 +54,8 @@ use self::Req::*;
 use old_io::IoResult;
 use libc;
 use mem;
-use os;
+use sys::os;
+use io;
 use ptr;
 use sync::atomic::{self, Ordering};
 use sync::mpsc::{channel, Sender, Receiver, TryRecvError};
@@ -69,7 +70,7 @@ pub trait Callback {
 }
 
 pub struct Timer {
-    id: uint,
+    id: usize,
     inner: Option<Box<Inner>>,
 }
 
@@ -78,7 +79,7 @@ pub struct Inner {
     interval: u64,
     repeat: bool,
     target: u64,
-    id: uint,
+    id: usize,
 }
 
 pub enum Req {
@@ -87,7 +88,7 @@ pub enum Req {
 
     // Remove a timer based on its id and then send it back on the channel
     // provided
-    RemoveTimer(uint, Sender<Box<Inner>>),
+    RemoveTimer(usize, Sender<Box<Inner>>),
 }
 
 // returns the current time (in milliseconds)
@@ -121,7 +122,7 @@ fn helper(input: libc::c_int, messages: Receiver<Req>, _: ()) {
 
     // signals the first requests in the queue, possible re-enqueueing it.
     fn signal(active: &mut Vec<Box<Inner>>,
-              dead: &mut Vec<(uint, Box<Inner>)>) {
+              dead: &mut Vec<(usize, Box<Inner>)>) {
         if active.is_empty() { return }
 
         let mut timer = active.remove(0);
@@ -209,14 +210,14 @@ fn helper(input: libc::c_int, messages: Receiver<Req>, _: ()) {
 
             -1 if os::errno() == libc::EINTR as i32 => {}
             n => panic!("helper thread failed in select() with error: {} ({})",
-                       n, os::last_os_error())
+                       n, io::Error::last_os_error())
         }
     }
 }
 
 impl Timer {
     pub fn new() -> IoResult<Timer> {
-        // See notes above regarding using int return value
+        // See notes above regarding using isize return value
         // instead of ()
         HELPER.boot(|| {}, helper);
 
@@ -244,7 +245,7 @@ impl Timer {
             tv_nsec: ((ms % 1000) * 1000000) as libc::c_long,
         };
         while unsafe { libc::nanosleep(&to_sleep, &mut to_sleep) } != 0 {
-            if os::errno() as int != libc::EINTR as int {
+            if os::errno() as isize != libc::EINTR as isize {
                 panic!("failed to sleep, but not because of EINTR?");
             }
         }

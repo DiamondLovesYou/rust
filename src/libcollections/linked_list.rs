@@ -32,10 +32,6 @@ use core::iter::{self, FromIterator, IntoIterator};
 use core::mem;
 use core::ptr;
 
-#[deprecated(since = "1.0.0", reason = "renamed to LinkedList")]
-#[unstable(feature = "collections")]
-pub use LinkedList as DList;
-
 /// A doubly-linked list.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct LinkedList<T> {
@@ -252,6 +248,7 @@ impl<T> LinkedList<T> {
     /// }
     /// println!("{}", b.len()); // prints 0
     /// ```
+    #[stable(feature = "rust1", since = "1.0.0")]
     pub fn append(&mut self, other: &mut LinkedList<T>) {
         match self.list_tail.resolve() {
             None => {
@@ -844,7 +841,7 @@ impl<A> ExactSizeIterator for IntoIter<A> {}
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<A> FromIterator<A> for LinkedList<A> {
     fn from_iter<T: IntoIterator<Item=A>>(iter: T) -> LinkedList<A> {
-        let mut ret = DList::new();
+        let mut ret = LinkedList::new();
         ret.extend(iter);
         ret
     }
@@ -927,14 +924,7 @@ impl<A: Clone> Clone for LinkedList<A> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<A: fmt::Debug> fmt::Debug for LinkedList<A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, "["));
-
-        for (i, e) in self.iter().enumerate() {
-            if i != 0 { try!(write!(f, ", ")); }
-            try!(write!(f, "{:?}", *e));
-        }
-
-        write!(f, "]")
+        self.iter().fold(f.debug_list(), |b, e| b.entry(e)).finish()
     }
 }
 
@@ -951,7 +941,7 @@ impl<A: Hash> Hash for LinkedList<A> {
 #[cfg(test)]
 mod test {
     use std::clone::Clone;
-    use std::iter::{Iterator, IteratorExt};
+    use std::iter::Iterator;
     use std::option::Option::{Some, None, self};
     use std::rand;
     use std::thread;
@@ -1086,7 +1076,7 @@ mod test {
         thread::spawn(move || {
             check_links(&n);
             let a: &[_] = &[&1,&2,&3];
-            assert_eq!(a, n.iter().collect::<Vec<_>>());
+            assert_eq!(a, &n.iter().collect::<Vec<_>>()[..]);
         }).join().ok().unwrap();
     }
 

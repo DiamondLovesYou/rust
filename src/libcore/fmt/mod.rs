@@ -12,10 +12,10 @@
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
-use any;
 use cell::{Cell, RefCell, Ref, RefMut, BorrowState};
 use char::CharExt;
-use iter::{Iterator, IteratorExt};
+use clone::Clone;
+use iter::Iterator;
 use marker::{Copy, PhantomData, Sized};
 use mem;
 use option::Option;
@@ -32,7 +32,7 @@ pub use self::num::radix;
 pub use self::num::Radix;
 pub use self::num::RadixFmt;
 
-pub use self::builders::{DebugStruct, DebugTuple, DebugSet, DebugMap};
+pub use self::builders::{DebugStruct, DebugTuple, DebugSet, DebugList, DebugMap};
 
 mod num;
 mod float;
@@ -54,7 +54,7 @@ pub type Result = result::Result<(), Error>;
 /// occurred. Any extra information must be arranged to be transmitted through
 /// some other means.
 #[stable(feature = "rust1", since = "1.0.0")]
-#[derive(Copy, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct Error;
 
 /// A collection of methods that are required to format a message into a stream.
@@ -141,6 +141,12 @@ pub struct ArgumentV1<'a> {
     formatter: fn(&Void, &mut Formatter) -> Result,
 }
 
+impl<'a> Clone for ArgumentV1<'a> {
+    fn clone(&self) -> ArgumentV1<'a> {
+        *self
+    }
+}
+
 impl<'a> ArgumentV1<'a> {
     #[inline(never)]
     fn show_usize(x: &usize, f: &mut Formatter) -> Result {
@@ -175,7 +181,7 @@ impl<'a> ArgumentV1<'a> {
 }
 
 // flags available in the v1 format of format_args
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 #[allow(dead_code)] // SignMinus isn't currently used
 enum FlagV1 { SignPlus, SignMinus, Alternate, SignAwareZeroPad, }
 
@@ -222,7 +228,7 @@ impl<'a> Arguments<'a> {
 /// macro validates the format string at compile-time so usage of the `write`
 /// and `format` functions can be safely performed.
 #[stable(feature = "rust1", since = "1.0.0")]
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub struct Arguments<'a> {
     // Format string pieces to print.
     pieces: &'a [&'a str],
@@ -644,7 +650,7 @@ impl<'a> Formatter<'a> {
     /// // prints "Foo { bar: 10, baz: "Hello World" }"
     /// println!("{:?}", Foo { bar: 10, baz: "Hello World".to_string() });
     /// ```
-    #[unstable(feature = "core", reason = "method was just created")]
+    #[unstable(feature = "debug_builders", reason = "method was just created")]
     #[inline]
     pub fn debug_struct<'b>(&'b mut self, name: &str) -> DebugStruct<'b, 'a> {
         builders::debug_struct_new(self, name)
@@ -673,10 +679,36 @@ impl<'a> Formatter<'a> {
     /// // prints "Foo(10, "Hello World")"
     /// println!("{:?}", Foo(10, "Hello World".to_string()));
     /// ```
-    #[unstable(feature = "core", reason = "method was just created")]
+    #[unstable(feature = "debug_builders", reason = "method was just created")]
     #[inline]
     pub fn debug_tuple<'b>(&'b mut self, name: &str) -> DebugTuple<'b, 'a> {
         builders::debug_tuple_new(self, name)
+    }
+
+    /// Creates a `DebugList` builder designed to assist with creation of
+    /// `fmt::Debug` implementations for list-like structures.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #![feature(debug_builders, core)]
+    /// use std::fmt;
+    ///
+    /// struct Foo(Vec<i32>);
+    ///
+    /// impl fmt::Debug for Foo {
+    ///     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+    ///         self.0.iter().fold(fmt.debug_list(), |b, e| b.entry(e)).finish()
+    ///     }
+    /// }
+    ///
+    /// // prints "[10, 11]"
+    /// println!("{:?}", Foo(vec![10, 11]));
+    /// ```
+    #[unstable(feature = "debug_builders", reason = "method was just created")]
+    #[inline]
+    pub fn debug_list<'b>(&'b mut self) -> DebugList<'b, 'a> {
+        builders::debug_list_new(self)
     }
 
     /// Creates a `DebugSet` builder designed to assist with creation of
@@ -692,21 +724,17 @@ impl<'a> Formatter<'a> {
     ///
     /// impl fmt::Debug for Foo {
     ///     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-    ///         let mut builder = fmt.debug_set("Foo");
-    ///         for i in &self.0 {
-    ///             builder = builder.entry(i);
-    ///         }
-    ///         builder.finish()
+    ///         self.0.iter().fold(fmt.debug_set(), |b, e| b.entry(e)).finish()
     ///     }
     /// }
     ///
-    /// // prints "Foo { 10, 11 }"
+    /// // prints "{10, 11}"
     /// println!("{:?}", Foo(vec![10, 11]));
     /// ```
-    #[unstable(feature = "core", reason = "method was just created")]
+    #[unstable(feature = "debug_builders", reason = "method was just created")]
     #[inline]
-    pub fn debug_set<'b>(&'b mut self, name: &str) -> DebugSet<'b, 'a> {
-        builders::debug_set_new(self, name)
+    pub fn debug_set<'b>(&'b mut self) -> DebugSet<'b, 'a> {
+        builders::debug_set_new(self)
     }
 
     /// Creates a `DebugMap` builder designed to assist with creation of
@@ -722,21 +750,17 @@ impl<'a> Formatter<'a> {
     ///
     /// impl fmt::Debug for Foo {
     ///     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-    ///         let mut builder = fmt.debug_map("Foo");
-    ///         for &(ref key, ref value) in &self.0 {
-    ///             builder = builder.entry(key, value);
-    ///         }
-    ///         builder.finish()
+    ///         self.0.iter().fold(fmt.debug_map(), |b, &(ref k, ref v)| b.entry(k, v)).finish()
     ///     }
     /// }
     ///
-    /// // prints "Foo { "A": 10, "B": 11 }"
+    /// // prints "{"A": 10, "B": 11}"
     /// println!("{:?}", Foo(vec![("A".to_string(), 10), ("B".to_string(), 11)]));
     /// ```
-    #[unstable(feature = "core", reason = "method was just created")]
+    #[unstable(feature = "debug_builders", reason = "method was just created")]
     #[inline]
-    pub fn debug_map<'b>(&'b mut self, name: &str) -> DebugMap<'b, 'a> {
-        builders::debug_map_new(self, name)
+    pub fn debug_map<'b>(&'b mut self) -> DebugMap<'b, 'a> {
+        builders::debug_map_new(self)
     }
 }
 
@@ -980,29 +1004,9 @@ macro_rules! tuple {
 tuple! { T0, T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<'a> Debug for &'a (any::Any+'a) {
-    fn fmt(&self, f: &mut Formatter) -> Result { f.pad("&Any") }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Debug> Debug for [T] {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        if f.flags & (1 << (FlagV1::Alternate as u32)) == 0 {
-            try!(write!(f, "["));
-        }
-        let mut is_first = true;
-        for x in self {
-            if is_first {
-                is_first = false;
-            } else {
-                try!(write!(f, ", "));
-            }
-            try!(write!(f, "{:?}", *x))
-        }
-        if f.flags & (1 << (FlagV1::Alternate as u32)) == 0 {
-            try!(write!(f, "]"));
-        }
-        Ok(())
+        self.iter().fold(f.debug_list(), |b, e| b.entry(e)).finish()
     }
 }
 

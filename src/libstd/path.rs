@@ -35,7 +35,6 @@
 //! To build or modify paths, use `PathBuf`:
 //!
 //! ```rust
-//! # #![feature(convert)]
 //! use std::path::PathBuf;
 //!
 //! let mut path = PathBuf::from("c:\\");
@@ -344,6 +343,15 @@ impl<'a> Prefix<'a> {
 
 /// Determine whether the character is one of the permitted path
 /// separators for the current platform.
+///
+/// # Examples
+///
+/// ```
+/// use std::path;
+///
+/// assert!(path::is_separator('/'));
+/// assert!(!path::is_separator('❤'));
+/// ```
 #[stable(feature = "rust1", since = "1.0.0")]
 pub fn is_separator(c: char) -> bool {
     use ascii::*;
@@ -407,7 +415,7 @@ fn split_file_at_dot(file: &OsStr) -> (Option<&OsStr>, Option<&OsStr>) {
         // contents of the encoding and (2) new &OsStr values are produced
         // only from ASCII-bounded slices of existing &OsStr values.
 
-        let mut iter = os_str_as_u8_slice(file).rsplitn(1, |b| *b == b'.');
+        let mut iter = os_str_as_u8_slice(file).rsplitn(2, |b| *b == b'.');
         let after = iter.next();
         let before = iter.next();
         if before == Some(b"") {
@@ -521,9 +529,9 @@ impl<'a> Component<'a> {
     pub fn as_os_str(self) -> &'a OsStr {
         match self {
             Component::Prefix(p) => p.as_os_str(),
-            Component::RootDir => OsStr::from_str(MAIN_SEP_STR),
-            Component::CurDir => OsStr::from_str("."),
-            Component::ParentDir => OsStr::from_str(".."),
+            Component::RootDir => OsStr::new(MAIN_SEP_STR),
+            Component::CurDir => OsStr::new("."),
+            Component::ParentDir => OsStr::new(".."),
             Component::Normal(path) => path,
         }
     }
@@ -540,6 +548,18 @@ impl<'a> AsRef<OsStr> for Component<'a> {
 ///
 /// See the module documentation for an in-depth explanation of components and
 /// their role in the API.
+///
+/// # Examples
+///
+/// ```
+/// use std::path::Path;
+///
+/// let path = Path::new("/tmp/foo/bar.txt");
+///
+/// for component in path.components() {
+///     println!("{:?}", component);
+/// }
+/// ```
 #[derive(Clone)]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Components<'a> {
@@ -610,6 +630,16 @@ impl<'a> Components<'a> {
     }
 
     /// Extract a slice corresponding to the portion of the path remaining for iteration.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let path = Path::new("/tmp/foo/bar.txt");
+    ///
+    /// println!("{:?}", path.components().as_path());
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn as_path(&self) -> &'a Path {
         let mut comps = self.clone();
@@ -893,7 +923,6 @@ impl<'a> cmp::Ord for Components<'a> {
 /// # Examples
 ///
 /// ```
-/// # #![feature(convert)]
 /// use std::path::PathBuf;
 ///
 /// let mut path = PathBuf::from("c:\\");
@@ -916,6 +945,12 @@ impl PathBuf {
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn new() -> PathBuf {
         PathBuf { inner: OsString::new() }
+    }
+
+    /// Coerce to a `Path` slice.
+    #[stable(feature = "rust1", since = "1.0.0")]
+    pub fn as_path(&self) -> &Path {
+        self
     }
 
     /// Extend `self` with `path`.
@@ -985,7 +1020,6 @@ impl PathBuf {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(convert)]
     /// use std::path::PathBuf;
     ///
     /// let mut buf = PathBuf::from("/");
@@ -1038,44 +1072,9 @@ impl PathBuf {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<'a> From<&'a Path> for PathBuf {
-    fn from(s: &'a Path) -> PathBuf {
-        s.to_path_buf()
-    }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
-impl<'a> From<&'a str> for PathBuf {
-    fn from(s: &'a str) -> PathBuf {
-        PathBuf::from(OsString::from(s))
-    }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
-impl<'a> From<&'a String> for PathBuf {
-    fn from(s: &'a String) -> PathBuf {
-        PathBuf::from(OsString::from(s))
-    }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
-impl From<String> for PathBuf {
-    fn from(s: String) -> PathBuf {
-        PathBuf::from(OsString::from(s))
-    }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
-impl<'a> From<&'a OsStr> for PathBuf {
-    fn from(s: &'a OsStr) -> PathBuf {
-        PathBuf::from(OsString::from(s))
-    }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
-impl<'a> From<&'a OsString> for PathBuf {
-    fn from(s: &'a OsString) -> PathBuf {
-        PathBuf::from(s.to_os_string())
+impl<'a, T: ?Sized + AsRef<OsStr>> From<&'a T> for PathBuf {
+    fn from(s: &'a T) -> PathBuf {
+        PathBuf::from(s.as_ref().to_os_string())
     }
 }
 
@@ -1083,6 +1082,13 @@ impl<'a> From<&'a OsString> for PathBuf {
 impl From<OsString> for PathBuf {
     fn from(s: OsString) -> PathBuf {
         PathBuf { inner: s }
+    }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+impl From<String> for PathBuf {
+    fn from(s: String) -> PathBuf {
+        PathBuf::from(OsString::from(s))
     }
 }
 
@@ -1235,12 +1241,28 @@ impl Path {
     /// Directly wrap a string slice as a `Path` slice.
     ///
     /// This is a cost-free conversion.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// Path::new("foo.txt");
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn new<S: AsRef<OsStr> + ?Sized>(s: &S) -> &Path {
         unsafe { mem::transmute(s.as_ref()) }
     }
 
     /// Yield the underlying `OsStr` slice.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let os_str = Path::new("foo.txt").as_os_str();
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn as_os_str(&self) -> &OsStr {
         &self.inner
@@ -1249,6 +1271,14 @@ impl Path {
     /// Yield a `&str` slice if the `Path` is valid unicode.
     ///
     /// This conversion may entail doing a check for UTF-8 validity.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let path_str = Path::new("foo.txt").to_str();
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn to_str(&self) -> Option<&str> {
         self.inner.to_str()
@@ -1257,12 +1287,28 @@ impl Path {
     /// Convert a `Path` to a `Cow<str>`.
     ///
     /// Any non-Unicode sequences are replaced with U+FFFD REPLACEMENT CHARACTER.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let path_str = Path::new("foo.txt").to_string_lossy();
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn to_string_lossy(&self) -> Cow<str> {
         self.inner.to_string_lossy()
     }
 
     /// Convert a `Path` to an owned `PathBuf`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let path_str = Path::new("foo.txt").to_path_buf();
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn to_path_buf(&self) -> PathBuf {
         PathBuf::from(self.inner.to_os_string())
@@ -1276,6 +1322,14 @@ impl Path {
     /// * On Windows, a path is absolute if it has a prefix and starts with the
     /// root: `c:\windows` is absolute, while `c:temp` and `\temp` are not. In
     /// other words, `path.is_absolute() == path.prefix().is_some() && path.has_root()`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// assert_eq!(false, Path::new("foo.txt").is_absolute());
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn is_absolute(&self) -> bool {
         self.has_root() &&
@@ -1283,6 +1337,14 @@ impl Path {
     }
 
     /// A path is *relative* if it is not absolute.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// assert!(Path::new("foo.txt").is_relative());
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn is_relative(&self) -> bool {
         !self.is_absolute()
@@ -1306,6 +1368,14 @@ impl Path {
     ///     * has no prefix and begins with a separator, e.g. `\\windows`
     ///     * has a prefix followed by a separator, e.g. `c:\windows` but not `c:windows`
     ///     * has any non-disk prefix, e.g. `\\server\share`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// assert!(Path::new("/etc/passwd").has_root());
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn has_root(&self) -> bool {
          self.components().has_root()
@@ -1322,8 +1392,11 @@ impl Path {
     ///
     /// let path = Path::new("/foo/bar");
     /// let foo = path.parent().unwrap();
+    ///
     /// assert!(foo == Path::new("/foo"));
+    ///
     /// let root = foo.parent().unwrap();
+    ///
     /// assert!(root == Path::new("/"));
     /// assert!(root.parent() == None);
     /// ```
@@ -1343,10 +1416,21 @@ impl Path {
     ///
     /// If the path terminates in `.`, `..`, or consists solely or a root of
     /// prefix, `file_name` will return `None`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let path = Path::new("hello_world.rs");
+    /// let filename = "hello_world.rs";
+    ///
+    /// assert_eq!(filename, path.file_name().unwrap());
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn file_name(&self) -> Option<&OsStr> {
         self.components().next_back().and_then(|p| match p {
-            Component::Normal(p) => Some(p.as_os_str()),
+            Component::Normal(p) => Some(p.as_ref()),
             _ => None
         })
     }
@@ -1362,12 +1446,32 @@ impl Path {
     }
 
     /// Determines whether `base` is a prefix of `self`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let path = Path::new("/etc/passwd");
+    ///
+    /// assert!(path.starts_with("/etc"));
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn starts_with<P: AsRef<Path>>(&self, base: P) -> bool {
         iter_after(self.components(), base.as_ref().components()).is_some()
     }
 
     /// Determines whether `child` is a suffix of `self`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let path = Path::new("/etc/passwd");
+    ///
+    /// assert!(path.ends_with("passwd"));
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn ends_with<P: AsRef<Path>>(&self, child: P) -> bool {
         iter_after(self.components().rev(), child.as_ref().components().rev()).is_some()
@@ -1381,6 +1485,16 @@ impl Path {
     /// * The entire file name if there is no embedded `.`;
     /// * The entire file name if the file name begins with `.` and has no other `.`s within;
     /// * Otherwise, the portion of the file name before the final `.`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let path = Path::new("foo.rs");
+    ///
+    /// assert_eq!("foo", path.file_stem().unwrap());
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn file_stem(&self) -> Option<&OsStr> {
         self.file_name().map(split_file_at_dot).and_then(|(before, after)| before.or(after))
@@ -1394,6 +1508,16 @@ impl Path {
     /// * None, if there is no embedded `.`;
     /// * None, if the file name begins with `.` and has no other `.`s within;
     /// * Otherwise, the portion of the file name after the final `.`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let path = Path::new("foo.rs");
+    ///
+    /// assert_eq!("rs", path.extension().unwrap());
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn extension(&self) -> Option<&OsStr> {
         self.file_name().map(split_file_at_dot).and_then(|(before, after)| before.and(after))
@@ -1402,6 +1526,16 @@ impl Path {
     /// Creates an owned `PathBuf` with `path` adjoined to `self`.
     ///
     /// See `PathBuf::push` for more details on what it means to adjoin a path.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let path = Path::new("/tmp");
+    ///
+    /// let new_path = path.join("foo");
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn join<P: AsRef<Path>>(&self, path: P) -> PathBuf {
         let mut buf = self.to_path_buf();
@@ -1412,6 +1546,16 @@ impl Path {
     /// Creates an owned `PathBuf` like `self` but with the given file name.
     ///
     /// See `PathBuf::set_file_name` for more details.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let path = Path::new("/tmp/foo.rs");
+    ///
+    /// let new_path = path.with_file_name("bar.rs");
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn with_file_name<S: AsRef<OsStr>>(&self, file_name: S) -> PathBuf {
         let mut buf = self.to_path_buf();
@@ -1422,6 +1566,16 @@ impl Path {
     /// Creates an owned `PathBuf` like `self` but with the given extension.
     ///
     /// See `PathBuf::set_extension` for more details.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let path = Path::new("/tmp/foo.rs");
+    ///
+    /// let new_path = path.with_extension("foo.txt");
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn with_extension<S: AsRef<OsStr>>(&self, extension: S) -> PathBuf {
         let mut buf = self.to_path_buf();
@@ -1430,6 +1584,18 @@ impl Path {
     }
 
     /// Produce an iterator over the components of the path.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let path = Path::new("/tmp/foo.rs");
+    ///
+    /// for component in path.components() {
+    ///     println!("{:?}", component);
+    /// }
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn components(&self) -> Components {
         let prefix = parse_prefix(self.as_os_str());
@@ -1443,6 +1609,18 @@ impl Path {
     }
 
     /// Produce an iterator over the path's components viewed as `OsStr` slices.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let path = Path::new("/tmp/foo.rs");
+    ///
+    /// for component in path.iter() {
+    ///     println!("{:?}", component);
+    /// }
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn iter(&self) -> Iter {
         Iter { inner: self.components() }
@@ -1450,6 +1628,16 @@ impl Path {
 
     /// Returns an object that implements `Display` for safely printing paths
     /// that may contain non-Unicode data.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let path = Path::new("/tmp/foo.rs");
+    ///
+    /// println!("{}", path.display());
+    /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn display(&self) -> Display {
         Display { path: self }

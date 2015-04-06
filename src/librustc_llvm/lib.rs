@@ -15,7 +15,6 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 #![allow(trivial_casts)]
-#![allow(trivial_numeric_casts)]
 
 #![crate_name = "rustc_llvm"]
 #![unstable(feature = "rustc_private")]
@@ -28,11 +27,9 @@
 
 #![feature(box_syntax)]
 #![feature(collections)]
-#![feature(int_uint)]
 #![feature(libc)]
 #![feature(link_args)]
 #![feature(staged_api)]
-#![cfg_attr(unix, feature(std_misc))]
 #![feature(rustc_private)]
 
 extern crate libc;
@@ -82,9 +79,9 @@ pub type Bool = c_uint;
 pub const True: Bool = 1 as Bool;
 pub const False: Bool = 0 as Bool;
 
-// Consts for the LLVM CallConv type, pre-cast to uint.
+// Consts for the LLVM CallConv type, pre-cast to usize.
 
-#[derive(Copy, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum CallConv {
     CCallConv = 0,
     FastCallConv = 8,
@@ -94,7 +91,7 @@ pub enum CallConv {
     X86_64_Win64 = 79,
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum Visibility {
     LLVMDefaultVisibility = 0,
     HiddenVisibility = 1,
@@ -105,7 +102,7 @@ pub enum Visibility {
 // DLLExportLinkage, GhostLinkage and LinkOnceODRAutoHideLinkage.
 // LinkerPrivateLinkage and LinkerPrivateWeakLinkage are not included either;
 // they've been removed in upstream LLVM commit r203866.
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum Linkage {
     ExternalLinkage = 0,
     AvailableExternallyLinkage = 1,
@@ -121,7 +118,7 @@ pub enum Linkage {
 }
 
 #[repr(C)]
-#[derive(Copy, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum DiagnosticSeverity {
     Error,
     Warning,
@@ -162,7 +159,7 @@ bitflags! {
 
 
 #[repr(u64)]
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum OtherAttribute {
     // The following are not really exposed in
     // the LLVM c api so instead to add these
@@ -183,13 +180,13 @@ pub enum OtherAttribute {
     NonNullAttribute = 1 << 44,
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum SpecialAttribute {
     DereferenceableAttribute(u64)
 }
 
 #[repr(C)]
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum AttributeSet {
     ReturnIndex = 0,
     FunctionIndex = !0
@@ -247,7 +244,7 @@ impl AttrHelper for SpecialAttribute {
 }
 
 pub struct AttrBuilder {
-    attrs: Vec<(uint, Box<AttrHelper+'static>)>
+    attrs: Vec<(usize, Box<AttrHelper+'static>)>
 }
 
 impl AttrBuilder {
@@ -257,13 +254,13 @@ impl AttrBuilder {
         }
     }
 
-    pub fn arg<'a, T: AttrHelper + 'static>(&'a mut self, idx: uint, a: T) -> &'a mut AttrBuilder {
+    pub fn arg<'a, T: AttrHelper + 'static>(&'a mut self, idx: usize, a: T) -> &'a mut AttrBuilder {
         self.attrs.push((idx, box a as Box<AttrHelper+'static>));
         self
     }
 
     pub fn ret<'a, T: AttrHelper + 'static>(&'a mut self, a: T) -> &'a mut AttrBuilder {
-        self.attrs.push((ReturnIndex as uint, box a as Box<AttrHelper+'static>));
+        self.attrs.push((ReturnIndex as usize, box a as Box<AttrHelper+'static>));
         self
     }
 
@@ -281,7 +278,7 @@ impl AttrBuilder {
 }
 
 // enum for the LLVM IntPredicate type
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum IntPredicate {
     IntEQ = 32,
     IntNE = 33,
@@ -296,7 +293,7 @@ pub enum IntPredicate {
 }
 
 // enum for the LLVM RealPredicate type
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum RealPredicate {
     RealPredicateFalse = 0,
     RealOEQ = 1,
@@ -318,7 +315,7 @@ pub enum RealPredicate {
 
 // The LLVM TypeKind type - must stay in sync with the def of
 // LLVMTypeKind in llvm/include/llvm-c/Core.h
-#[derive(Copy, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 #[repr(C)]
 pub enum TypeKind {
     Void      = 0,
@@ -340,7 +337,7 @@ pub enum TypeKind {
 }
 
 #[repr(C)]
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum AtomicBinOp {
     AtomicXchg = 0,
     AtomicAdd  = 1,
@@ -356,7 +353,7 @@ pub enum AtomicBinOp {
 }
 
 #[repr(C)]
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum AtomicOrdering {
     NotAtomic = 0,
     Unordered = 1,
@@ -370,13 +367,13 @@ pub enum AtomicOrdering {
 
 // Consts for the LLVMCodeGenFileType type (in include/llvm/c/TargetMachine.h)
 #[repr(C)]
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum FileType {
     AssemblyFileType = 0,
     ObjectFileType = 1
 }
 
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum MetadataType {
     MD_dbg = 0,
     MD_tbaa = 1,
@@ -393,13 +390,13 @@ pub enum MetadataType {
 }
 
 // Inline Asm Dialect
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum AsmDialect {
     AD_ATT   = 0,
     AD_Intel = 1
 }
 
-#[derive(Copy, PartialEq, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 #[repr(C)]
 pub enum CodeGenOptLevel {
     CodeGenLevelNone = 0,
@@ -408,7 +405,7 @@ pub enum CodeGenOptLevel {
     CodeGenLevelAggressive = 3,
 }
 
-#[derive(Copy, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 #[repr(C)]
 pub enum RelocMode {
     RelocDefault = 0,
@@ -418,7 +415,7 @@ pub enum RelocMode {
 }
 
 #[repr(C)]
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum CodeGenModel {
     CodeModelDefault = 0,
     CodeModelJITDefault = 1,
@@ -429,7 +426,7 @@ pub enum CodeGenModel {
 }
 
 #[repr(C)]
-#[derive(Copy)]
+#[derive(Copy, Clone)]
 pub enum DiagnosticKind {
     DK_InlineAsm = 0,
     DK_StackSize,
@@ -541,7 +538,7 @@ pub mod debuginfo {
     pub type DIEnumerator = DIDescriptor;
     pub type DITemplateTypeParameter = DIDescriptor;
 
-    #[derive(Copy)]
+    #[derive(Copy, Clone)]
     pub enum DIDescriptorFlags {
       FlagPrivate            = 1 << 0,
       FlagProtected          = 1 << 1,
@@ -698,7 +695,7 @@ extern {
                          -> ValueRef;
     pub fn LLVMConstFCmp(Pred: c_ushort, V1: ValueRef, V2: ValueRef)
                          -> ValueRef;
-    /* only for int/vector */
+    /* only for isize/vector */
     pub fn LLVMGetUndef(Ty: TypeRef) -> ValueRef;
     pub fn LLVMIsConstant(Val: ValueRef) -> Bool;
     pub fn LLVMIsNull(Val: ValueRef) -> Bool;
@@ -1986,6 +1983,7 @@ extern {
     pub fn LLVMIsAArgument(value_ref: ValueRef) -> ValueRef;
 
     pub fn LLVMIsAAllocaInst(value_ref: ValueRef) -> ValueRef;
+    pub fn LLVMIsAConstantInt(value_ref: ValueRef) -> ValueRef;
 
     pub fn LLVMInitializeX86TargetInfo();
     pub fn LLVMInitializeX86Target();
@@ -2194,7 +2192,7 @@ impl ObjectFile {
     pub fn new(llmb: MemoryBufferRef) -> Option<ObjectFile> {
         unsafe {
             let llof = LLVMCreateObjectFile(llmb);
-            if llof as int == 0 {
+            if llof as isize == 0 {
                 // LLVMCreateObjectFile took ownership of llmb
                 return None
             }
@@ -2254,7 +2252,7 @@ type RustStringRepr = *mut RefCell<Vec<u8>>;
 pub unsafe extern "C" fn rust_llvm_string_write_impl(sr: RustStringRef,
                                                      ptr: *const c_char,
                                                      size: size_t) {
-    let slice = slice::from_raw_parts(ptr as *const u8, size as uint);
+    let slice = slice::from_raw_parts(ptr as *const u8, size as usize);
 
     let sr: RustStringRepr = mem::transmute(sr);
     (*sr).borrow_mut().push_all(slice);

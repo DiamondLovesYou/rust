@@ -33,7 +33,7 @@
 //!
 //! Sharing some immutable data between tasks:
 //!
-//! ```
+//! ```no_run
 //! use std::sync::Arc;
 //! use std::thread;
 //!
@@ -50,7 +50,7 @@
 //!
 //! Sharing mutable data safely between tasks with a `Mutex`:
 //!
-//! ```
+//! ```no_run
 //! use std::sync::{Arc, Mutex};
 //! use std::thread;
 //!
@@ -76,7 +76,7 @@ use core::prelude::*;
 use core::atomic;
 use core::atomic::Ordering::{Relaxed, Release, Acquire, SeqCst};
 use core::fmt;
-use core::cmp::{Ordering};
+use core::cmp::Ordering;
 use core::default::Default;
 use core::mem::{min_align_of, size_of};
 use core::mem;
@@ -94,6 +94,9 @@ use heap::deallocate;
 /// With simple pipes, without `Arc`, a copy would have to be made for each
 /// task.
 ///
+/// When you clone an `Arc<T>`, it will create another pointer to the data and
+/// increase the reference counter.
+///
 /// ```
 /// # #![feature(alloc, core)]
 /// use std::sync::Arc;
@@ -107,7 +110,7 @@ use heap::deallocate;
 ///         let child_numbers = shared_numbers.clone();
 ///
 ///         thread::spawn(move || {
-///             let local_numbers = child_numbers.as_slice();
+///             let local_numbers = &child_numbers[..];
 ///
 ///             // Work with the local numbers
 ///         });
@@ -239,6 +242,43 @@ pub fn weak_count<T>(this: &Arc<T>) -> usize { this.inner().weak.load(SeqCst) - 
 #[unstable(feature = "alloc")]
 pub fn strong_count<T>(this: &Arc<T>) -> usize { this.inner().strong.load(SeqCst) }
 
+
+/// Returns a mutable reference to the contained value if the `Arc<T>` is unique.
+///
+/// Returns `None` if the `Arc<T>` is not unique.
+///
+/// # Examples
+///
+/// ```
+/// # #![feature(alloc)]
+/// extern crate alloc;
+/// # fn main() {
+/// use alloc::arc::{Arc, get_mut};
+///
+/// let mut x = Arc::new(3);
+/// *get_mut(&mut x).unwrap() = 4;
+/// assert_eq!(*x, 4);
+///
+/// let _y = x.clone();
+/// assert!(get_mut(&mut x).is_none());
+/// # }
+/// ```
+#[inline]
+#[unstable(feature = "alloc")]
+pub fn get_mut<T>(this: &mut Arc<T>) -> Option<&mut T> {
+    if strong_count(this) == 1 && weak_count(this) == 0 {
+        // This unsafety is ok because we're guaranteed that the pointer
+        // returned is the *only* pointer that will ever be returned to T. Our
+        // reference count is guaranteed to be 1 at this point, and we required
+        // the Arc itself to be `mut`, so we're returning the only possible
+        // reference to the inner data.
+        let inner = unsafe { &mut **this._ptr };
+        Some(&mut inner.data)
+    }else {
+        None
+    }
+}
+
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Clone for Arc<T> {
     /// Makes a clone of the `Arc<T>`.
@@ -283,7 +323,7 @@ impl<T> Deref for Arc<T> {
     }
 }
 
-impl<T: Send + Sync + Clone> Arc<T> {
+impl<T: Clone> Arc<T> {
     /// Make a mutable reference from the given `Arc<T>`.
     ///
     /// This is also referred to as a copy-on-write operation because the inner
@@ -309,11 +349,8 @@ impl<T: Send + Sync + Clone> Arc<T> {
            self.inner().weak.load(SeqCst) != 1 {
             *self = Arc::new((**self).clone())
         }
-        // This unsafety is ok because we're guaranteed that the pointer
-        // returned is the *only* pointer that will ever be returned to T. Our
-        // reference count is guaranteed to be 1 at this point, and we required
-        // the Arc itself to be `mut`, so we're returning the only possible
-        // reference to the inner data.
+        // As with `get_mut()`, the unsafety is ok because our reference was
+        // either unique to begin with, or became one upon cloning the contents.
         let inner = unsafe { &mut **self._ptr };
         &mut inner.data
     }
@@ -354,7 +391,8 @@ impl<T> Drop for Arc<T> {
         // more than once (but it is guaranteed to be zeroed after the first if
         // it's run more than once)
         let ptr = *self._ptr;
-        if ptr.is_null() { return }
+        // if ptr.is_null() { return }
+        if ptr.is_null() || ptr as usize == mem::POST_DROP_USIZE { return }
 
         // Because `fetch_sub` is already atomic, we do not need to synchronize
         // with other threads unless we are going to delete the object. This
@@ -410,7 +448,7 @@ impl<T> Weak<T> {
     /// ```
     pub fn upgrade(&self) -> Option<Arc<T>> {
         // We use a CAS loop to increment the strong count instead of a
-        // fetch_add because once the count hits 0 is must never be above 0.
+        // fetch_add because once the count hits 0 it must never be above 0.
         let inner = self.inner();
         loop {
             let n = inner.strong.load(SeqCst);
@@ -429,7 +467,7 @@ impl<T> Weak<T> {
 
 #[unstable(feature = "alloc",
            reason = "Weak pointers may not belong in this module.")]
-impl<T: Sync + Send> Clone for Weak<T> {
+impl<T> Clone for Weak<T> {
     /// Makes a clone of the `Weak<T>`.
     ///
     /// This increases the weak reference count.
@@ -485,7 +523,7 @@ impl<T> Drop for Weak<T> {
         let ptr = *self._ptr;
 
         // see comments above for why this check is here
-        if ptr.is_null() { return }
+        if ptr.is_null() || ptr as usize == mem::POST_DROP_USIZE { return }
 
         // If we find out that we were the last weak pointer, then its time to
         // deallocate the data entirely. See the discussion in Arc::drop() about
@@ -655,7 +693,7 @@ mod tests {
     use std::sync::atomic::Ordering::{Acquire, SeqCst};
     use std::thread;
     use std::vec::Vec;
-    use super::{Arc, Weak, weak_count, strong_count};
+    use super::{Arc, Weak, get_mut, weak_count, strong_count};
     use std::sync::Mutex;
 
     struct Canary(*mut atomic::AtomicUsize);
@@ -689,6 +727,19 @@ mod tests {
 
         assert_eq!((*arc_v)[2], 3);
         assert_eq!((*arc_v)[4], 5);
+    }
+
+    #[test]
+    fn test_arc_get_mut() {
+        let mut x = Arc::new(3);
+        *get_mut(&mut x).unwrap() = 4;
+        assert_eq!(*x, 4);
+        let y = x.clone();
+        assert!(get_mut(&mut x).is_none());
+        drop(y);
+        assert!(get_mut(&mut x).is_some());
+        let _w = x.downgrade();
+        assert!(get_mut(&mut x).is_none());
     }
 
     #[test]

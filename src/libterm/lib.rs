@@ -57,13 +57,11 @@
 
 #![feature(box_syntax)]
 #![feature(collections)]
-#![feature(int_uint)]
 #![feature(rustc_private)]
 #![feature(staged_api)]
 #![feature(std_misc)]
 #![feature(str_char)]
 #![feature(path_ext)]
-#![feature(convert)]
 #![cfg_attr(windows, feature(libc))]
 
 #[macro_use] extern crate log;
@@ -186,7 +184,7 @@ pub mod attr {
     /// Most attributes can only be turned on and must be turned off with term.reset().
     /// The ones that can be turned off explicitly take a boolean value.
     /// Color is also represented as an attribute for convenience.
-    #[derive(Copy)]
+    #[derive(Copy, Clone)]
     pub enum Attr {
         /// Bold (or possibly bright) mode
         Bold,

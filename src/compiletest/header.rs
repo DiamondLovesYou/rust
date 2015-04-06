@@ -312,7 +312,7 @@ fn parse_exec_env(line: &str) -> Option<(String, String)> {
     parse_name_value_directive(line, "exec-env").map(|nv| {
         // nv is either FOO or FOO=BAR
         let mut strs: Vec<String> = nv
-                                      .splitn(1, '=')
+                                      .splitn(2, '=')
                                       .map(|s| s.to_string())
                                       .collect();
 
@@ -358,7 +358,7 @@ pub fn parse_name_value_directive(line: &str, directive: &str)
     }
 }
 
-pub fn gdb_version_to_int(version_string: &str) -> int {
+pub fn gdb_version_to_int(version_string: &str) -> isize {
     let error_string = format!(
         "Encountered GDB version string with unexpected format: {}",
         version_string);
@@ -370,17 +370,17 @@ pub fn gdb_version_to_int(version_string: &str) -> int {
         panic!("{}", error_string);
     }
 
-    let major: int = components[0].parse().ok().expect(&error_string);
-    let minor: int = components[1].parse().ok().expect(&error_string);
+    let major: isize = components[0].parse().ok().expect(&error_string);
+    let minor: isize = components[1].parse().ok().expect(&error_string);
 
     return major * 1000 + minor;
 }
 
-pub fn lldb_version_to_int(version_string: &str) -> int {
+pub fn lldb_version_to_int(version_string: &str) -> isize {
     let error_string = format!(
         "Encountered LLDB version string with unexpected format: {}",
         version_string);
     let error_string = error_string;
-    let major: int = version_string.parse().ok().expect(&error_string);
+    let major: isize = version_string.parse().ok().expect(&error_string);
     return major;
 }

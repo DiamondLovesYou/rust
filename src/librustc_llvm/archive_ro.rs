@@ -42,8 +42,9 @@ impl ArchiveRO {
         #[cfg(unix)]
         fn path2cstr(p: &Path) -> CString {
             use std::os::unix::prelude::*;
-            use std::ffi::AsOsStr;
-            CString::new(p.as_os_str().as_bytes()).unwrap()
+            use std::ffi::OsStr;
+            let p: &OsStr = p.as_ref();
+            CString::new(p.as_bytes()).unwrap()
         }
         #[cfg(windows)]
         fn path2cstr(p: &Path) -> CString {
@@ -61,7 +62,7 @@ impl ArchiveRO {
             if ptr.is_null() {
                 None
             } else {
-                Some(slice::from_raw_parts(ptr as *const u8, size as uint))
+                Some(slice::from_raw_parts(ptr as *const u8, size as usize))
             }
         }
     }
@@ -76,10 +77,10 @@ impl ArchiveRO {
             let f: &mut F = unsafe { transmute(f) };
             let name = name as *const u8;
             unsafe {
-                let name_buf = from_raw_parts(name, name_len as uint);
+                let name_buf = from_raw_parts(name, name_len as usize);
                 let name = String::from_utf8_lossy(name_buf);
                 debug!("running f on `{}`", name);
-                let buf = from_raw_parts(buffer, buffer_len as uint);
+                let buf = from_raw_parts(buffer, buffer_len as usize);
                 f(&name[..], buf);
             }
         }

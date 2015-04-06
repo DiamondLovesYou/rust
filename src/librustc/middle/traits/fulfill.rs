@@ -8,10 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use middle::infer::{InferCtxt};
+use middle::infer::InferCtxt;
 use middle::ty::{self, RegionEscape, Ty};
 use std::collections::HashSet;
-use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::default::Default;
 use syntax::ast;
 use util::common::ErrorReported;
@@ -54,7 +53,7 @@ pub struct FulfillmentContext<'tcx> {
     // Remembers the count of trait obligations that we have already
     // attempted to select. This is used to avoid repeating work
     // when `select_new_obligations` is called.
-    attempted_mark: uint,
+    attempted_mark: usize,
 
     // A set of constraints that regionck must validate. Each
     // constraint has the form `T:'a`, meaning "some type `T` must
@@ -163,6 +162,8 @@ impl<'tcx> FulfillmentContext<'tcx> {
         // this helps to reduce duplicate errors, as well as making
         // debug output much nicer to read and so on.
         let obligation = infcx.resolve_type_vars_if_possible(&obligation);
+
+        assert!(!obligation.has_escaping_regions());
 
         if !self.duplicate_set.insert(obligation.predicate.clone()) {
             debug!("register_predicate({}) -- already seen, skip", obligation.repr(infcx.tcx));
@@ -437,9 +438,7 @@ fn register_region_obligation<'tcx>(tcx: &ty::ctxt<'tcx>,
     debug!("register_region_obligation({})",
            region_obligation.repr(tcx));
 
-    match region_obligations.entry(region_obligation.cause.body_id) {
-        Vacant(entry) => { entry.insert(vec![region_obligation]); },
-        Occupied(mut entry) => { entry.get_mut().push(region_obligation); },
-    }
+    region_obligations.entry(region_obligation.cause.body_id).or_insert(vec![])
+        .push(region_obligation);
 
 }

@@ -104,10 +104,27 @@ use cmp::Ordering::{self, Less, Equal, Greater};
 // FIXME #19649: intrinsic docs don't render, so these have no docs :(
 
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg(not(stage0))]
 pub use intrinsics::copy_nonoverlapping;
 
+/// dox
+#[cfg(stage0)]
 #[stable(feature = "rust1", since = "1.0.0")]
+pub unsafe fn copy_nonoverlapping<T>(src: *const T, dst: *mut T, count: usize) {
+    intrinsics::copy_nonoverlapping(dst, src, count)
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+#[cfg(not(stage0))]
 pub use intrinsics::copy;
+
+/// dox
+#[cfg(stage0)]
+#[stable(feature = "rust1", since = "1.0.0")]
+pub unsafe fn copy<T>(src: *const T, dst: *mut T, count: usize) {
+    intrinsics::copy(dst, src, count)
+}
+
 
 #[stable(feature = "rust1", since = "1.0.0")]
 pub use intrinsics::write_bytes;
@@ -140,21 +157,6 @@ pub fn null<T>() -> *const T { 0 as *const T }
 #[stable(feature = "rust1", since = "1.0.0")]
 pub fn null_mut<T>() -> *mut T { 0 as *mut T }
 
-/// Zeroes out `count * size_of::<T>` bytes of memory at `dst`. `count` may be
-/// `0`.
-///
-/// # Safety
-///
-/// Beyond accepting a raw pointer, this is unsafe because it will not drop the
-/// contents of `dst`, and may be used to create invalid instances of `T`.
-#[inline]
-#[unstable(feature = "core",
-           reason = "may play a larger role in std::ptr future extensions")]
-#[deprecated(since = "1.0.0", reason = "use `write_bytes` instead")]
-pub unsafe fn zero_memory<T>(dst: *mut T, count: usize) {
-    write_bytes(dst, 0, count);
-}
-
 /// Swaps the values at two mutable locations of the same type, without
 /// deinitialising either. They may overlap, unlike `mem::swap` which is
 /// otherwise equivalent.
@@ -167,12 +169,11 @@ pub unsafe fn zero_memory<T>(dst: *mut T, count: usize) {
 pub unsafe fn swap<T>(x: *mut T, y: *mut T) {
     // Give ourselves some scratch space to work with
     let mut tmp: T = mem::uninitialized();
-    let t: *mut T = &mut tmp;
 
     // Perform the swap
-    copy_nonoverlapping(t, &*x, 1);
-    copy(x, &*y, 1); // `x` and `y` may overlap
-    copy_nonoverlapping(y, &*t, 1);
+    copy_nonoverlapping(x, &mut tmp, 1);
+    copy(y, x, 1); // `x` and `y` may overlap
+    copy_nonoverlapping(&tmp, y, 1);
 
     // y and t now point to the same thing, but we need to completely forget `tmp`
     // because it's no longer relevant.
@@ -208,7 +209,7 @@ pub unsafe fn replace<T>(dest: *mut T, mut src: T) -> T {
 #[stable(feature = "rust1", since = "1.0.0")]
 pub unsafe fn read<T>(src: *const T) -> T {
     let mut tmp: T = mem::uninitialized();
-    copy_nonoverlapping(&mut tmp, src, 1);
+    copy_nonoverlapping(src, &mut tmp, 1);
     tmp
 }
 
@@ -226,6 +227,21 @@ pub unsafe fn read_and_zero<T>(dest: *mut T) -> T {
 
     // Now zero out `dest`:
     write_bytes(dest, 0, 1);
+
+    tmp
+}
+
+/// Variant of read_and_zero that writes the specific drop-flag byte
+/// (which may be more appropriate than zero).
+#[inline(always)]
+#[unstable(feature = "core",
+           reason = "may play a larger role in std::ptr future extensions")]
+pub unsafe fn read_and_drop<T>(dest: *mut T) -> T {
+    // Copy the data out from `dest`:
+    let tmp = read(&*dest);
+
+    // Now mark `dest` as dropped:
+    write_bytes(dest, mem::POST_DROP_U8, 1);
 
     tmp
 }

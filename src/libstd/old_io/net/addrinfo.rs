@@ -19,8 +19,8 @@ pub use self::SocketType::*;
 pub use self::Flag::*;
 pub use self::Protocol::*;
 
-use iter::IteratorExt;
-use old_io::{IoResult};
+use iter::Iterator;
+use old_io::IoResult;
 use old_io::net::ip::{SocketAddr, IpAddr};
 use option::Option;
 use option::Option::{Some, None};
@@ -29,7 +29,7 @@ use sys;
 use vec::Vec;
 
 /// Hints to the types of sockets that are desired when looking up hosts
-#[derive(Copy, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum SocketType {
     Stream, Datagram, Raw
 }
@@ -38,7 +38,7 @@ pub enum SocketType {
 /// to manipulate how a query is performed.
 ///
 /// The meaning of each of these flags can be found with `man -s 3 getaddrinfo`
-#[derive(Copy, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum Flag {
     AddrConfig,
     All,
@@ -51,7 +51,7 @@ pub enum Flag {
 
 /// A transport protocol associated with either a hint or a return value of
 /// `lookup`
-#[derive(Copy, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum Protocol {
     TCP, UDP
 }
@@ -61,21 +61,21 @@ pub enum Protocol {
 ///
 /// For details on these fields, see their corresponding definitions via
 /// `man -s 3 getaddrinfo`
-#[derive(Copy, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct Hint {
-    pub family: uint,
+    pub family: usize,
     pub socktype: Option<SocketType>,
     pub protocol: Option<Protocol>,
-    pub flags: uint,
+    pub flags: usize,
 }
 
-#[derive(Copy, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct Info {
     pub address: SocketAddr,
-    pub family: uint,
+    pub family: usize,
     pub socktype: Option<SocketType>,
     pub protocol: Option<Protocol>,
-    pub flags: uint,
+    pub flags: usize,
 }
 
 /// Easy name resolution. Given a hostname, returns the list of IP addresses for
@@ -127,11 +127,10 @@ mod test {
         assert!(found_local);
     }
 
-    #[ignore]
     #[test]
     fn issue_10663() {
         // Something should happen here, but this certainly shouldn't cause
         // everything to die. The actual outcome we don't care too much about.
-        get_host_addresses("example.com").unwrap();
+        let _ = get_host_addresses("example.com");
     }
 }
