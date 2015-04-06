@@ -695,6 +695,7 @@ pub fn run_passes(sess: &Session,
         debug!("linked: `{:?}`", linked);
         linked
     }
+    #[cfg(not(target_os = "nacl"))]
     fn pnacl_lib_paths(sess: &Session) -> Vec<PathBuf> {
         fn make_absolute(p: &Path) -> ::std::io::Result<PathBuf> {
             use std::env;
@@ -737,6 +738,29 @@ pub fn run_passes(sess: &Session,
         });
         paths.push(native_dep_lib_path);
         paths.push(ports_lib_path);
+        paths
+    }
+    #[cfg(target_os = "nacl")]
+    fn pnacl_lib_paths(sess: &Session) -> Vec<PathBuf> {
+        use rustc::session::search_paths::PathKind;
+        let ports = Path::new("/lib/ports");
+        let ports = ports.join(if sess.opts.optimize == config::No {
+            "Debug"
+        } else {
+            "Release"
+        });
+        let base = Path::new("/lib");
+        let mut paths: Vec<PathBuf> = sess.opts.search_paths
+            .iter(PathKind::Dependency)
+            .map(|(p, _): (&Path, _)| p.to_path_buf() )
+            .collect();
+        paths.extend({
+            sess.opts.search_paths
+                .iter(PathKind::Native)
+                .map(|(p, _): (&Path, _)| p.to_path_buf() )
+        });
+        paths.push(base.to_path_buf());
+        paths.push(ports.to_path_buf());
         paths
     }
 
@@ -1260,23 +1284,30 @@ unsafe fn configure_llvm(sess: &Session) {
         llvm::LLVMInitializeARMAsmPrinter();
         llvm::LLVMInitializeARMAsmParser();
 
-        llvm::LLVMInitializeAArch64TargetInfo();
-        llvm::LLVMInitializeAArch64Target();
-        llvm::LLVMInitializeAArch64TargetMC();
-        llvm::LLVMInitializeAArch64AsmPrinter();
-        llvm::LLVMInitializeAArch64AsmParser();
+        #[cfg(not(target_os = "nacl"))]
+        unsafe fn init() {
+            llvm::LLVMInitializeAArch64TargetInfo();
+            llvm::LLVMInitializeAArch64Target();
+            llvm::LLVMInitializeAArch64TargetMC();
+            llvm::LLVMInitializeAArch64AsmPrinter();
+            llvm::LLVMInitializeAArch64AsmParser();
 
-        llvm::LLVMInitializeMipsTargetInfo();
-        llvm::LLVMInitializeMipsTarget();
-        llvm::LLVMInitializeMipsTargetMC();
-        llvm::LLVMInitializeMipsAsmPrinter();
-        llvm::LLVMInitializeMipsAsmParser();
+            llvm::LLVMInitializeMipsTargetInfo();
+            llvm::LLVMInitializeMipsTarget();
+            llvm::LLVMInitializeMipsTargetMC();
+            llvm::LLVMInitializeMipsAsmPrinter();
+            llvm::LLVMInitializeMipsAsmParser();
 
-        llvm::LLVMInitializePowerPCTargetInfo();
-        llvm::LLVMInitializePowerPCTarget();
-        llvm::LLVMInitializePowerPCTargetMC();
-        llvm::LLVMInitializePowerPCAsmPrinter();
-        llvm::LLVMInitializePowerPCAsmParser();
+            llvm::LLVMInitializePowerPCTargetInfo();
+            llvm::LLVMInitializePowerPCTarget();
+            llvm::LLVMInitializePowerPCTargetMC();
+            llvm::LLVMInitializePowerPCAsmPrinter();
+            llvm::LLVMInitializePowerPCAsmParser();
+        }
+        #[cfg(target_os = "nacl")]
+        unsafe fn init() { }
+
+        init();
 
         llvm::LLVMRustSetLLVMOptions(llvm_args.len() as c_int,
                                      llvm_args.as_ptr());

@@ -266,6 +266,7 @@ impl Session {
             && &self.target.target.target_os[..] == "nacl"
     }
 
+    #[cfg(not(target_os = "nacl"))]
     pub fn get_nacl_tool_path(&self,
                               nacl_suffix: &str,
                               pnacl_suffix: &str) -> PathBuf {
@@ -291,6 +292,7 @@ impl Session {
         toolchain
     }
 
+    #[cfg(not(target_os = "nacl"))]
     pub fn expect_cross_path(&self) -> PathBuf {
         use std::env;
         let cross_path = self.opts.cg.cross_path.clone();
@@ -300,7 +302,7 @@ impl Session {
             Some(p) => Path::new(&p).to_path_buf(),
         }
     }
-
+    #[cfg(not(target_os = "nacl"))]
     pub fn pnacl_toolchain(&self) -> PathBuf {
         let mut tc = self.expect_cross_path();
         tc.push("toolchain");
@@ -366,19 +368,6 @@ impl Session {
             return;
         }
         f()
-    }
-
-    // Gets the filepath for the gold LTO plugin.
-    pub fn gold_plugin_path(&self) -> PathBuf {
-        use session::config;
-        use std::env::consts;
-        let mut s = self.sysroot().to_path_buf();
-        s.push("lib");
-        s.push("rustlib");
-        s.push(&config::host_triple().to_string());
-        s.push("lib");
-        s.push(&format!("LLVMgold{}", consts::DLL_SUFFIX));
-        s
     }
 }
 
@@ -538,7 +527,8 @@ fn get_os_for_nacl_toolchain(_sess: &Session) -> String { "linux".to_string() }
 fn get_os_for_nacl_toolchain(_sess: &Session) -> String { "mac".to_string() }
 #[cfg(all(not(windows),
           not(target_os = "linux"),
-          not(target_os = "macos")))]
+          not(target_os = "macos"),
+          not(target_os = "nacl")))]
 fn get_os_for_nacl_toolchain(sess: &Session) -> ! {
     sess.fatal("NaCl/PNaCl toolchain unsupported on this OS (update this if that's changed)");
 }

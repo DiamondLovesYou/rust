@@ -550,13 +550,33 @@ pub fn check_outputs(sess: &Session,
     }
     (obj_filename, out_filename)
 }
-
+#[cfg(not(target_os = "nacl"))]
 fn pnacl_host_tool(sess: &Session, tool: &str) -> PathBuf {
     use std::env::consts;
     let tool = format!("le32-nacl-{}{}", tool, consts::EXE_SUFFIX);
     sess.pnacl_toolchain()
         .join("bin")
         .join(&tool)
+}
+#[cfg(target_os = "nacl")]
+fn pnacl_host_tool(_sess: &Session, tool: &str) -> PathBuf {
+    use std::env::consts;
+    let tool = format!("{}{}", tool, consts::EXE_SUFFIX);
+    Path::new("/bin")
+        .join(&tool)
+}
+
+// Gets the filepath for the gold LTO plugin.
+#[cfg(not(target_os = "nacl"))]
+fn gold_plugin_path(sess: &Session) -> PathBuf {
+    use std::env::consts;
+    let mut s = sess.sysroot().to_path_buf();
+    s.push("lib");
+    s.push("rustlib");
+    s.push(&config::host_triple().to_string());
+    s.push("lib");
+    s.push(&format!("LLVMgold{}", consts::DLL_SUFFIX));
+    s
 }
 
 fn link_pnacl_rlib(sess: &Session,
@@ -566,19 +586,37 @@ fn link_pnacl_rlib(sess: &Session,
     let (_, out_filename) = check_outputs(sess, config::CrateTypeRlib,
                                           outputs, crate_name);
 
-    let mut a = {
+    #[cfg(not(target_os = "nacl"))]
+    fn create_archive_config(sess: &Session, out_filename: PathBuf) -> ArchiveBuilder {
+
         let handler = &sess.diagnostic().handler;
         let config = ArchiveConfig {
             handler: handler,
-            dst: out_filename.clone(),
+            dst: out_filename,
             lib_search_paths: archive_search_paths(sess),
             slib_prefix: "lib".to_string(),
             slib_suffix: "rlib".to_string(),
-            gold_plugin: Some(sess.gold_plugin_path()),
+            gold_plugin: Some(gold_plugin_path(sess)),
             maybe_ar_prog: Some(pnacl_host_tool(sess, "ar").display().to_string()),
         };
         ArchiveBuilder::create(config)
-    };
+    }
+    #[cfg(target_os = "nacl")]
+    fn create_archive_config(sess: &Session, out_filename: PathBuf) -> ArchiveBuilder {
+        let handler = &sess.diagnostic().handler;
+        let config = ArchiveConfig {
+            handler: handler,
+            dst: out_filename,
+            lib_search_paths: archive_search_paths(sess),
+            slib_prefix: "lib".to_string(),
+            slib_suffix: "rlib".to_string(),
+            gold_plugin: None,
+            maybe_ar_prog: Some("llvm-ar".to_string()),
+        };
+        ArchiveBuilder::create(config)
+    }
+
+    let mut a = create_archive_config(sess, out_filename.clone());
 
     for (index, mtrans) in trans.modules.iter().enumerate() {
         let f = match mtrans.name {
@@ -748,10 +786,19 @@ pub fn link_pnacl_module(sess: &Session,
 
     let post_link_path = outputs.with_extension("post-link.bc");
 
+    #[cfg(not(target_os = "nacl"))]
+    fn add_plugin_arg(sess: &Session, cmd: &mut Command) {
+        cmd.arg(&format!("-plugin={}", gold_plugin_path(sess).display()));
+    }
+    #[cfg(target_os = "nacl")]
+    fn add_plugin_arg(_sess: &Session, _cmd: &mut Command) {
+        // on PNaCl, the gold plugin is linked statically.
+    }
+
     let linker = pnacl_host_tool(sess, "ld.gold");
     let mut cmd = Command::new(&linker);
     cmd.arg("--oformat=elf32-i386-nacl");
-    cmd.arg(&format!("-plugin={}", sess.gold_plugin_path().display()));
+    add_plugin_arg(sess, &mut cmd);
     cmd.arg("-plugin-opt=emit-llvm");
     cmd.arg("-nostdlib");
     cmd.arg("--undef-sym-check");
@@ -773,17 +820,6 @@ pub fn link_pnacl_module(sess: &Session,
                "--undefined=exit",
                "--undefined=_exit",
                ]);
-    for (index, mtrans) in trans.modules.iter().enumerate() {
-        let f = match mtrans.name {
-            Some(ref name) => outputs
-                .with_extension(&format!("{}.bc",
-                                         name)[..]),
-            None => outputs
-                .with_extension(&format!("{}.bc",
-                                         index)[..]),
-        };
-        cmd.arg(&f);
-    }
     cmd.arg("-o").arg(&post_link_path);
 
     cmd.arg("-L").arg(&sess.target_filesearch(PathKind::Crate).get_lib_path());
@@ -800,6 +836,19 @@ pub fn link_pnacl_module(sess: &Session,
         cmd.arg(&arg[..]);
     }
     cmd.arg("--start-group");
+
+    for (index, mtrans) in trans.modules.iter().enumerate() {
+        let f = match mtrans.name {
+            Some(ref name) => outputs
+                .with_extension(&format!("{}.bc",
+                                         name)[..]),
+            None => outputs
+                .with_extension(&format!("{}.bc",
+                                         index)[..]),
+        };
+        cmd.arg(&f);
+    }
+
     let deps = sess.cstore.get_used_crates(cstore::RequireStatic);
     for &(cnum, _) in deps.iter() {
         let src = sess.cstore.get_used_crate_source(cnum).unwrap();
