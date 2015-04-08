@@ -120,7 +120,7 @@ pub struct Config {
     // "Shard" of the testsuite to pub run: this has the form of
     // two numbers (a,b), and causes only those tests with
     // positional order equal to a mod b to run.
-    pub test_shard: Option<(uint,uint)>,
+    pub test_shard: Option<(usize,usize)>,
 
     // A command line to prefix program execution with,
     // for running under valgrind
