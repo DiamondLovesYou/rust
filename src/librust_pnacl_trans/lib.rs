@@ -215,7 +215,7 @@ pub fn main() {
                 llvm_args.push(arg.as_ptr() as *const i8);
                 debug!("adding llvm arg: `{}`", arg);
             };
-            add("rust-pnacl-trans\0");
+            add("rust_pnacl_trans\0");
             if !(triple.contains("i386") ||
                  triple.contains("i486") ||
                  triple.contains("i586") ||
