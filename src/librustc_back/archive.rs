@@ -111,8 +111,10 @@ impl<'a> Archive<'a> {
         };
         let mut cmd = Command::new(ar);
 
-        cmd.arg(args).args(paths).stdout(Stdio::piped()).stderr(Stdio::piped());
-        debug!("{:?}", cmd);
+        cmd.arg(args);
+
+        // The gold plugin argument must go after the command flags, but before
+        // the paths arguments.
         match self.gold_plugin {
             Some(ref path) => {
                 cmd.args(&[format!("--plugin={}", path.display())]);
@@ -120,7 +122,8 @@ impl<'a> Archive<'a> {
             None => {}
         };
 
-        cmd.args(paths);
+        cmd.args(paths).stdout(Stdio::piped()).stderr(Stdio::piped());
+        debug!("{:?}", cmd);
 
         match cwd {
             Some(p) => {
