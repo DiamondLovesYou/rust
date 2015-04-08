@@ -293,7 +293,7 @@ fn print(w: &mut Write, idx: isize, addr: *mut libc::c_void,
                       msg: *const libc::c_char,
                       errnum: libc::c_int);
     enum backtrace_state {}
-    #[link(name = "backtrace")]
+    #[link(name = "backtrace", kind = "static")]
     #[cfg(not(test))]
     extern {}
 
