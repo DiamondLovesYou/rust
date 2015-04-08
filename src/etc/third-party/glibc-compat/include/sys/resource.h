@@ -7,7 +7,6 @@
 #define GLIBCEMU_SYS_RESOURCE_H
 
 #include_next <sys/resource.h>
-#include <sys/cdefs.h>
 
 #define RLIMIT_CPU 0
 #define RLIMIT_FSIZE 1
@@ -17,7 +16,7 @@
 #define RLIMIT_NOFILE 5
 #define RLIM_INFINITY -1
 
-typedef long rlim_t;
+typedef unsigned long rlim_t;
 
 struct rlimit {
   rlim_t rlim_cur;  /* Soft limit */

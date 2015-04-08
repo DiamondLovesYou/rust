@@ -82,6 +82,12 @@ struct termio
 #define FIONREAD 0x541B
 #define FIONBIO 0x5421
 
+#define SIOCGIFCONF	0x8912		/* get iface list		*/
+#define SIOCGIFFLAGS	0x8913		/* get flags			*/
+#define SIOCGIFDSTADDR	0x8917		/* get remote PA address	*/
+#define SIOCGIFBRDADDR	0x8919		/* get broadcast PA address	*/
+#define SIOCGIFNETMASK	0x891b		/* get network PA mask		*/
+
 /* end olonho hack */
 
 #ifdef __cplusplus

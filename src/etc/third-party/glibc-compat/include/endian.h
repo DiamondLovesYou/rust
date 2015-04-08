@@ -7,6 +7,6 @@
 #ifndef GLIBCEMU_ENDIAN_H
 #define GLIBCEMU_ENDIAN_H 1
 
-#include <sys/endian.h>
+#include <machine/endian.h>
 
 #endif
