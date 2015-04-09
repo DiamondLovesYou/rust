@@ -1031,7 +1031,7 @@ do
 	    esac
 	    if [ ! -f $PNACL_TOOLCHAIN_PATH/pnacl-clang++ ]
 	    then
-		err "Could not find pnacl-clang++ in the provided NaCl SDK dir: $CFG_PNACL_TOOLCHAIN_PATH/pnacl-clang++"
+		err "Could not find pnacl-clang++ in the provided NaCl SDK dir: $PNACL_TOOLCHAIN_PATH/pnacl-clang++"
 	    fi
 	    ;;
 	le32-emscripten-nacl)
