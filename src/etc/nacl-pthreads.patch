@@ -1,0 +1,21 @@
+diff --git a/sys/types.h b/sys/types.h
+index c6ac60a..8c4be36 100644
+--- a/sys/types.h
++++ b/sys/types.h
+@@ -515,7 +515,7 @@ typedef __uint32_t pthread_spinlock_t;        /* POSIX Spin Lock Object */
+ #endif /* defined(_POSIX_SPIN_LOCKS) */
+
+ /* POSIX Reader/Writer Lock Types */
+-
++#if !defined(__native_client__)
+ #if defined(_POSIX_READER_WRITER_LOCKS)
+ typedef __uint32_t pthread_rwlock_t;         /* POSIX RWLock Object */
+ typedef struct {
+@@ -525,6 +525,7 @@ typedef struct {
+ #endif
+ } pthread_rwlockattr_t;
+ #endif /* defined(_POSIX_READER_WRITER_LOCKS) */
++#endif /* !defined(__native_client__) */
+ #endif /* __CYGWIN__ */
+
+ #endif  /* !__need_inttypes */
