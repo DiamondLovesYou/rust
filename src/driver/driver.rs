@@ -23,8 +23,8 @@ extern crate rust_pnacl_trans as this;
 fn main() { this::main() }
 
 #[cfg(target_os = "nacl")]
-#[link(name = "ppapi_simple", kind = "static")]
 #[link(name = "ppapi_cpp", kind = "static")]
+#[link(name = "ppapi_simple_cpp", kind = "static")]
 #[link(name = "ppapi_stub", kind = "static")]
 #[link(name = "cli_main", kind = "static")]
 #[link(name = "tar", kind = "static")]
