@@ -14,6 +14,7 @@
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
        html_favicon_url = "http://www.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/master/")]
+#![cfg_attr(target_os = "nacl", allow(dead_code))]
 
 #![feature(rustc_private, libc, collections, exit_status)]
 
@@ -32,7 +33,7 @@ use std::env;
 use std::ptr;
 use std::ffi;
 use std::fmt::Display;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 // From librustc:
 pub fn host_triple() -> &'static str {
@@ -56,17 +57,30 @@ fn get_native_arch() -> &'static str {
     }
 }
 
-fn optgroups() -> Vec<OptGroup> {
+fn inner_optgroups() -> Vec<OptGroup> {
     vec!(optflag("h", "help", "Display this message"),
          reqopt("o", "", "Write the linked output to this file", ""),
          optopt("", "opt-level", "Optimize with possible levels 0-3", "LEVEL"),
          optflag("", "save-temps", "Save temp files"),
          optopt("", "target", "The target triple to codegen for", ""),
-         reqopt("", "cross-path", "The path to the Pepper SDK", ""),
          optmulti("", "raw", "The specified bitcodes have had none of the usual PNaCl IR \
                               legalization passes run on them", ""),
          optflag("", "all-raw", "All input bitcodes are of raw form"))
 }
+#[cfg(not(target_os = "nacl"))]
+fn optgroups() -> Vec<OptGroup> {
+    let mut opts = inner_optgroups();
+    opts.push(reqopt("", "cross-path", "The path to the Pepper SDK", ""));
+    opts
+}
+#[cfg(target_os = "nacl")]
+fn optgroups() -> Vec<OptGroup> {
+    let mut opts = inner_optgroups();
+    // on nacl
+    opts.push(optopt("", "cross-path", "Ignored", ""));
+    opts
+}
+
 fn fatal<T: Display>(msg: T) -> ! {
     println!("error: {}", msg);
     env::set_exit_status(1);
@@ -93,6 +107,9 @@ pub fn llvm_warn<T: Display>(msg: T) {
 
 pub fn main() {
     let args: Vec<String> = env::args().collect();
+
+    let is_host_nacl = host_triple().ends_with("nacl");
+
     let opts = optgroups();
 
     let matches = match getopts(args.tail(), &opts[..]) {
@@ -130,10 +147,16 @@ pub fn main() {
             format!("{}-none-nacl-gnu", get_native_arch())
         }
     };
-    let cross_path = matches.opt_str("cross-path").unwrap();
-    let cross_path = env::current_dir()
-        .unwrap()
-        .join(&cross_path[..]);
+
+    let cross_path = if !is_host_nacl {
+        let cross_path = matches.opt_str("cross-path").unwrap();
+        env::current_dir()
+            .unwrap()
+            .join(&cross_path[..])
+    } else {
+        Path::new("/")
+            .to_path_buf()
+    };
 
     let all_raw = matches.opt_present("all-raw");
     let mut input: Vec<(String, bool)> = matches.free
@@ -225,10 +248,10 @@ pub fn main() {
             }
         }
 
-        // Only initialize the platforms supported by Rust here, because
-        // using --llvm-root will have multiple platforms that rustllvm
-        // doesn't actually link to and it's pointless to put target info
-        // into the registry that Rust cannot generate machine code for.
+        // Only initialize the platforms supported by PNaCl && Rust here,
+        // because using --llvm-root will have multiple platforms that rustllvm
+        // doesn't actually link to and it's pointless to put target info into
+        // the registry that Rust cannot generate machine code for.
         llvm::LLVMInitializeX86TargetInfo();
         llvm::LLVMInitializeX86Target();
         llvm::LLVMInitializeX86TargetMC();
@@ -334,45 +357,66 @@ pub fn main() {
 
     debug!("linking");
 
-    let mut toolchain_path = cross_path.clone();
-    toolchain_path.push("toolchain");
-    toolchain_path.push(&{
-        let mut s = pnacl_toolchain_prefix();
-        s.push_str("_pnacl");
-        s
-    });
+    static NATIVE_SUPPORT_LIBS: &'static [&'static str] =
+        &["crtbegin.o",
+          "libpnacl_irt_shim.a",
+          "libgcc.a",
+          "libcrt_platform.a",
+          "crtend.o"];
+
+    #[cfg(not(target_os = "nacl"))]
+    fn get_native_support_lib_paths<P: AsRef<Path>>(cross_path: P, arch: &str)
+        -> Vec<String>
+    {
+        let mut toolchain_path = cross_path
+            .as_ref()
+            .join("toolchain")
+            .to_path_buf();
+        toolchain_path.push(&{
+            let mut s = pnacl_toolchain_prefix();
+            s.push_str("_pnacl");
+            s
+        });
 
 
-    let mut tcp = toolchain_path.clone();
-    tcp.push("translator");
-    tcp.push(arch);
-    tcp.push("lib");
+        let mut tcp = toolchain_path;
+        tcp.push("translator");
+        tcp.push(arch);
+        tcp.push("lib");
 
-    let crtbegin = tcp.clone()
-        .join("crtbegin.o")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-    let pnacl_irt_shim = tcp.clone()
-        .join("libpnacl_irt_shim.a")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-    let gcc = tcp.clone()
-        .join("libgcc.a")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-    let crt_platform = tcp.clone()
-        .join("libcrt_platform.a")
-        .into_os_string()
-        .into_string()
-        .unwrap();
-    let crtend = tcp.clone()
-        .join("crtend.o")
-        .into_os_string()
-        .into_string()
-        .unwrap();
+        NATIVE_SUPPORT_LIBS.iter()
+            .map(|lib| {
+                tcp.clone()
+                    .join(lib)
+                    .into_os_string()
+                    .into_string()
+                    .unwrap()
+            })
+            .collect()
+    }
+    #[cfg(target_os = "nacl")]
+    fn get_native_support_lib_paths<P: AsRef<Path>>(_: P, arch: &str) -> Vec<String> {
+        let lib_path = Path::new("/lib")
+            .join("translator")
+            .join(arch);
+        NATIVE_SUPPORT_LIBS.iter()
+            .map(|lib| {
+                lib_path
+                    .join(lib)
+                    .into_os_string()
+                    .into_string()
+                    .unwrap()
+            })
+            .collect()
+    }
+
+    let libs = get_native_support_lib_paths(&cross_path, arch);
+    debug_assert!(libs.len() == 5);
+    let crtbegin = libs[0].clone();
+    let pnacl_irt_shim = libs[1].clone();
+    let gcc = libs[2].clone();
+    let crt_platform = libs[3].clone();
+    let crtend = libs[4].clone();
 
     let nexe_link_args = vec!("-nostdlib".to_string(),
                               "--no-fix-cortex-a8".to_string(),
@@ -397,10 +441,34 @@ pub fn main() {
         .chain(nexe_link_args_suffix.into_iter())
         .collect();
 
-    let mut gold = toolchain_path.clone();
-    gold.push("bin");
-    gold.push("le32-nacl-ld.gold");
-    let gold = gold;
+    #[cfg(not(target_os = "nacl"))]
+    fn get_linker<P: AsRef<Path>>(cross_path: P) -> PathBuf {
+        let mut toolchain_path = cross_path
+            .as_ref()
+            .to_path_buf();
+        toolchain_path.push("toolchain");
+        toolchain_path.push(&{
+            let mut s = pnacl_toolchain_prefix();
+            s.push_str("_pnacl");
+            s
+        });
+
+        let mut gold = toolchain_path;
+        gold.push("bin");
+        gold.push("le32-nacl-ld.gold");
+        gold
+    }
+    #[cfg(target_os = "nacl")]
+    fn get_linker<P: AsRef<Path>>(_: Path) -> PathBuf {
+        use std::env::consts::EXE_SUFFIX;
+        let linker = format!("ld.gold{}",
+                             EXE_SUFFIX);
+        Path::new("/bin")
+            .join(&linker)
+            .to_path_buf()
+    }
+
+    let gold = get_linker(&cross_path);
 
     fn cleanup_objs(m: &Matches, objs: Vec<String>) {
         use std::fs::remove_file;
