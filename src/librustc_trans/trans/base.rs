@@ -2545,7 +2545,7 @@ pub fn register_fn_llvmty(ccx: &CrateContext,
 
 pub fn is_entry_fn(sess: &Session, node_id: ast::NodeId) -> bool {
     match *sess.entry_fn.borrow() {
-        Some((entry_id, _)) => node_id == entry_id,
+        Some((entry_id, _, _)) => node_id == entry_id,
         None => false
     }
 }
@@ -2570,13 +2570,12 @@ pub fn create_entry_wrapper(ccx: &CrateContext,
         let llfty = Type::func(&[ccx.int_type(), Type::i8p(ccx).ptr_to()],
                                &ccx.int_type());
 
-        let main_name = if ccx.sess().targeting_nacl() || ccx.sess().targeting_pnacl() {
-            "nacl_main"
-        } else {
-            "main"
+        let main_name = match *ccx.sess().entry_fn.borrow() {
+            Some((_, ref name, _)) => (*name).to_string(),
+            None => "main".to_string(),
         };
 
-        let llfn = decl_cdecl_fn(ccx, main_name, llfty, ty::mk_nil(ccx.tcx()));
+        let llfn = decl_cdecl_fn(ccx, main_name.as_ref(), llfty, ty::mk_nil(ccx.tcx()));
 
         // FIXME: #16581: Marking a symbol in the executable with `dllexport`
         // linkage forces MinGW's linker to output a `.reloc` section for ASLR

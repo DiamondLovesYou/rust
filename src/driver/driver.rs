@@ -20,6 +20,7 @@ extern crate rustc_driver as this;
 #[cfg(rust_pnacl_trans)]
 extern crate rust_pnacl_trans as this;
 
+#[cfg_attr(target_os = "nacl", main_link_name = "nacl_main")]
 fn main() { this::main() }
 
 #[cfg(target_os = "nacl")]
