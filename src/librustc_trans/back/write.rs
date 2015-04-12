@@ -769,16 +769,28 @@ pub fn run_passes(sess: &Session,
                          kind: cstore::NativeLibraryKind,
                          linked: &mut HashSet<String>,
                          lib_paths: &Vec<PathBuf>) -> Option<(String, PathBuf)> {
+        let lib_name = {
+            let mut i = lib.rsplit(':');
+            if i.next().is_some() {
+                i.next()
+                    .unwrap()
+                    .to_string()
+            } else {
+                lib.clone()
+            }
+        };
         match kind {
             cstore::NativeFramework => {
                 sess.bug("can't link MacOS frameworks into PNaCl modules");
             }
             cstore::NativeStatic | cstore::NativeUnknown
-                if !linked.contains(lib) => {
+                if !linked.contains(&lib_name) => {
                     // Don't link archives twice:
-                    linked.insert(lib.clone());
-                    let lib_path = search_for_native(lib_paths, lib);
-                    maybe_lib(sess, lib, lib_path.map(|p| (lib.clone(), p) ))
+                    linked.insert(lib_name.clone());
+                    let lib_path = search_for_native(lib_paths, &lib_name);
+                    maybe_lib(sess,
+                              &lib_name,
+                              lib_path.map(|p| (lib_name.clone(), p) ))
                 }
             cstore::NativeStatic | cstore::NativeUnknown => { None }
         }
