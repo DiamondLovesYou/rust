@@ -980,7 +980,7 @@ static void ignore_debug_metadata_diagnostic_handler(const DiagnosticInfo& di, v
   switch(di.getSeverity()) {
   case DS_Error:
     if(!isa<DiagnosticInfoDebugMetadataVersion>(di)) {
-      raw_fd_ostream stdout_(STDOUT_FILENO, false);
+      raw_fd_ostream stdout_(fileno(stdout), false);
       DiagnosticPrinterRawOStream diag(stdout_);
       di.print(diag);
     }
