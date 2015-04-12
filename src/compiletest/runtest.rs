@@ -1941,6 +1941,20 @@ fn pnacl_exec_compiled_test(config: &Config, props: &TestProps,
 fn pnacl_toolchain_prefix() -> String {
     "linux".to_string()
 }
+#[cfg(target_os = "macos")]
+fn pnacl_toolchain_prefix() -> String {
+    "mac".to_string()
+}
+#[cfg(windows)]
+fn pnacl_toolchain_prefix() -> String {
+    "win".to_string()
+}
+#[cfg(all(not(windows),
+          not(target_os = "linux"),
+          not(target_os = "macos")))]
+fn pnacl_toolchain_prefix() -> String {
+    unimplemented!();
+}
 
 // codegen tests (vs. clang)
 
