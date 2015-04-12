@@ -85,7 +85,8 @@ fn find_item(item: &Item, ctxt: &mut EntryContext) {
                             // This is a top-level function so can be 'main'
                             if ctxt.main_fn.is_none() {
                                 let link_name =
-                                    attr::first_attr_value_str_by_name(&item.attrs, "main_link_name")
+                                    attr::first_attr_value_str_by_name(&item.attrs,
+                                                                       "main_link_name")
                                     .unwrap_or_else(|| token::get_name(ctxt.main_name));
                                 ctxt.main_fn = Some((item.id, link_name, item.span));
                             } else {
@@ -101,7 +102,8 @@ fn find_item(item: &Item, ctxt: &mut EntryContext) {
 
             if attr::contains_name(&item.attrs, "main") {
                 if ctxt.attr_main_fn.is_none() {
-                    let link_name = attr::first_attr_value_str_by_name(&item.attrs, "main_link_name")
+                    let link_name = attr::first_attr_value_str_by_name(&item.attrs,
+                                                                       "main_link_name")
                         .unwrap_or_else(|| token::get_name(ctxt.main_name));
                     ctxt.attr_main_fn = Some((item.id, link_name, item.span));
                 } else {
@@ -112,7 +114,8 @@ fn find_item(item: &Item, ctxt: &mut EntryContext) {
 
             if attr::contains_name(&item.attrs, "start") {
                 if ctxt.start_fn.is_none() {
-                    let link_name = attr::first_attr_value_str_by_name(&item.attrs, "main_link_name")
+                    let link_name = attr::first_attr_value_str_by_name(&item.attrs,
+                                                                       "main_link_name")
                         .unwrap_or_else(|| token::get_name(ctxt.main_name));
                     ctxt.start_fn = Some((item.id, link_name, item.span));
                 } else {
