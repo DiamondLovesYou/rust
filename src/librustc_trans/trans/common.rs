@@ -269,10 +269,10 @@ fn type_is_newtype_immediate<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, ty: Ty<'tcx
 
 // Does this type need to be passed as a ptr for PNaCl?
 pub fn pnacl_type_needs_indirection<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, ty: Ty<'tcx>) -> bool {
-    use llvm::{Struct, Array};
+    use llvm::{Struct, Array, Vector};
     ccx.sess().targeting_pnacl() && {
         match type_of::arg_type_of(ccx, ty).kind() {
-            Struct | Array => true,
+            Struct | Array | Vector => true,
             _ => false,
         }
     }
