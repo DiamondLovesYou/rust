@@ -771,8 +771,10 @@ pub fn run_passes(sess: &Session,
                          lib_paths: &Vec<PathBuf>) -> Option<(String, PathBuf)> {
         let lib_name = {
             let mut i = lib.rsplit(':');
-            if i.next().is_some() {
-                i.next()
+            i.next();
+            let name = i.next();
+            if name.is_some() {
+                name
                     .unwrap()
                     .to_string()
             } else {
