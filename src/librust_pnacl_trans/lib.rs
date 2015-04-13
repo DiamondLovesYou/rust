@@ -459,7 +459,7 @@ pub fn main() {
         gold
     }
     #[cfg(target_os = "nacl")]
-    fn get_linker<P: AsRef<Path>>(_: Path) -> PathBuf {
+    fn get_linker<P: AsRef<Path>>(_: P) -> PathBuf {
         use std::env::consts::EXE_SUFFIX;
         let linker = format!("ld.gold{}",
                              EXE_SUFFIX);
