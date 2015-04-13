@@ -80,6 +80,7 @@ LLVMInitializePasses() {
   initializeRemoveAsmMemoryPass(Registry);
   initializeReplacePtrsWithIntsPass(Registry);
   initializeResolveAliasesPass(Registry);
+  initializeRewriteLLVMDebugTrapIntrinsicPass(Registry);
   initializeResolvePNaClIntrinsicsPass(Registry);
   initializeRewriteAtomicsPass(Registry);
   initializeRewriteLLVMIntrinsicsPass(Registry);
