@@ -125,7 +125,7 @@ define FILTER_FLAGS
   endif
 endef
 
-$(foreach target,$(CFG_TARGET), \
+$(foreach target,$(filter-out le32-unknown-nacl,$(CFG_TARGET)), \
   $(eval $(call FILTER_FLAGS,$(target))))
 
 ifeq ($(CFG_CCACHE_CPP2),1)
