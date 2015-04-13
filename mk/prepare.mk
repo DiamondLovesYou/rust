@@ -155,7 +155,7 @@ prepare-target-$(2)-host-$(3)-$(1)-$(4): prepare-maybe-clean-$(4) \
           $$(call PREPARE_LIB,libcompiler-rt.a) \
 	  $$(if $$(filter $(3),$(2)),\
 	    $$(if $$(findstring nacl,$$(PREPARE_TARGETS)),\
-	      $$(call PREPARE_LIB,$$(LLVMgold_NAME_$(3))) \
+	      $$(call PREPARE_LIB,$$(shell echo $$(call CFG_LIB_NAME_$(2),LLVMgold) | sed 's/lib//')) \
 	      $$(call PREPARE_LIB,$$(call CFG_LIB_NAME_$(3),LTO)),),),),),)
 endef
 

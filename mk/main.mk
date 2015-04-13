@@ -426,7 +426,7 @@ HSREQ$(1)_H_$(3) = \
 	tmp/install-debugger-scripts$(1)_H_$(3)-$$(call TRIPLE_TO_DEBUGGER_SCRIPT_SETTING,$(3)).done
 
 ifneq (le32-unknown-nacl,$(3))
-HSREQ$(1)_H_$(3) += $$(TROOT$(1)_T_$(3)_H_$(3))/lib/$$(LLVMgold_NAME_$(3))
+HSREQ$(1)_H_$(3) += $$(TROOT$(1)_T_$(3)_H_$(3))/lib/$$(shell echo $$(call CFG_LIB_NAME_$(2),LLVMgold) | sed 's/lib//')
 endif
 endif
 

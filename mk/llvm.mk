@@ -92,11 +92,12 @@ else
 $$(TROOT$(1)_T_$(2)_H_$(2))/lib/$$(call CFG_LIB_NAME_$(2),LTO): $$(LLVM_CONFIG_$(2))
 	$$(Q)cp $$(LLVM_LIBDIR_$(2))/$$(call CFG_LIB_NAME_$(2),LTO) $$@
 
-LLVMgold_NAME_$(2) := $$(shell echo $$(call CFG_LIB_NAME_$(2),LLVMgold) | sed 's/lib//')
 
-$$(TROOT$(1)_T_$(2)_H_$(2))/lib/$$(LLVMgold_NAME_$(2)): $$(LLVM_CONFIG_$(2)) \
+$$(TROOT$(1)_T_$(2)_H_$(2))/lib/$$(shell echo $$(call CFG_LIB_NAME_$(2),LLVMgold) \
+                                         | sed 's/lib//'): $$(LLVM_CONFIG_$(2)) \
 	$$(TROOT$(1)_T_$(2)_H_$(2))/lib/$$(call CFG_LIB_NAME_$(2),LTO)
-	$$(Q)cp $$(LLVM_LIBDIR_$(2))/$$(LLVMgold_NAME_$(2)) $$@
+	$$(Q)cp $$(LLVM_LIBDIR_$(2))/$$(shell echo $$(call CFG_LIB_NAME_$(2),LLVMgold) \
+					      | sed 's/lib//') $$@
 endif
 
 endef
