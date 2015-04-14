@@ -40,8 +40,7 @@ extern {}
           target_os = "freebsd",
           target_os = "dragonfly",
           target_os = "bitrig",
-          target_os = "openbsd",
-          all(target_os = "nacl", target_libc = "glibc")))]
+          target_os = "openbsd"))]
 mod consts {
     use libc;
     pub const FIONBIO: libc::c_ulong = 0x8004667e;
@@ -71,6 +70,10 @@ mod consts {
     pub const FIOCLEX: libc::c_ulong = 0x6601;
     pub const FIONCLEX: libc::c_ulong = 0x6600;
 }
+
+#[cfg(all(target_os = "nacl", target_libc = "newlib"))]
+mod consts { }
+
 pub use self::consts::*;
 
 #[cfg(any(target_os = "macos",

@@ -271,6 +271,10 @@ mod os {
         _unused: libc::c_int,
     }
     #[repr(C)]
+    pub struct pthread_mutexattr_t {
+        kind: libc::c_int,
+    }
+    #[repr(C)]
     pub struct pthread_cond_t {
         sequence_number: libc::c_int,
         _unused: libc::c_int,
@@ -300,4 +304,5 @@ mod os {
         readers: 0,
         writers: 0,
     };
+    pub const PTHREAD_MUTEX_RECURSIVE: libc::c_int = 1;
 }
