@@ -329,17 +329,17 @@ fn test_iterator_len() {
 #[test]
 fn test_iterator_sum() {
     let v: &[i32] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    assert_eq!(v[..4].iter().cloned().sum(), 6);
-    assert_eq!(v.iter().cloned().sum(), 55);
-    assert_eq!(v[..0].iter().cloned().sum(), 0);
+    assert_eq!(v[..4].iter().cloned().sum::<i32>(), 6);
+    assert_eq!(v.iter().cloned().sum::<i32>(), 55);
+    assert_eq!(v[..0].iter().cloned().sum::<i32>(), 0);
 }
 
 #[test]
 fn test_iterator_product() {
     let v: &[i32] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    assert_eq!(v[..4].iter().cloned().product(), 0);
-    assert_eq!(v[1..5].iter().cloned().product(), 24);
-    assert_eq!(v[..0].iter().cloned().product(), 1);
+    assert_eq!(v[..4].iter().cloned().product::<i32>(), 0);
+    assert_eq!(v[1..5].iter().cloned().product::<i32>(), 24);
+    assert_eq!(v[..0].iter().cloned().product::<i32>(), 1);
 }
 
 #[test]
@@ -900,4 +900,35 @@ fn bench_multiple_take(b: &mut Bencher) {
             it.clone().take(it.next().unwrap()).all(|_| true);
         }
     });
+}
+
+fn scatter(x: i32) -> i32 { (x * 31) % 127 }
+
+#[bench]
+fn bench_max_by(b: &mut Bencher) {
+    b.iter(|| {
+        let it = 0..100;
+        it.max_by(|&x| scatter(x))
+    })
+}
+
+// http://www.reddit.com/r/rust/comments/31syce/using_iterators_to_find_the_index_of_the_min_or/
+#[bench]
+fn bench_max_by2(b: &mut Bencher) {
+    fn max_index_iter(array: &[i32]) -> usize {
+        array.iter().enumerate().max_by(|&(_, item)| item).unwrap().0
+    }
+
+    let mut data = vec![0i32; 1638];
+    data[514] = 9999;
+
+    b.iter(|| max_index_iter(&data));
+}
+
+#[bench]
+fn bench_max(b: &mut Bencher) {
+    b.iter(|| {
+        let it = 0..100;
+        it.map(scatter).max()
+    })
 }

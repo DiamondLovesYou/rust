@@ -86,6 +86,20 @@ macro_rules! zero_one_impl {
 }
 zero_one_impl! { u8 u16 u32 u64 usize i8 i16 i32 i64 isize }
 
+macro_rules! zero_one_impl_float {
+    ($($t:ty)*) => ($(
+        impl Zero for $t {
+            #[inline]
+            fn zero() -> $t { 0.0 }
+        }
+        impl One for $t {
+            #[inline]
+            fn one() -> $t { 1.0 }
+        }
+    )*)
+}
+zero_one_impl_float! { f32 f64 }
+
 /// A built-in signed or unsigned integer.
 #[stable(feature = "rust1", since = "1.0.0")]
 #[deprecated(since = "1.0.0",
@@ -203,7 +217,7 @@ pub trait Int
                reason = "pending integer conventions")]
     fn trailing_zeros(self) -> u32;
 
-    /// Shifts the bits to the left by a specified amount amount, `n`, wrapping
+    /// Shifts the bits to the left by a specified amount, `n`, wrapping
     /// the truncated bits to the end of the resulting integer.
     ///
     /// # Examples
@@ -221,7 +235,7 @@ pub trait Int
                reason = "pending integer conventions")]
     fn rotate_left(self, n: u32) -> Self;
 
-    /// Shifts the bits to the right by a specified amount amount, `n`, wrapping
+    /// Shifts the bits to the right by a specified amount, `n`, wrapping
     /// the truncated bits to the beginning of the resulting integer.
     ///
     /// # Examples
@@ -842,9 +856,8 @@ macro_rules! int_impl {
         ///
         /// # Return value
         ///
-        /// `None` if the string did not represent a valid number.
-        /// Otherwise, `Some(n)` where `n` is the integer represented
-        /// by `src`.
+        /// `Err(ParseIntError)` if the string did not represent a valid number.
+        /// Otherwise, `Ok(n)` where `n` is the integer represented by `src`.
         #[stable(feature = "rust1", since = "1.0.0")]
         #[allow(deprecated)]
         pub fn from_str_radix(src: &str, radix: u32) -> Result<$T, ParseIntError> {
@@ -923,7 +936,7 @@ macro_rules! int_impl {
             (self as $UnsignedT).trailing_zeros()
         }
 
-        /// Shifts the bits to the left by a specified amount amount, `n`,
+        /// Shifts the bits to the left by a specified amount, `n`,
         /// wrapping the truncated bits to the end of the resulting integer.
         ///
         /// # Examples
@@ -943,7 +956,7 @@ macro_rules! int_impl {
             (self as $UnsignedT).rotate_left(n) as $T
         }
 
-        /// Shifts the bits to the right by a specified amount amount, `n`,
+        /// Shifts the bits to the right by a specified amount, `n`,
         /// wrapping the truncated bits to the beginning of the resulting
         /// integer.
         ///
@@ -1210,11 +1223,10 @@ macro_rules! int_impl {
         ///
         /// # Examples
         ///
-        /// ```rust
-        /// # #![feature(core)]
-        /// use std::num::Int;
+        /// ```
+        /// let x: i32 = 2; // or any other integer type
         ///
-        /// assert_eq!(2.pow(4), 16);
+        /// assert_eq!(x.pow(4), 16);
         /// ```
         #[stable(feature = "rust1", since = "1.0.0")]
         #[inline]
@@ -1360,9 +1372,8 @@ macro_rules! uint_impl {
         ///
         /// # Return value
         ///
-        /// `None` if the string did not represent a valid number.
-        /// Otherwise, `Some(n)` where `n` is the integer represented
-        /// by `src`.
+        /// `Err(ParseIntError)` if the string did not represent a valid number.
+        /// Otherwise, `Ok(n)` where `n` is the integer represented by `src`.
         #[stable(feature = "rust1", since = "1.0.0")]
         #[allow(deprecated)]
         pub fn from_str_radix(src: &str, radix: u32) -> Result<$T, ParseIntError> {
@@ -1443,7 +1454,7 @@ macro_rules! uint_impl {
             unsafe { $cttz(self as $ActualT) as u32 }
         }
 
-        /// Shifts the bits to the left by a specified amount amount, `n`,
+        /// Shifts the bits to the left by a specified amount, `n`,
         /// wrapping the truncated bits to the end of the resulting integer.
         ///
         /// # Examples
@@ -1465,7 +1476,7 @@ macro_rules! uint_impl {
             (self << n) | (self >> (($BITS - n) % $BITS))
         }
 
-        /// Shifts the bits to the right by a specified amount amount, `n`,
+        /// Shifts the bits to the right by a specified amount, `n`,
         /// wrapping the truncated bits to the beginning of the resulting
         /// integer.
         ///
@@ -2476,6 +2487,7 @@ pub enum FpCategory {
 //               `unused_self`. Removing it requires #8888 to be fixed.
 #[unstable(feature = "core",
            reason = "distribution of methods between core/std is unclear")]
+#[doc(hidden)]
 pub trait Float
     : Copy + Clone
     + NumCast
@@ -2693,8 +2705,8 @@ macro_rules! from_str_radix_float_impl {
             ///
             /// # Return value
             ///
-            /// `None` if the string did not represent a valid number.  Otherwise,
-            /// `Some(n)` where `n` is the floating-point number represented by `src`.
+            /// `Err(ParseFloatError)` if the string did not represent a valid number.
+            /// Otherwise, `Ok(n)` where `n` is the floating-point number represented by `src`.
             #[inline]
             #[allow(deprecated)]
             fn from_str(src: &str) -> Result<$T, ParseFloatError> {
@@ -2722,9 +2734,8 @@ macro_rules! from_str_radix_float_impl {
             ///
             /// # Return value
             ///
-            /// `None` if the string did not represent a valid number.
-            /// Otherwise, `Some(n)` where `n` is the floating-point number
-            /// represented by `src`.
+            /// `Err(ParseFloatError)` if the string did not represent a valid number.
+            /// Otherwise, `Ok(n)` where `n` is the floating-point number represented by `src`.
             fn from_str_radix(src: &str, radix: u32)
                               -> Result<$T, ParseFloatError> {
                 use self::FloatErrorKind::*;

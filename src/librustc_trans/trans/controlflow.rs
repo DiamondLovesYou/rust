@@ -27,7 +27,6 @@ use middle::ty;
 use util::ppaux::Repr;
 
 use syntax::ast;
-use syntax::ast::Ident;
 use syntax::ast_util;
 use syntax::parse::token::InternedString;
 use syntax::parse::token;
@@ -321,7 +320,7 @@ pub fn trans_loop<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
 pub fn trans_break_cont<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                     expr: &ast::Expr,
-                                    opt_label: Option<Ident>,
+                                    opt_label: Option<ast::Ident>,
                                     exit: usize)
                                     -> Block<'blk, 'tcx> {
     let _icx = push_ctxt("trans_break_cont");
@@ -354,14 +353,14 @@ pub fn trans_break_cont<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
 
 pub fn trans_break<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                                expr: &ast::Expr,
-                               label_opt: Option<Ident>)
+                               label_opt: Option<ast::Ident>)
                                -> Block<'blk, 'tcx> {
     return trans_break_cont(bcx, expr, label_opt, cleanup::EXIT_BREAK);
 }
 
 pub fn trans_cont<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
                               expr: &ast::Expr,
-                              label_opt: Option<Ident>)
+                              label_opt: Option<ast::Ident>)
                               -> Block<'blk, 'tcx> {
     return trans_break_cont(bcx, expr, label_opt, cleanup::EXIT_LOOP);
 }
@@ -417,8 +416,7 @@ pub fn trans_fail<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let filename = C_str_slice(ccx, filename);
     let line = C_u32(ccx, loc.line as u32);
     let expr_file_line_const = C_struct(ccx, &[v_str, filename, line], false);
-    let expr_file_line = consts::addr_of(ccx, expr_file_line_const,
-                                         "panic_loc", call_info.id);
+    let expr_file_line = consts::addr_of(ccx, expr_file_line_const, "panic_loc");
     let args = vec!(expr_file_line);
     let did = langcall(bcx, Some(call_info.span), "", PanicFnLangItem);
     let bcx = callee::trans_lang_call(bcx,
@@ -450,8 +448,7 @@ pub fn trans_fail_bounds_check<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
     let filename = C_str_slice(ccx,  filename);
     let line = C_u32(ccx, loc.line as u32);
     let file_line_const = C_struct(ccx, &[filename, line], false);
-    let file_line = consts::addr_of(ccx, file_line_const,
-                                    "panic_bounds_check_loc", call_info.id);
+    let file_line = consts::addr_of(ccx, file_line_const, "panic_bounds_check_loc");
     let args = vec!(file_line, index, len);
     let did = langcall(bcx, Some(call_info.span), "", PanicBoundsCheckFnLangItem);
     let bcx = callee::trans_lang_call(bcx,

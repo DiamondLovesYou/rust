@@ -83,11 +83,12 @@ use marker::{Reflect, Sized};
 // Any trait
 ///////////////////////////////////////////////////////////////////////////////
 
-/// A type to emulate dynamic typing. See the [module-level documentation][mod] for more details.
+/// A type to emulate dynamic typing.
 ///
 /// Every type with no non-`'static` references implements `Any`.
+/// See the [module-level documentation][mod] for more details.
 ///
-/// [mod]: ../index.html
+/// [mod]: index.html
 #[stable(feature = "rust1", since = "1.0.0")]
 pub trait Any: Reflect + 'static {
     /// Get the `TypeId` of `self`
@@ -108,6 +109,16 @@ impl<T> Any for T
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl fmt::Debug for Any {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.pad("Any")
+    }
+}
+
+// Ensure that the result of e.g. joining a thread can be printed and
+// hence used with `unwrap`. May eventually no longer be needed if
+// dispatch works with upcasting.
+#[stable(feature = "rust1", since = "1.0.0")]
+impl fmt::Debug for Any + Send {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.pad("Any")
     }

@@ -31,6 +31,7 @@ use trans::cleanup;
 use trans::consts;
 use trans::datum;
 use trans::debuginfo::{self, DebugLoc};
+use trans::declare;
 use trans::machine;
 use trans::monomorphize;
 use trans::type_::Type;
@@ -48,7 +49,6 @@ use std::ffi::CString;
 use std::cell::{Cell, RefCell};
 use std::result::Result as StdResult;
 use std::vec::Vec;
-use syntax::ast::Ident;
 use syntax::ast;
 use syntax::ast_map::{PathElem, PathName};
 use syntax::codemap::{DUMMY_SP, Span};
@@ -641,8 +641,8 @@ impl<'blk, 'tcx> BlockS<'blk, 'tcx> {
     }
     pub fn sess(&self) -> &'blk Session { self.fcx.ccx.sess() }
 
-    pub fn ident(&self, ident: Ident) -> String {
-        token::get_ident(ident).to_string()
+    pub fn name(&self, name: ast::Name) -> String {
+        token::get_name(name).to_string()
     }
 
     pub fn node_id_to_string(&self, id: ast::NodeId) -> String {
@@ -891,9 +891,10 @@ pub fn C_cstr(cx: &CrateContext, s: InternedString, null_terminated: bool) -> Va
                                                 !null_terminated as Bool);
 
         let gsym = token::gensym("str");
-        let buf = CString::new(format!("str{}", gsym.usize()));
-        let buf = buf.unwrap();
-        let g = llvm::LLVMAddGlobal(cx.llmod(), val_ty(sc).to_ref(), buf.as_ptr());
+        let sym = format!("str{}", gsym.usize());
+        let g = declare::define_global(cx, &sym[..], val_ty(sc)).unwrap_or_else(||{
+            cx.sess().bug(&format!("symbol `{}` is already defined", sym));
+        });
         llvm::LLVMSetInitializer(g, sc);
         llvm::LLVMSetGlobalConstant(g, True);
         llvm::SetLinkage(g, llvm::InternalLinkage);

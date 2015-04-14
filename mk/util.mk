@@ -16,6 +16,9 @@ else
   E = echo $(1)
 endif
 
+print-%:
+	@echo $*=$($*)
+
 S := $(CFG_SRC_DIR)
 
 ifeq ($(CFG_OSTYPE),pc-windows-gnu)

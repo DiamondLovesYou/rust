@@ -55,6 +55,7 @@ pub struct Session {
     pub working_dir: PathBuf,
     pub lint_store: RefCell<lint::LintStore>,
     pub lints: RefCell<NodeMap<Vec<(lint::LintId, codemap::Span, String)>>>,
+    pub plugin_llvm_passes: RefCell<Vec<String>>,
     pub crate_types: RefCell<Vec<config::CrateType>>,
     pub crate_metadata: RefCell<Vec<String>>,
     pub features: RefCell<feature_gate::Features>,
@@ -71,13 +72,13 @@ impl Session {
         if self.opts.treat_err_as_bug {
             self.span_bug(sp, msg);
         }
-        self.diagnostic().span_fatal(sp, msg)
+        panic!(self.diagnostic().span_fatal(sp, msg))
     }
     pub fn span_fatal_with_code(&self, sp: Span, msg: &str, code: &str) -> ! {
         if self.opts.treat_err_as_bug {
             self.span_bug(sp, msg);
         }
-        self.diagnostic().span_fatal_with_code(sp, msg, code)
+        panic!(self.diagnostic().span_fatal_with_code(sp, msg, code))
     }
     pub fn fatal(&self, msg: &str) -> ! {
         if self.opts.treat_err_as_bug {
@@ -145,6 +146,13 @@ impl Session {
     pub fn span_end_note(&self, sp: Span, msg: &str) {
         self.diagnostic().span_end_note(sp, msg)
     }
+
+    /// Prints out a message with a suggested edit of the code.
+    ///
+    /// See `diagnostic::RenderSpan::Suggestion` for more information.
+    pub fn span_suggestion(&self, sp: Span, msg: &str, suggestion: String) {
+        self.diagnostic().span_suggestion(sp, msg, suggestion)
+    }
     pub fn span_help(&self, sp: Span, msg: &str) {
         self.diagnostic().span_help(sp, msg)
     }
@@ -158,7 +166,7 @@ impl Session {
         self.diagnostic().handler().note(msg)
     }
     pub fn help(&self, msg: &str) {
-        self.diagnostic().handler().note(msg)
+        self.diagnostic().handler().help(msg)
     }
     pub fn opt_span_bug(&self, opt_sp: Option<Span>, msg: &str) -> ! {
         match opt_sp {
@@ -500,6 +508,7 @@ pub fn build_session_(sopts: config::Options,
         working_dir: env::current_dir().unwrap(),
         lint_store: RefCell::new(lint::LintStore::new()),
         lints: RefCell::new(NodeMap()),
+        plugin_llvm_passes: RefCell::new(Vec::new()),
         crate_types: RefCell::new(Vec::new()),
         crate_metadata: RefCell::new(Vec::new()),
         features: RefCell::new(feature_gate::Features::new()),

@@ -11,7 +11,6 @@
 // no-prefer-dynamic
 // ignore-nacl
 
-// pretty-expanded FIXME #23616
 
 #![feature(fs, process, env, path, rand)]
 

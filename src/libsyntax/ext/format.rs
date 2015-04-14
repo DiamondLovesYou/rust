@@ -17,6 +17,7 @@ use ext::base::*;
 use ext::base;
 use ext::build::AstBuilder;
 use fmt_macros as parse;
+use fold::Folder;
 use parse::token::special_idents;
 use parse::token;
 use ptr::P;
@@ -92,7 +93,7 @@ fn parse_args(ecx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
     let fmtstr = p.parse_expr();
     let mut named = false;
     while p.token != token::Eof {
-        if !p.eat(&token::Comma) {
+        if !panictry!(p.eat(&token::Comma)) {
             ecx.span_err(sp, "expected token: `,`");
             return None;
         }
@@ -101,7 +102,7 @@ fn parse_args(ecx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
             named = true;
             let ident = match p.token {
                 token::Ident(i, _) => {
-                    p.bump();
+                    panictry!(p.bump());
                     i
                 }
                 _ if named => {
@@ -120,7 +121,7 @@ fn parse_args(ecx: &mut ExtCtxt, sp: Span, tts: &[ast::TokenTree])
             let interned_name = token::get_ident(ident);
             let name = &interned_name[..];
 
-            p.expect(&token::Eq);
+            panictry!(p.expect(&token::Eq));
             let e = p.parse_expr();
             match names.get(name) {
                 None => {}
@@ -649,6 +650,10 @@ pub fn expand_preparsed_format_args(ecx: &mut ExtCtxt, sp: Span,
                                     names: HashMap<String, P<ast::Expr>>)
                                     -> P<ast::Expr> {
     let arg_types: Vec<_> = (0..args.len()).map(|_| None).collect();
+    // Expand the format literal so that efmt.span will have a backtrace. This
+    // is essential for locating a bug when the format literal is generated in
+    // a macro. (e.g. println!("{}"), which uses concat!($fmt, "\n")).
+    let efmt = ecx.expander().fold_expr(efmt);
     let mut cx = Context {
         ecx: ecx,
         args: args,
@@ -663,9 +668,8 @@ pub fn expand_preparsed_format_args(ecx: &mut ExtCtxt, sp: Span,
         pieces: Vec::new(),
         str_pieces: Vec::new(),
         all_pieces_simple: true,
-        fmtsp: sp,
+        fmtsp: efmt.span,
     };
-    cx.fmtsp = efmt.span;
     let fmt = match expr_to_string(cx.ecx,
                                    efmt,
                                    "format argument must be a string literal.") {

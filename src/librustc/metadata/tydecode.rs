@@ -101,10 +101,6 @@ fn scan<R, F, G>(st: &mut PState, mut is_last: F, op: G) -> R where
     return op(&st.data[start_pos..end_pos]);
 }
 
-pub fn parse_ident(st: &mut PState, last: char) -> ast::Ident {
-    ast::Ident::new(parse_name(st, last))
-}
-
 pub fn parse_name(st: &mut PState, last: char) -> ast::Name {
     fn is_last(b: char, c: char) -> bool { return c == b; }
     parse_name_(st, |a| is_last(last, a) )
@@ -373,6 +369,16 @@ fn parse_region_<F>(st: &mut PState, conv: &mut F) -> ty::Region where
 
 fn parse_scope(st: &mut PState) -> region::CodeExtent {
     match next(st) {
+        'P' => {
+            assert_eq!(next(st), '[');
+            let fn_id = parse_uint(st) as ast::NodeId;
+            assert_eq!(next(st), '|');
+            let body_id = parse_uint(st) as ast::NodeId;
+            assert_eq!(next(st), ']');
+            region::CodeExtent::ParameterScope {
+                fn_id: fn_id, body_id: body_id
+            }
+        }
         'M' => {
             let node_id = parse_uint(st) as ast::NodeId;
             region::CodeExtent::Misc(node_id)
@@ -382,8 +388,11 @@ fn parse_scope(st: &mut PState) -> region::CodeExtent {
             region::CodeExtent::DestructionScope(node_id)
         }
         'B' => {
+            assert_eq!(next(st), '[');
             let node_id = parse_uint(st) as ast::NodeId;
+            assert_eq!(next(st), '|');
             let first_stmt_index = parse_uint(st);
+            assert_eq!(next(st), ']');
             let block_remainder = region::BlockRemainder {
                 block: node_id, first_statement_index: first_stmt_index,
             };

@@ -10,7 +10,6 @@
 
 // ignore-nacl
 
-// pretty-expanded FIXME #23616
 
 #![feature(libc, old_io)]
 

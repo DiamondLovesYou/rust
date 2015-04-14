@@ -89,11 +89,13 @@
 //! of unsafe pointers in Rust.
 
 #![stable(feature = "rust1", since = "1.0.0")]
+#![doc(primitive = "pointer")]
 
 use mem;
 use clone::Clone;
 use intrinsics;
 use ops::Deref;
+use core::fmt;
 use option::Option::{self, Some, None};
 use marker::{PhantomData, Send, Sized, Sync};
 use nonzero::NonZero;
@@ -568,5 +570,12 @@ impl<T:?Sized> Deref for Unique<T> {
     #[inline]
     fn deref<'a>(&'a self) -> &'a *mut T {
         unsafe { mem::transmute(&*self.pointer) }
+    }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<T> fmt::Pointer for Unique<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Pointer::fmt(&*self.pointer, f)
     }
 }
