@@ -143,16 +143,16 @@ extern "rust-intrinsic" {
     pub fn atomic_fence_rel();
     pub fn atomic_fence_acqrel();
 
-    /// Abort the execution of the process.
+    /// Aborts the execution of the process.
     pub fn abort() -> !;
 
-    /// Tell LLVM that this point in the code is not reachable,
+    /// Tells LLVM that this point in the code is not reachable,
     /// enabling further optimizations.
     ///
     /// NB: This is very different from the `unreachable!()` macro!
     pub fn unreachable() -> !;
 
-    /// Inform the optimizer that a condition is always true.
+    /// Informs the optimizer that a condition is always true.
     /// If the condition is false, the behavior is undefined.
     ///
     /// No code is generated for this intrinsic, but the optimizer will try
@@ -162,7 +162,7 @@ extern "rust-intrinsic" {
     /// own, or if it does not enable any significant optimizations.
     pub fn assume(b: bool);
 
-    /// Execute a breakpoint trap, for inspection by a debugger.
+    /// Executes a breakpoint trap, for inspection by a debugger.
     pub fn breakpoint();
 
     /// The size of a type in bytes.
@@ -174,7 +174,7 @@ extern "rust-intrinsic" {
     /// elements.
     pub fn size_of<T>() -> usize;
 
-    /// Move a value to an uninitialized memory location.
+    /// Moves a value to an uninitialized memory location.
     ///
     /// Drop glue is not run on the destination.
     pub fn move_val_init<T>(dst: &mut T, src: T);
@@ -190,7 +190,7 @@ extern "rust-intrinsic" {
     /// crate it is invoked in.
     pub fn type_id<T: ?Sized + 'static>() -> u64;
 
-    /// Create a value initialized to so that its drop flag,
+    /// Creates a value initialized to so that its drop flag,
     /// if any, says that it has been dropped.
     ///
     /// `init_dropped` is unsafe because it returns a datum with all
@@ -203,7 +203,7 @@ extern "rust-intrinsic" {
     /// intrinsic).
     pub fn init_dropped<T>() -> T;
 
-    /// Create a value initialized to zero.
+    /// Creates a value initialized to zero.
     ///
     /// `init` is unsafe because it returns a zeroed-out datum,
     /// which is unsafe unless T is `Copy`.  Also, even if T is
@@ -211,7 +211,7 @@ extern "rust-intrinsic" {
     /// state for the type in question.
     pub fn init<T>() -> T;
 
-    /// Create an uninitialized value.
+    /// Creates an uninitialized value.
     ///
     /// `uninit` is unsafe because there is no guarantee of what its
     /// contents are. In particular its drop-flag may be set to any
@@ -220,7 +220,7 @@ extern "rust-intrinsic" {
     /// initialize memory previous set to the result of `uninit`.
     pub fn uninit<T>() -> T;
 
-    /// Move a value out of scope without running drop glue.
+    /// Moves a value out of scope without running drop glue.
     ///
     /// `forget` is unsafe because the caller is responsible for
     /// ensuring the argument is deallocated already.

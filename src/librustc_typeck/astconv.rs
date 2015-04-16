@@ -59,6 +59,7 @@ use middle::ty::{self, RegionEscape, Ty};
 use rscope::{self, UnelidableRscope, RegionScope, ElidableRscope, ExplicitRscope,
              ObjectLifetimeDefaultRscope, ShiftedRscope, BindingRscope};
 use util::common::{ErrorReported, FN_OUTPUT_NAME};
+use util::nodemap::FnvHashSet;
 use util::ppaux::{self, Repr, UserString};
 
 use std::iter::repeat;
@@ -1011,11 +1012,56 @@ fn trait_ref_to_object_type<'tcx>(this: &AstConv<'tcx>,
                                                      projection_bounds,
                                                      bounds);
 
-    let result = ty::mk_trait(this.tcx(), trait_ref, existential_bounds);
+    let result = make_object_type(this, span, trait_ref, existential_bounds);
     debug!("trait_ref_to_object_type: result={}",
            result.repr(this.tcx()));
 
     result
+}
+
+fn make_object_type<'tcx>(this: &AstConv<'tcx>,
+                          span: Span,
+                          principal: ty::PolyTraitRef<'tcx>,
+                          bounds: ty::ExistentialBounds<'tcx>)
+                          -> Ty<'tcx> {
+    let tcx = this.tcx();
+    let object = ty::TyTrait {
+        principal: principal,
+        bounds: bounds
+    };
+    let object_trait_ref =
+        object.principal_trait_ref_with_self_ty(tcx, tcx.types.err);
+
+    // ensure the super predicates and stop if we encountered an error
+    if this.ensure_super_predicates(span, object.principal_def_id()).is_err() {
+        return tcx.types.err;
+    }
+
+    let mut associated_types: FnvHashSet<(ast::DefId, ast::Name)> =
+        traits::supertraits(tcx, object_trait_ref)
+        .flat_map(|tr| {
+            let trait_def = ty::lookup_trait_def(tcx, tr.def_id());
+            trait_def.associated_type_names
+                .clone()
+                .into_iter()
+                .map(move |associated_type_name| (tr.def_id(), associated_type_name))
+        })
+        .collect();
+
+    for projection_bound in &object.bounds.projection_bounds {
+        let pair = (projection_bound.0.projection_ty.trait_ref.def_id,
+                    projection_bound.0.projection_ty.item_name);
+        associated_types.remove(&pair);
+    }
+
+    for (trait_def_id, name) in associated_types {
+        span_err!(tcx.sess, span, E0191,
+            "the value of the associated type `{}` (from the trait `{}`) must be specified",
+                    name.user_string(tcx),
+                    ty::item_path_str(tcx, trait_def_id));
+    }
+
+    ty::mk_trait(tcx, object.principal, object.bounds)
 }
 
 fn report_ambiguous_associated_type(tcx: &ty::ctxt,
@@ -1079,7 +1125,7 @@ fn one_bound_for_assoc_type<'tcx>(tcx: &ty::ctxt<'tcx>,
                                   span: Span)
     -> Result<ty::PolyTraitRef<'tcx>, ErrorReported>
 {
-    if bounds.len() == 0 {
+    if bounds.is_empty() {
         span_err!(tcx.sess, span, E0220,
                   "associated type `{}` not found for `{}`",
                   assoc_name,
@@ -1914,7 +1960,7 @@ fn conv_ty_poly_trait_ref<'tcx>(
                                                         projection_bounds,
                                                         partitioned_bounds);
 
-    ty::mk_trait(this.tcx(), main_trait_bound, bounds)
+    make_object_type(this, span, main_trait_bound, bounds)
 }
 
 pub fn conv_existential_bounds_from_partitioned_bounds<'tcx>(
@@ -1979,7 +2025,7 @@ fn compute_object_lifetime_bound<'tcx>(
             "only a single explicit lifetime bound is permitted");
     }
 
-    if explicit_region_bounds.len() != 0 {
+    if !explicit_region_bounds.is_empty() {
         // Explicitly specified region bound. Use that.
         let r = explicit_region_bounds[0];
         return ast_region_to_region(tcx, r);
@@ -1996,7 +2042,7 @@ fn compute_object_lifetime_bound<'tcx>(
 
     // If there are no derived region bounds, then report back that we
     // can find no region bound.
-    if derived_region_bounds.len() == 0 {
+    if derived_region_bounds.is_empty() {
         match rscope.object_lifetime_default(span) {
             Some(r) => { return r; }
             None => {
@@ -2084,11 +2130,11 @@ pub fn partition_bounds<'a>(tcx: &ty::ctxt,
                                                      &mut builtin_bounds) {
                             let segments = &b.trait_ref.path.segments;
                             let parameters = &segments[segments.len() - 1].parameters;
-                            if parameters.types().len() > 0 {
+                            if !parameters.types().is_empty() {
                                 check_type_argument_count(tcx, b.trait_ref.path.span,
                                                           parameters.types().len(), 0, 0);
                             }
-                            if parameters.lifetimes().len() > 0 {
+                            if !parameters.lifetimes().is_empty() {
                                 report_lifetime_number_error(tcx, b.trait_ref.path.span,
                                                              parameters.lifetimes().len(), 0);
                             }

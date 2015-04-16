@@ -12,7 +12,7 @@ use std::env;
 use std::io::{self, Error, ErrorKind};
 use std::fs;
 use std::path::{self, PathBuf, Path};
-use std::rand::{thread_rng, Rng};
+use std::__rand::{thread_rng, Rng};
 
 /// A wrapper for a path to temporary directory implementing automatic
 /// scope-based deletion.
@@ -50,7 +50,7 @@ impl TempDir {
         let mut rng = thread_rng();
         for _ in 0..NUM_RETRIES {
             let suffix: String = rng.gen_ascii_chars().take(NUM_RAND_CHARS).collect();
-            let leaf = if prefix.len() > 0 {
+            let leaf = if !prefix.is_empty() {
                 format!("{}.{}", prefix, suffix)
             } else {
                 // If we're given an empty string for a prefix, then creating a

@@ -148,7 +148,7 @@ pub trait Read {
     ///
     /// If the return value of this method is `Ok(n)`, then it must be
     /// guaranteed that `0 <= n <= buf.len()`. A nonzero `n` value indicates
-    /// that the buffer `buf` has ben filled in with `n` bytes of data from this
+    /// that the buffer `buf` has been filled in with `n` bytes of data from this
     /// source. If `n` is `0`, then it can indicate one of two scenarios:
     ///
     /// 1. This reader has reached its "end of file" and will likely no longer
@@ -172,14 +172,11 @@ pub trait Read {
     /// Read all bytes until EOF in this source, placing them into `buf`.
     ///
     /// All bytes read from this source will be appended to the specified buffer
-    /// `buf`. This function will return a call to `read` either:
+    /// `buf`. This function will continuously call `read` to append more data to
+    /// `buf` until `read` returns either `Ok(0)` or an error of
+    /// non-`ErrorKind::Interrupted` kind.
     ///
-    /// 1. Returns `Ok(0)`.
-    /// 2. Returns an error which is not of the kind `ErrorKind::Interrupted`.
-    ///
-    /// Until one of these conditions is met the function will continuously
-    /// invoke `read` to append more data to `buf`. If successful, this function
-    /// will return the total number of bytes read.
+    /// If successful, this function will return the total number of bytes read.
     ///
     /// # Errors
     ///
@@ -220,14 +217,14 @@ pub trait Read {
         append_to_string(buf, |b| read_to_end(self, b))
     }
 
-    /// Create a "by reference" adaptor for this instance of `Read`.
+    /// Creates a "by reference" adaptor for this instance of `Read`.
     ///
     /// The returned adaptor also implements `Read` and will simply borrow this
     /// current reader.
     #[stable(feature = "rust1", since = "1.0.0")]
     fn by_ref(&mut self) -> &mut Self where Self: Sized { self }
 
-    /// Transform this `Read` instance to an `Iterator` over its bytes.
+    /// Transforms this `Read` instance to an `Iterator` over its bytes.
     ///
     /// The returned type implements `Iterator` where the `Item` is `Result<u8,
     /// R::Err>`.  The yielded item is `Ok` if a byte was successfully read and
@@ -238,7 +235,7 @@ pub trait Read {
         Bytes { inner: self }
     }
 
-    /// Transform this `Read` instance to an `Iterator` over `char`s.
+    /// Transforms this `Read` instance to an `Iterator` over `char`s.
     ///
     /// This adaptor will attempt to interpret this reader as an UTF-8 encoded
     /// sequence of characters. The returned iterator will return `None` once
@@ -255,7 +252,7 @@ pub trait Read {
         Chars { inner: self }
     }
 
-    /// Create an adaptor which will chain this stream with another.
+    /// Creates an adaptor which will chain this stream with another.
     ///
     /// The returned `Read` instance will first read all bytes from this object
     /// until EOF is encountered. Afterwards the output is equivalent to the
@@ -265,7 +262,7 @@ pub trait Read {
         Chain { first: self, second: next, done_first: false }
     }
 
-    /// Create an adaptor which will read at most `limit` bytes from it.
+    /// Creates an adaptor which will read at most `limit` bytes from it.
     ///
     /// This function returns a new instance of `Read` which will read at most
     /// `limit` bytes, after which it will always return EOF (`Ok(0)`). Any
@@ -352,7 +349,7 @@ pub trait Write {
     /// This function will return the first error that `write` returns.
     #[stable(feature = "rust1", since = "1.0.0")]
     fn write_all(&mut self, mut buf: &[u8]) -> Result<()> {
-        while buf.len() > 0 {
+        while !buf.is_empty() {
             match self.write(buf) {
                 Ok(0) => return Err(Error::new(ErrorKind::WriteZero,
                                                "failed to write whole buffer")),
@@ -406,7 +403,7 @@ pub trait Write {
         }
     }
 
-    /// Create a "by reference" adaptor for this instance of `Write`.
+    /// Creates a "by reference" adaptor for this instance of `Write`.
     ///
     /// The returned adaptor also implements `Write` and will simply borrow this
     /// current writer.

@@ -2856,6 +2856,7 @@ pub mod consts {
             pub const O_APPEND : c_int = 1024;
             pub const O_CREAT : c_int = 64;
             pub const O_EXCL : c_int = 128;
+            pub const O_NOCTTY : c_int = 256;
             pub const O_TRUNC : c_int = 512;
             pub const S_IFIFO : mode_t = 4096;
             pub const S_IFCHR : mode_t = 8192;
@@ -3077,6 +3078,7 @@ pub mod consts {
             pub const O_APPEND : c_int = 8;
             pub const O_CREAT : c_int = 256;
             pub const O_EXCL : c_int = 1024;
+            pub const O_NOCTTY : c_int = 2048;
             pub const O_TRUNC : c_int = 512;
             pub const S_IFIFO : mode_t = 4096;
             pub const S_IFCHR : mode_t = 8192;
@@ -3344,21 +3346,13 @@ pub mod consts {
             pub const _SC_XOPEN_REALTIME : c_int = 130;
             pub const _SC_XOPEN_REALTIME_THREADS : c_int = 131;
 
-            #[cfg(not(target_os = "nacl"))]
-            pub const PTHREAD_CREATE_JOINABLE: c_int = 0;
-            #[cfg(not(target_os = "nacl"))]
-            pub const PTHREAD_CREATE_DETACHED: c_int = 1;
 
-            // Yeah...
-            #[cfg(target_os = "nacl")]
-            pub const PTHREAD_CREATE_JOINABLE: c_int = 1;
-            #[cfg(target_os = "nacl")]
-            pub const PTHREAD_CREATE_DETACHED: c_int = 0;
+
+            pub const PTHREAD_CREATE_JOINABLE: c_int = 0;
+            pub const PTHREAD_CREATE_DETACHED: c_int = 1;
 
             #[cfg(target_os = "android")]
             pub const PTHREAD_STACK_MIN: size_t = 8192;
-            #[cfg(target_os = "nacl")]
-            pub const PTHREAD_STACK_MIN: size_t = 1024;
 
             #[cfg(all(target_os = "linux",
                       any(target_arch = "arm",
@@ -3737,12 +3731,14 @@ pub mod consts {
             pub const _SC_2_FORT_RUN : c_int = 50;
             pub const _SC_2_SW_DEV : c_int = 51;
             pub const _SC_2_LOCALEDEF : c_int = 52;
+            pub const _SC_NPROCESSORS_ONLN : c_int = 84;
             pub const _SC_2_CHAR_TERM : c_int = 95;
             pub const _SC_2_C_VERSION : c_int = 96;
             pub const _SC_2_UPE : c_int = 97;
             pub const _SC_XBS5_ILP32_OFF32 : c_int = 125;
             pub const _SC_XBS5_ILP32_OFFBIG : c_int = 126;
             pub const _SC_XBS5_LPBIG_OFFBIG : c_int = 128;
+
         }
         #[cfg(target_os = "nacl")]
         pub mod sysconf {
@@ -3752,6 +3748,13 @@ pub mod consts {
             pub static _SC_NPROCESSORS_ONLN : c_int = 1;
             pub static _SC_PAGESIZE : c_int = 2;
         }
+
+        #[cfg(target_os = "macos")]
+        pub mod sysconf {
+            use types::os::arch::c95::c_int;
+            pub static _SC_NPROCESSORS_ONLN : c_int = 58;
+        }
+
         #[cfg(target_os = "android")]
         pub mod sysconf {
             use types::os::arch::c95::c_int;
@@ -3823,6 +3826,7 @@ pub mod consts {
             pub const O_APPEND : c_int = 8;
             pub const O_CREAT : c_int = 512;
             pub const O_EXCL : c_int = 2048;
+            pub const O_NOCTTY : c_int = 32768;
             pub const O_TRUNC : c_int = 1024;
             pub const S_IFIFO : mode_t = 4096;
             pub const S_IFCHR : mode_t = 8192;
@@ -4277,6 +4281,7 @@ pub mod consts {
             pub const O_APPEND : c_int = 8;
             pub const O_CREAT : c_int = 512;
             pub const O_EXCL : c_int = 2048;
+            pub const O_NOCTTY : c_int = 32768;
             pub const O_TRUNC : c_int = 1024;
             pub const S_IFIFO : mode_t = 4096;
             pub const S_IFCHR : mode_t = 8192;
@@ -4697,6 +4702,7 @@ pub mod consts {
             pub const O_APPEND : c_int = 8;
             pub const O_CREAT : c_int = 512;
             pub const O_EXCL : c_int = 2048;
+            pub const O_NOCTTY : c_int = 131072;
             pub const O_TRUNC : c_int = 1024;
             pub const S_IFIFO : mode_t = 4096;
             pub const S_IFCHR : mode_t = 8192;

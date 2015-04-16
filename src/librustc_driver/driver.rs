@@ -402,6 +402,9 @@ pub fn phase_2_configure_and_expand(sess: &Session,
     //
     // baz! should not use this definition unless foo is enabled.
 
+    krate = time(time_passes, "configuration 1", krate, |krate|
+                 syntax::config::strip_unconfigured_items(sess.diagnostic(), krate));
+
     time(time_passes, "gated macro checking", (), |_| {
         let features =
             syntax::feature_gate::check_crate_macros(sess.codemap(),
@@ -413,8 +416,6 @@ pub fn phase_2_configure_and_expand(sess: &Session,
         sess.abort_if_errors();
     });
 
-    krate = time(time_passes, "configuration 1", krate, |krate|
-                 syntax::config::strip_unconfigured_items(sess.diagnostic(), krate));
 
     krate = time(time_passes, "crate injection", krate, |krate|
                  syntax::std_inject::maybe_inject_crates_ref(krate,
@@ -901,9 +902,9 @@ pub fn collect_crate_types(session: &Session,
     // command line, then reuse the empty `base` Vec to hold the types that
     // will be found in crate attributes.
     let mut base = session.opts.crate_types.clone();
-    if base.len() == 0 {
+    if base.is_empty() {
         base.extend(attr_types.into_iter());
-        if base.len() == 0 {
+        if base.is_empty() {
             base.push(link::default_output_for_target(session));
         }
         base.sort();

@@ -12,16 +12,16 @@
 #![allow(unknown_features)]
 #![feature(box_syntax)]
 #![feature(collections)]
-#![feature(old_io)]
 #![feature(rustc_private)]
-#![feature(unboxed_closures)]
 #![feature(std_misc)]
 #![feature(test)]
 #![feature(path_ext)]
 #![feature(str_char)]
+#![feature(libc)]
 
 #![deny(warnings)]
 
+extern crate libc;
 extern crate test;
 extern crate getopts;
 
@@ -42,6 +42,7 @@ pub mod header;
 pub mod runtest;
 pub mod common;
 pub mod errors;
+mod raise_fd_limit;
 
 pub fn main() {
     let config = parse_config(env::args().collect());
@@ -260,11 +261,7 @@ pub fn run_tests(config: &Config) {
     // sadly osx needs some file descriptor limits raised for running tests in
     // parallel (especially when we have lots and lots of child processes).
     // For context, see #8904
-    #[allow(deprecated)]
-    fn raise_fd_limit() {
-        std::old_io::test::raise_fd_limit();
-    }
-    raise_fd_limit();
+    unsafe { raise_fd_limit::raise_fd_limit(); }
     // Prevent issue #21352 UAC blocking .exe containing 'patch' etc. on Windows
     // If #11207 is resolved (adding manifest to .exe) this becomes unnecessary
     env::set_var("__COMPAT_LAYER", "RunAsInvoker");
@@ -393,7 +390,7 @@ pub fn make_metrics_test_closure(config: &Config, testfile: &Path) -> test::Test
 fn extract_gdb_version(full_version_line: Option<String>) -> Option<String> {
     match full_version_line {
         Some(ref full_version_line)
-          if full_version_line.trim().len() > 0 => {
+          if !full_version_line.trim().is_empty() => {
             let full_version_line = full_version_line.trim();
 
             // used to be a regex "(^|[^0-9])([0-9]\.[0-9])([^0-9]|$)"
@@ -433,7 +430,7 @@ fn extract_lldb_version(full_version_line: Option<String>) -> Option<String> {
 
     match full_version_line {
         Some(ref full_version_line)
-          if full_version_line.trim().len() > 0 => {
+          if !full_version_line.trim().is_empty() => {
             let full_version_line = full_version_line.trim();
 
             for (pos, l) in full_version_line.char_indices() {
@@ -451,7 +448,7 @@ fn extract_lldb_version(full_version_line: Option<String>) -> Option<String> {
                 let vers = full_version_line[pos + 5..].chars().take_while(|c| {
                     c.is_digit(10)
                 }).collect::<String>();
-                if vers.len() > 0 { return Some(vers) }
+                if !vers.is_empty() { return Some(vers) }
             }
             println!("Could not extract LLDB version from line '{}'",
                      full_version_line);

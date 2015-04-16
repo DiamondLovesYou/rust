@@ -228,7 +228,7 @@ pub enum LocalKeyState {
 }
 
 impl<T: 'static> LocalKey<T> {
-    /// Acquire a reference to the value in this TLS key.
+    /// Acquires a reference to the value in this TLS key.
     ///
     /// This will lazily initialize the value if this thread has not referenced
     /// this key yet.
@@ -376,7 +376,7 @@ mod imp {
                                       arg: *mut u8,
                                       dso_handle: *mut u8) -> libc::c_int;
             mem::transmute::<*const (), F>(__cxa_thread_atexit_impl)
-            (dtor, t, __dso_handle);
+            (dtor, t, &__dso_handle as *const _ as *mut _);
             return
         }
 

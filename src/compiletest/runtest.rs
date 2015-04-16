@@ -29,7 +29,6 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, ExitStatus, Child};
 use std::str;
-use std::time::Duration;
 use test::MetricMap;
 
 pub fn run(config: Config, testfile: &Path) {
@@ -452,11 +451,7 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
                 .expect(&format!("failed to exec `{:?}`", config.adb_path));
             loop {
                 //waiting 1 second for gdbserver start
-                #[allow(deprecated)]
-                fn sleep() {
-                    ::std::old_io::timer::sleep(Duration::milliseconds(1000));
-                }
-                sleep();
+                ::std::thread::sleep_ms(1000);
                 if TcpStream::connect("127.0.0.1:5039").is_ok() {
                     break
                 }
@@ -1029,7 +1024,7 @@ fn check_debugger_output(debugger_run_result: &ProcRes, check_lines: &[String]) 
                 }
                 first = false;
             }
-            if !failed && rest.len() == 0 {
+            if !failed && rest.is_empty() {
                 i += 1;
             }
             if i == num_check_lines {
@@ -1980,7 +1975,7 @@ fn pnacl_toolchain_prefix() -> String {
 // codegen tests (vs. clang)
 
 fn append_suffix_to_stem(p: &Path, suffix: &str) -> PathBuf {
-    if suffix.len() == 0 {
+    if suffix.is_empty() {
         p.to_path_buf()
     } else {
         let mut stem = p.file_stem().unwrap().to_os_string();

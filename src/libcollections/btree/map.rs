@@ -692,7 +692,7 @@ mod stack {
                         // We've reached the root, so no matter what, we're done. We manually
                         // access the root via the tree itself to avoid creating any dangling
                         // pointers.
-                        if self.map.root.len() == 0 && !self.map.root.is_leaf() {
+                        if self.map.root.is_empty() && !self.map.root.is_leaf() {
                             // We've emptied out the root, so make its only child the new root.
                             // If it's a leaf, we just let it become empty.
                             self.map.depth -= 1;
@@ -1339,7 +1339,7 @@ impl<K, V> BTreeMap<K, V> {
         Values { inner: self.iter().map(second) }
     }
 
-    /// Return the number of elements in the map.
+    /// Returns the number of elements in the map.
     ///
     /// # Examples
     ///
@@ -1354,7 +1354,7 @@ impl<K, V> BTreeMap<K, V> {
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn len(&self) -> usize { self.length }
 
-    /// Return true if the map contains no elements.
+    /// Returns true if the map contains no elements.
     ///
     /// # Examples
     ///

@@ -199,7 +199,7 @@ impl Process {
                         }
                     }
                     Stdio::Piped(ref pipe) => {
-                        let orig = pipe.raw();
+                        let orig = pipe.handle().raw();
                         if DuplicateHandle(cur_proc, orig, cur_proc, slot,
                                            0, TRUE, DUPLICATE_SAME_ACCESS) == FALSE {
                             return Err(Error::last_os_error())
@@ -381,7 +381,7 @@ fn make_command_line(prog: &OsStr, args: &[OsString]) -> Vec<u16> {
         // it will be dropped entirely when parsed on the other end.
         let arg_bytes = &arg.as_inner().inner.as_inner();
         let quote = arg_bytes.iter().any(|c| *c == b' ' || *c == b'\t')
-            || arg_bytes.len() == 0;
+            || arg_bytes.is_empty();
         if quote {
             cmd.push('"' as u16);
         }
