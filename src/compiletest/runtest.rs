@@ -608,21 +608,9 @@ fn run_debuginfo_gdb_test(config: &Config, props: &TestProps, testfile: &Path) {
             let gdb_path = gdb_path;
 
             loop {
-                use std::thread::Builder;
-                #[allow(deprecated)]
-                fn sleep() {
-                    ::std::old_io::timer::sleep(Duration::milliseconds(250));
-                }
                 // wait for a quarter second for sel_ldr to start
-                sleep();
-                let result = Builder::new()
-                    .scoped(move || {
-                        TcpStream::connect("127.0.0.1:4014").unwrap();
-                    });
-                if result.is_err() {
-                    continue;
-                } else {
-                    result.unwrap().join();
+                ::std::thread::sleep_ms(250);
+                if TcpStream::connect("127.0.0.1:4014").is_ok() {
                     break;
                 }
             }
