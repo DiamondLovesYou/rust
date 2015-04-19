@@ -4078,6 +4078,7 @@ pub fn insert_reference_to_gdb_debug_scripts_section_global(ccx: &CrateContext) 
                                     element,
                                     empty.as_ptr());
             llvm::LLVMSetVolatile(volative_load_instruction, llvm::True);
+            llvm::LLVMSetAlignment(volative_load_instruction, 1);
         }
     }
 }
