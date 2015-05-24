@@ -8,7 +8,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// compile-flags: -Z parse-only
+
 fn main() {
-    box(1 + 1) //~ HELP perhaps you meant `box() (foo)` instead?
+    box (1 + 1)
+    //~^ HELP try using `box()` instead:
+    //~| SUGGESTION box() (1 + 1)
     ; //~ ERROR expected expression, found `;`
 }

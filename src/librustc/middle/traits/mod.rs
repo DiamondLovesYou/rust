@@ -15,6 +15,7 @@ pub use self::FulfillmentErrorCode::*;
 pub use self::Vtable::*;
 pub use self::ObligationCauseCode::*;
 
+use middle::free_region::FreeRegionMap;
 use middle::subst;
 use middle::ty::{self, HasProjectionTypes, Ty};
 use middle::ty_fold::TypeFoldable;
@@ -27,6 +28,7 @@ use util::ppaux::Repr;
 
 pub use self::error_reporting::report_fulfillment_errors;
 pub use self::error_reporting::report_overflow_error;
+pub use self::error_reporting::report_selection_error;
 pub use self::error_reporting::suggest_new_overflow_limit;
 pub use self::coherence::orphan_check;
 pub use self::coherence::overlapping_impls;
@@ -47,6 +49,7 @@ pub use self::select::{MethodMatchedData}; // intentionally don't export variant
 pub use self::util::elaborate_predicates;
 pub use self::util::get_vtable_index_of_object_method;
 pub use self::util::trait_ref_for_builtin_bound;
+pub use self::util::predicate_for_trait_def;
 pub use self::util::supertraits;
 pub use self::util::Supertraits;
 pub use self::util::supertrait_def_ids;
@@ -120,9 +123,6 @@ pub enum ObligationCauseCode<'tcx> {
     // Types of fields (other than the last) in a struct must be sized.
     FieldSized,
 
-    // Only Sized types can be made into objects
-    ObjectSized,
-
     // static items must have `Sync` type
     SharedStatic,
 
@@ -158,6 +158,7 @@ pub enum SelectionError<'tcx> {
     OutputTypeParameterMismatch(ty::PolyTraitRef<'tcx>,
                                 ty::PolyTraitRef<'tcx>,
                                 ty::type_err<'tcx>),
+    TraitNotObjectSafe(ast::DefId),
 }
 
 pub struct FulfillmentError<'tcx> {
@@ -424,7 +425,8 @@ pub fn normalize_param_env_or_error<'a,'tcx>(unnormalized_env: ty::ParameterEnvi
         }
     };
 
-    infcx.resolve_regions_and_report_errors(body_id);
+    let free_regions = FreeRegionMap::new();
+    infcx.resolve_regions_and_report_errors(&free_regions, body_id);
     let predicates = match infcx.fully_resolve(&predicates) {
         Ok(predicates) => predicates,
         Err(fixup_err) => {
@@ -534,7 +536,9 @@ impl<'tcx, N> Vtable<'tcx, N> {
         }
     }
 
-    pub fn map_nested<M, F>(&self, op: F) -> Vtable<'tcx, M> where F: FnMut(&N) -> M {
+    pub fn map_nested<M, F>(&self, op: F) -> Vtable<'tcx, M> where
+        F: FnMut(&N) -> M,
+    {
         match *self {
             VtableImpl(ref i) => VtableImpl(i.map_nested(op)),
             VtableDefaultImpl(ref t) => VtableDefaultImpl(t.map_nested(op)),

@@ -29,6 +29,7 @@ use trans::declare;
 use trans::monomorphize;
 use trans::type_::Type;
 use trans::type_of;
+use middle::cast::{CastTy,IntTy};
 use middle::subst::Substs;
 use middle::ty::{self, Ty};
 use util::ppaux::{Repr, ty_to_string};
@@ -173,13 +174,11 @@ pub fn get_const_expr<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                             "cross crate constant could not be inlined");
     }
 
-    let item = ccx.tcx().map.expect_item(def_id.node);
-    if let ast::ItemConst(_, ref expr) = item.node {
-        &**expr
-    } else {
-        ccx.sess().span_bug(ref_expr.span,
-                            &format!("get_const_expr given non-constant item {}",
-                                     item.repr(ccx.tcx())));
+    match const_eval::lookup_const_by_id(ccx.tcx(), def_id, Some(ref_expr.id)) {
+        Some(ref expr) => expr,
+        None => {
+            ccx.sess().span_bug(ref_expr.span, "constant item not found")
+        }
     }
 }
 
@@ -188,7 +187,7 @@ fn get_const_val(ccx: &CrateContext,
                  ref_expr: &ast::Expr) -> ValueRef {
     let expr = get_const_expr(ccx, def_id, ref_expr);
     let empty_substs = ccx.tcx().mk_substs(Substs::trans_empty());
-    get_const_expr_as_global(ccx, expr, check_const::PURE_CONST, empty_substs)
+    get_const_expr_as_global(ccx, expr, check_const::ConstQualif::empty(), empty_substs)
 }
 
 pub fn get_const_expr_as_global<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
@@ -201,7 +200,7 @@ pub fn get_const_expr_as_global<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
         ast::ExprPath(..) => {
             let def = ccx.tcx().def_map.borrow().get(&expr.id).unwrap().full_def();
             match def {
-                def::DefConst(def_id) => {
+                def::DefConst(def_id) | def::DefAssociatedConst(def_id, _) => {
                     if !ccx.tcx().adjustments.borrow().contains_key(&expr.id) {
                         return get_const_val(ccx, def_id, expr);
                     }
@@ -217,7 +216,7 @@ pub fn get_const_expr_as_global<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
         Some(&val) => return val,
         None => {}
     }
-    let val = if qualif.intersects(check_const::NON_STATIC_BORROWS) {
+    let val = if qualif.intersects(check_const::ConstQualif::NON_STATIC_BORROWS) {
         // Avoid autorefs as they would create global instead of stack
         // references, even when only the latter are correct.
         let ty = monomorphize::apply_param_substs(ccx.tcx(), param_substs,
@@ -618,53 +617,64 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
               }
           }
           ast::ExprCast(ref base, _) => {
-            let llty = type_of::type_of(cx, ety);
-            let (v, basety) = const_expr(cx, &**base, param_substs);
-            if expr::cast_is_noop(basety, ety) {
+            let t_cast = ety;
+            let llty = type_of::type_of(cx, t_cast);
+            let (v, t_expr) = const_expr(cx, &**base, param_substs);
+            debug!("trans_const_cast({} as {})", t_expr.repr(cx.tcx()), t_cast.repr(cx.tcx()));
+            if expr::cast_is_noop(cx.tcx(), base, t_expr, t_cast) {
                 return v;
             }
-            match (expr::cast_type_kind(cx.tcx(), basety),
-                   expr::cast_type_kind(cx.tcx(), ety)) {
-
-              (expr::cast_integral, expr::cast_integral) => {
-                let s = ty::type_is_signed(basety) as Bool;
+            if type_is_fat_ptr(cx.tcx(), t_expr) {
+                // Fat pointer casts.
+                let t_cast_inner = ty::deref(t_cast, true).expect("cast to non-pointer").ty;
+                let ptr_ty = type_of::in_memory_type_of(cx, t_cast_inner).ptr_to();
+                let addr = ptrcast(const_get_elt(cx, v, &[abi::FAT_PTR_ADDR as u32]),
+                                   ptr_ty);
+                if type_is_fat_ptr(cx.tcx(), t_cast) {
+                    let info = const_get_elt(cx, v, &[abi::FAT_PTR_EXTRA as u32]);
+                    return C_struct(cx, &[addr, info], false)
+                } else {
+                    return addr;
+                }
+            }
+            match (CastTy::from_ty(cx.tcx(), t_expr).expect("bad input type for cast"),
+                   CastTy::from_ty(cx.tcx(), t_cast).expect("bad output type for cast")) {
+              (CastTy::Int(IntTy::CEnum), CastTy::Int(_)) => {
+                let repr = adt::represent_type(cx, t_expr);
+                let discr = adt::const_get_discrim(cx, &*repr, v);
+                let iv = C_integral(cx.int_type(), discr, false);
+                let s = adt::is_discr_signed(&*repr) as Bool;
+                llvm::LLVMConstIntCast(iv, llty.to_ref(), s)
+              }
+              (CastTy::Int(_), CastTy::Int(_)) => {
+                let s = ty::type_is_signed(t_expr) as Bool;
                 llvm::LLVMConstIntCast(v, llty.to_ref(), s)
               }
-              (expr::cast_integral, expr::cast_float) => {
-                if ty::type_is_signed(basety) {
+              (CastTy::Int(_), CastTy::Float) => {
+                if ty::type_is_signed(t_expr) {
                     llvm::LLVMConstSIToFP(v, llty.to_ref())
                 } else {
                     llvm::LLVMConstUIToFP(v, llty.to_ref())
                 }
               }
-              (expr::cast_float, expr::cast_float) => {
+              (CastTy::Float, CastTy::Float) => {
                 llvm::LLVMConstFPCast(v, llty.to_ref())
               }
-              (expr::cast_float, expr::cast_integral) => {
-                if ty::type_is_signed(ety) { llvm::LLVMConstFPToSI(v, llty.to_ref()) }
-                else { llvm::LLVMConstFPToUI(v, llty.to_ref()) }
+              (CastTy::Float, CastTy::Int(IntTy::I)) => {
+                llvm::LLVMConstFPToSI(v, llty.to_ref())
               }
-              (expr::cast_enum, expr::cast_integral) => {
-                let repr = adt::represent_type(cx, basety);
-                let discr = adt::const_get_discrim(cx, &*repr, v);
-                let iv = C_integral(cx.int_type(), discr, false);
-                let ety_cast = expr::cast_type_kind(cx.tcx(), ety);
-                match ety_cast {
-                    expr::cast_integral => {
-                        let s = ty::type_is_signed(ety) as Bool;
-                        llvm::LLVMConstIntCast(iv, llty.to_ref(), s)
-                    }
-                    _ => cx.sess().bug("enum cast destination is not \
-                                        integral")
-                }
+              (CastTy::Float, CastTy::Int(_)) => {
+                llvm::LLVMConstFPToUI(v, llty.to_ref())
               }
-              (expr::cast_pointer, expr::cast_pointer) => {
+              (CastTy::Ptr(_), CastTy::Ptr(_)) | (CastTy::FnPtr, CastTy::Ptr(_))
+                    | (CastTy::RPtr(_), CastTy::Ptr(_)) => {
                 ptrcast(v, llty)
               }
-              (expr::cast_integral, expr::cast_pointer) => {
+              (CastTy::FnPtr, CastTy::FnPtr) => ptrcast(v, llty), // isn't this a coercion?
+              (CastTy::Int(_), CastTy::Ptr(_)) => {
                 llvm::LLVMConstIntToPtr(v, llty.to_ref())
               }
-              (expr::cast_pointer, expr::cast_integral) => {
+              (CastTy::Ptr(_), CastTy::Int(_)) | (CastTy::FnPtr, CastTy::Int(_)) => {
                 llvm::LLVMConstPtrToInt(v, llty.to_ref())
               }
               _ => {
@@ -774,7 +784,7 @@ fn const_expr_unadjusted<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 def::DefFn(..) | def::DefMethod(..) => {
                     expr::trans_def_fn_unadjusted(cx, e, def, param_substs).val
                 }
-                def::DefConst(def_id) => {
+                def::DefConst(def_id) | def::DefAssociatedConst(def_id, _) => {
                     const_deref_ptr(cx, get_const_val(cx, def_id, e))
                 }
                 def::DefVariant(enum_did, variant_did, _) => {

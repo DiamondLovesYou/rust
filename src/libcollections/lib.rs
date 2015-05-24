@@ -19,7 +19,7 @@
 #![staged_api]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+       html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/",
        html_playground_url = "http://play.rust-lang.org/")]
 #![doc(test(no_crate_inject))]
@@ -33,15 +33,16 @@
 #![feature(staged_api)]
 #![feature(unboxed_closures)]
 #![feature(unicode)]
-#![feature(unsafe_destructor)]
 #![feature(unique)]
 #![feature(unsafe_no_drop_flag, filling_drop)]
 #![feature(step_by)]
 #![feature(str_char)]
+#![feature(str_words)]
 #![feature(slice_patterns)]
 #![feature(debug_builders)]
 #![feature(utf8_error)]
-#![cfg_attr(test, feature(rand, rustc_private, test, hash, collections))]
+#![cfg_attr(test, feature(rand, rustc_private, test, hash, collections,
+                          collections_drain, collections_range))]
 #![cfg_attr(test, allow(deprecated))] // rand
 
 #![feature(no_std)]
@@ -50,7 +51,7 @@
 #[macro_use]
 extern crate core;
 
-extern crate unicode;
+extern crate rustc_unicode;
 extern crate alloc;
 
 #[cfg(test)] #[macro_use] extern crate std;
@@ -81,6 +82,7 @@ pub mod borrow;
 pub mod enum_set;
 pub mod fmt;
 pub mod linked_list;
+pub mod range;
 pub mod slice;
 pub mod str;
 pub mod string;

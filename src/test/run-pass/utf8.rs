@@ -7,9 +7,6 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
-//
-// ignore-lexer-test FIXME #15679
-// no-pretty-expanded FIXME #15189
 
 pub fn main() {
     let yen: char = '¥'; // 0xa5

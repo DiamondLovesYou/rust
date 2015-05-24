@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::cell::RefCell;
+use std::cell::{RefCell, Cell};
 use std::collections::{HashSet, HashMap};
 use std::dynamic_lib::DynamicLibrary;
 use std::env;
@@ -65,9 +65,9 @@ pub fn run(input: &str,
     };
 
     let codemap = CodeMap::new();
-    let diagnostic_handler = diagnostic::default_handler(diagnostic::Auto, None, true);
+    let diagnostic_handler = diagnostic::Handler::new(diagnostic::Auto, None, true);
     let span_diagnostic_handler =
-    diagnostic::mk_span_handler(diagnostic_handler, codemap);
+    diagnostic::SpanHandler::new(diagnostic_handler, codemap);
 
     let sess = session::build_session_(sessopts,
                                       Some(input_path.clone()),
@@ -92,6 +92,7 @@ pub fn run(input: &str,
         external_typarams: RefCell::new(None),
         inlined: RefCell::new(None),
         populated_crate_impls: RefCell::new(HashSet::new()),
+        deref_trait_did: Cell::new(None),
     };
 
     let mut v = RustdocVisitor::new(&ctx, None);
@@ -179,11 +180,11 @@ fn runtest(test: &str, cratename: &str, libs: SearchPaths,
     // an explicit handle into rustc to collect output messages, but we also
     // want to catch the error message that rustc prints when it fails.
     //
-    // We take our task-local stderr (likely set by the test runner) and replace
+    // We take our thread-local stderr (likely set by the test runner) and replace
     // it with a sink that is also passed to rustc itself. When this function
-    // returns the output of the sink is copied onto the output of our own task.
+    // returns the output of the sink is copied onto the output of our own thread.
     //
-    // The basic idea is to not use a default_handler() for rustc, and then also
+    // The basic idea is to not use a default Handler for rustc, and then also
     // not print things by default to the actual stderr.
     struct Sink(Arc<Mutex<Vec<u8>>>);
     impl Write for Sink {
@@ -205,9 +206,9 @@ fn runtest(test: &str, cratename: &str, libs: SearchPaths,
 
     // Compile the code
     let codemap = CodeMap::new();
-    let diagnostic_handler = diagnostic::mk_handler(true, box emitter);
+    let diagnostic_handler = diagnostic::Handler::with_emitter(true, box emitter);
     let span_diagnostic_handler =
-        diagnostic::mk_span_handler(diagnostic_handler, codemap);
+        diagnostic::SpanHandler::new(diagnostic_handler, codemap);
 
     let sess = session::build_session_(sessopts,
                                        None,
@@ -276,7 +277,7 @@ pub fn maketest(s: &str, cratename: Option<&str>, dont_insert_main: bool,
 
     // Don't inject `extern crate std` because it's already injected by the
     // compiler.
-    if !s.contains("extern crate") && !opts.no_crate_inject {
+    if !s.contains("extern crate") && !opts.no_crate_inject && cratename != Some("std") {
         match cratename {
             Some(cratename) => {
                 if s.contains(cratename) {
@@ -300,7 +301,7 @@ pub fn maketest(s: &str, cratename: Option<&str>, dont_insert_main: bool,
 }
 
 fn partition_source(s: &str) -> (String, String) {
-    use unicode::str::UnicodeStr;
+    use rustc_unicode::str::UnicodeStr;
 
     let mut after_header = false;
     let mut before = String::new();

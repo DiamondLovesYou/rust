@@ -8,9 +8,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// compile-flags: -Z parse-only
+
 struct S;
 
 impl S {
     static fn f() {}
-    //~^ ERROR expected one of `extern`, `fn`, `pub`, `type`, `unsafe`, or `}`, found `static`
 }
+//~^^ ERROR expected one of `const`, `extern`, `fn`, `pub`, `type`, `unsafe`, or `}`, found `static`

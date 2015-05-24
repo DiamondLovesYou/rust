@@ -1,3 +1,0 @@
-% Move Semantics
-
-Coming Soon

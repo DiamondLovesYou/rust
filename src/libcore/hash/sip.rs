@@ -7,15 +7,12 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
-//
-// ignore-lexer-test FIXME #15883
 
 //! An implementation of SipHash 2-4.
 
 #![allow(deprecated)] // until the next snapshot for inherent wrapping ops
 
 use prelude::*;
-use default::Default;
 use super::Hasher;
 
 /// An implementation of SipHash 2-4.
@@ -114,6 +111,7 @@ impl SipHasher {
         state
     }
 
+    #[inline]
     fn reset(&mut self) {
         self.length = 0;
         self.v0 = self.k0 ^ 0x736f6d6570736575;
@@ -123,6 +121,7 @@ impl SipHasher {
         self.ntail = 0;
     }
 
+    #[inline]
     fn write(&mut self, msg: &[u8]) {
         let length = msg.len();
         self.length += length;
@@ -176,6 +175,7 @@ impl Hasher for SipHasher {
         self.write(msg)
     }
 
+    #[inline]
     fn finish(&self) -> u64 {
         let mut v0 = self.v0;
         let mut v1 = self.v1;

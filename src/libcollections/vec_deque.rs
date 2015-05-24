@@ -21,9 +21,8 @@
 use core::prelude::*;
 
 use core::cmp::Ordering;
-use core::default::Default;
 use core::fmt;
-use core::iter::{self, repeat, FromIterator, IntoIterator, RandomAccessIterator};
+use core::iter::{self, repeat, FromIterator, RandomAccessIterator};
 use core::mem;
 use core::ops::{Index, IndexMut};
 use core::ptr::{self, Unique};
@@ -60,7 +59,6 @@ impl<T: Clone> Clone for VecDeque<T> {
     }
 }
 
-#[unsafe_destructor]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Drop for VecDeque<T> {
     fn drop(&mut self) {
@@ -224,11 +222,8 @@ impl<T> VecDeque<T> {
     /// buf.push_back(3);
     /// buf.push_back(4);
     /// buf.push_back(5);
-    /// match buf.get_mut(1) {
-    ///     None => {}
-    ///     Some(elem) => {
-    ///         *elem = 7;
-    ///     }
+    /// if let Some(elem) = buf.get_mut(1) {
+    ///     *elem = 7;
     /// }
     ///
     /// assert_eq!(buf[1], 7);
@@ -252,7 +247,6 @@ impl<T> VecDeque<T> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(collections)]
     /// use std::collections::VecDeque;
     ///
     /// let mut buf = VecDeque::new();
@@ -280,7 +274,6 @@ impl<T> VecDeque<T> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(collections)]
     /// use std::collections::VecDeque;
     ///
     /// let buf: VecDeque<i32> = VecDeque::with_capacity(10);
@@ -304,7 +297,6 @@ impl<T> VecDeque<T> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(collections)]
     /// use std::collections::VecDeque;
     ///
     /// let mut buf: VecDeque<i32> = vec![1].into_iter().collect();
@@ -326,7 +318,6 @@ impl<T> VecDeque<T> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(collections)]
     /// use std::collections::VecDeque;
     ///
     /// let mut buf: VecDeque<i32> = vec![1].into_iter().collect();
@@ -513,7 +504,6 @@ impl<T> VecDeque<T> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(core)]
     /// use std::collections::VecDeque;
     ///
     /// let mut buf = VecDeque::new();
@@ -538,7 +528,6 @@ impl<T> VecDeque<T> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(core)]
     /// use std::collections::VecDeque;
     ///
     /// let mut buf = VecDeque::new();
@@ -557,14 +546,6 @@ impl<T> VecDeque<T> {
             tail: self.tail,
             head: self.head,
             ring: unsafe { self.buffer_as_mut_slice() },
-        }
-    }
-
-    /// Consumes the list into a front-to-back iterator yielding elements by value.
-    #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn into_iter(self) -> IntoIter<T> {
-        IntoIter {
-            inner: self,
         }
     }
 
@@ -1408,6 +1389,42 @@ impl<T> VecDeque<T> {
         // naive impl
         self.extend(other.drain());
     }
+
+    /// Retains only the elements specified by the predicate.
+    ///
+    /// In other words, remove all elements `e` such that `f(&e)` returns false.
+    /// This method operates in place and preserves the order of the retained
+    /// elements.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #![feature(vec_deque_retain)]
+    /// use std::collections::VecDeque;
+    ///
+    /// let mut buf = VecDeque::new();
+    /// buf.extend(1..5);
+    /// buf.retain(|&x| x%2 == 0);
+    ///
+    /// let v: Vec<_> = buf.into_iter().collect();
+    /// assert_eq!(&v[..], &[2, 4]);
+    /// ```
+    #[unstable(feature = "vec_deque_retain",
+               reason = "new API, waiting for dust to settle")]
+    pub fn retain<F>(&mut self, mut f: F) where F: FnMut(&T) -> bool {
+        let len = self.len();
+        let mut del = 0;
+        for i in 0..len {
+            if !f(&self[i]) {
+                del += 1;
+            } else if del > 0 {
+                self.swap(i-del, i);
+            }
+        }
+        if del > 0 {
+            self.truncate(len - del);
+        }
+    }
 }
 
 impl<T: Clone> VecDeque<T> {
@@ -1624,7 +1641,6 @@ pub struct Drain<'a, T: 'a> {
     inner: &'a mut VecDeque<T>,
 }
 
-#[unsafe_destructor]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, T: 'a> Drop for Drain<'a, T> {
     fn drop(&mut self) {
@@ -1731,8 +1747,12 @@ impl<T> IntoIterator for VecDeque<T> {
     type Item = T;
     type IntoIter = IntoIter<T>;
 
+    /// Consumes the list into a front-to-back iterator yielding elements by
+    /// value.
     fn into_iter(self) -> IntoIter<T> {
-        self.into_iter()
+        IntoIter {
+            inner: self,
+        }
     }
 }
 
@@ -1780,7 +1800,7 @@ impl<T: fmt::Debug> fmt::Debug for VecDeque<T> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use core::iter::{Iterator, self};
     use core::option::Option::Some;
 

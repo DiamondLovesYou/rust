@@ -14,27 +14,6 @@
 //! implement comparison operators. Rust programs may implement `PartialOrd` to overload the `<`,
 //! `<=`, `>`, and `>=` operators, and may implement `PartialEq` to overload the `==` and `!=`
 //! operators.
-//!
-//! For example, to define a type with a customized definition for the PartialEq operators, you
-//! could do the following:
-//!
-//! ```
-//! # #![feature(core)]
-//! struct FuzzyNum {
-//!     num: i32,
-//! }
-//!
-//! impl PartialEq for FuzzyNum {
-//!     // Our custom eq allows numbers which are near each other to be equal! :D
-//!     fn eq(&self, other: &FuzzyNum) -> bool {
-//!         (self.num - other.num).abs() < 5
-//!     }
-//! }
-//!
-//! // Now these binary operators will work when applied!
-//! assert!(FuzzyNum { num: 37 } == FuzzyNum { num: 34 });
-//! assert!(FuzzyNum { num: 25 } != FuzzyNum { num: 57 });
-//! ```
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
@@ -62,7 +41,7 @@ use option::Option::{self, Some, None};
 /// PartialEq only requires the `eq` method to be implemented; `ne` is defined in terms of it by
 /// default. Any manual implementation of `ne` *must* respect the rule that `eq` is a strict
 /// inverse of `ne`; that is, `!(a == b)` if and only if `a != b`.
-#[lang="eq"]
+#[lang = "eq"]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub trait PartialEq<Rhs: ?Sized = Self> {
     /// This method tests for `self` and `other` values to be equal, and is used by `==`.
@@ -243,7 +222,7 @@ impl PartialOrd for Ordering {
 /// However it remains possible to implement the others separately for types which do not have a
 /// total order. For example, for floating point numbers, `NaN < 0 == false` and `NaN >= 0 ==
 /// false` (cf. IEEE 754-2008 section 5.11).
-#[lang="ord"]
+#[lang = "ord"]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub trait PartialOrd<Rhs: ?Sized = Self>: PartialEq<Rhs> {
     /// This method returns an ordering between `self` and `other` values if one exists.

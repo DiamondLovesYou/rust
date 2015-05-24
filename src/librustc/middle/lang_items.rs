@@ -36,7 +36,6 @@ use syntax::visit::Visitor;
 use syntax::visit;
 
 use std::iter::Enumerate;
-use std::num::FromPrimitive;
 use std::slice;
 
 // The actual lang items defined come at the end of this file in one handy table.
@@ -46,9 +45,12 @@ macro_rules! lets_do_this {
         $( $variant:ident, $name:expr, $method:ident; )*
     ) => {
 
-#[derive(Copy, Clone, FromPrimitive, PartialEq, Eq, Hash)]
-pub enum LangItem {
-    $($variant),*
+
+enum_from_u32! {
+    #[derive(Copy, Clone, PartialEq, Eq, Hash)]
+    pub enum LangItem {
+        $($variant,)*
+    }
 }
 
 pub struct LanguageItems {
@@ -71,7 +73,7 @@ impl LanguageItems {
     }
 
     pub fn item_name(index: usize) -> &'static str {
-        let item: Option<LangItem> = FromPrimitive::from_usize(index);
+        let item: Option<LangItem> = LangItem::from_u32(index as u32);
         match item {
             $( Some($variant) => $name, )*
             None => "???"
@@ -259,10 +261,13 @@ lets_do_this! {
 
     SendTraitLangItem,               "send",                    send_trait;
     SizedTraitLangItem,              "sized",                   sized_trait;
+    UnsizeTraitLangItem,             "unsize",                  unsize_trait;
     CopyTraitLangItem,               "copy",                    copy_trait;
     SyncTraitLangItem,               "sync",                    sync_trait;
 
     DropTraitLangItem,               "drop",                    drop_trait;
+
+    CoerceUnsizedTraitLangItem,      "coerce_unsized",          coerce_unsized_trait;
 
     AddTraitLangItem,                "add",                     add_trait;
     SubTraitLangItem,                "sub",                     sub_trait;
@@ -332,7 +337,6 @@ lets_do_this! {
     InvariantLifetimeItem,           "invariant_lifetime",      invariant_lifetime;
 
     NoCopyItem,                      "no_copy_bound",           no_copy_bound;
-    ManagedItem,                     "managed_bound",           managed_bound;
 
     NonZeroItem,                     "non_zero",                non_zero;
 

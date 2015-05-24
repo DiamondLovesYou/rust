@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-/// Entry point of task panic, for details, see std::macros
+/// Entry point of thread panic, for details, see std::macros
 #[macro_export]
 macro_rules! panic {
     () => (
@@ -167,7 +167,7 @@ macro_rules! try {
     })
 }
 
-/// Use the `format!` syntax to write data into a buffer of type `&mut Writer`.
+/// Use the `format!` syntax to write data into a buffer of type `&mut Write`.
 /// See `std::fmt` for more information.
 ///
 /// # Examples

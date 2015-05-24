@@ -125,7 +125,6 @@ pub struct _InsnCtxt {
     _cannot_construct_outside_of_this_module: ()
 }
 
-#[unsafe_destructor]
 impl Drop for _InsnCtxt {
     fn drop(&mut self) {
         TASK_LOCAL_INSN_KEY.with(|slot| {
@@ -166,7 +165,6 @@ impl<'a, 'tcx> StatRecorder<'a, 'tcx> {
     }
 }
 
-#[unsafe_destructor]
 impl<'a, 'tcx> Drop for StatRecorder<'a, 'tcx> {
     fn drop(&mut self) {
         if self.ccx.sess().trans_stats() {
@@ -238,6 +236,9 @@ pub fn get_extern_const<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, did: ast::DefId,
         if attr.check_name("thread_local") {
             llvm::set_thread_local(c, true);
         }
+    }
+    if ccx.use_dll_storage_attrs() {
+        llvm::SetDLLStorageClass(c, llvm::DLLImportStorageClass);
     }
     ccx.externs().borrow_mut().insert(name.to_string(), c);
     return c;
@@ -471,8 +472,11 @@ pub fn iter_structural_ty<'blk, 'tcx, F>(cx: Block<'blk, 'tcx>,
 
           match adt::trans_switch(cx, &*repr, av) {
               (_match::Single, None) => {
-                  cx = iter_variant(cx, &*repr, av, &*(*variants)[0],
-                                    substs, &mut f);
+                  if n_variants != 0 {
+                      assert!(n_variants == 1);
+                      cx = iter_variant(cx, &*repr, av, &*(*variants)[0],
+                                        substs, &mut f);
+                  }
               }
               (_match::Switch, Some(lldiscrim_a)) => {
                   cx = f(cx, lldiscrim_a, cx.tcx().types.isize);
@@ -566,6 +570,25 @@ fn cast_shift_rhs<F, G>(op: ast::BinOp_,
     }
 }
 
+pub fn llty_and_min_for_signed_ty<'blk, 'tcx>(cx: Block<'blk, 'tcx>,
+                                              val_t: Ty<'tcx>) -> (Type, u64) {
+    match val_t.sty {
+        ty::ty_int(t) => {
+            let llty = Type::int_from_ty(cx.ccx(), t);
+            let min = match t {
+                ast::TyIs if llty == Type::i32(cx.ccx()) => i32::MIN as u64,
+                ast::TyIs => i64::MIN as u64,
+                ast::TyI8 => i8::MIN as u64,
+                ast::TyI16 => i16::MIN as u64,
+                ast::TyI32 => i32::MIN as u64,
+                ast::TyI64 => i64::MIN as u64,
+            };
+            (llty, min)
+        }
+        _ => unreachable!(),
+    }
+}
+
 pub fn fail_if_zero_or_overflows<'blk, 'tcx>(
                                 cx: Block<'blk, 'tcx>,
                                 call_info: NodeIdAndSpan,
@@ -620,21 +643,7 @@ pub fn fail_if_zero_or_overflows<'blk, 'tcx>(
     // signed division/remainder which would trigger overflow. For unsigned
     // integers, no action beyond checking for zero need be taken.
     if is_signed {
-        let (llty, min) = match rhs_t.sty {
-            ty::ty_int(t) => {
-                let llty = Type::int_from_ty(cx.ccx(), t);
-                let min = match t {
-                    ast::TyIs if llty == Type::i32(cx.ccx()) => i32::MIN as u64,
-                    ast::TyIs => i64::MIN as u64,
-                    ast::TyI8 => i8::MIN as u64,
-                    ast::TyI16 => i16::MIN as u64,
-                    ast::TyI32 => i32::MIN as u64,
-                    ast::TyI64 => i64::MIN as u64,
-                };
-                (llty, min)
-            }
-            _ => unreachable!(),
-        };
+        let (llty, min) = llty_and_min_for_signed_ty(cx, rhs_t);
         let minus_one = ICmp(bcx, llvm::IntEQ, rhs,
                              C_integral(llty, !0, false), debug_loc);
         with_cond(bcx, minus_one, |bcx| {
@@ -664,7 +673,8 @@ pub fn trans_external_path<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                     ccx.sess().bug("unexpected intrinsic in trans_external_path")
                 }
                 _ => {
-                    let llfn = foreign::register_foreign_item_fn(ccx, fn_ty.abi, t, &name[..]);
+                    let llfn = foreign::register_foreign_item_fn(ccx, fn_ty.abi,
+                                                                 t, &name);
                     let attrs = csearch::get_item_attrs(&ccx.sess().cstore, did);
                     attributes::from_fn_attrs(ccx, &attrs, llfn);
                     llfn
@@ -760,9 +770,14 @@ pub fn load_ty<'blk, 'tcx>(cx: Block<'blk, 'tcx>,
     }
 
     let ptr = to_arg_ty_ptr(cx, ptr, t);
+    let align = type_of::align_of(cx.ccx(), t);
 
     if type_is_immediate(cx.ccx(), t) && type_of::type_of(cx.ccx(), t).is_aggregate() {
-        return Load(cx, ptr);
+        let load = Load(cx, ptr);
+        unsafe {
+            llvm::LLVMSetAlignment(load, align);
+        }
+        return load;
     }
 
     unsafe {
@@ -788,13 +803,24 @@ pub fn load_ty<'blk, 'tcx>(cx: Block<'blk, 'tcx>,
         Load(cx, ptr)
     };
 
+    unsafe {
+        llvm::LLVMSetAlignment(val, align);
+    }
+
     from_arg_ty(cx, val, t)
 }
 
 /// Helper for storing values in memory. Does the necessary conversion if the in-memory type
 /// differs from the type used for SSA values.
 pub fn store_ty<'blk, 'tcx>(cx: Block<'blk, 'tcx>, v: ValueRef, dst: ValueRef, t: Ty<'tcx>) {
-    Store(cx, to_arg_ty(cx, v, t), to_arg_ty_ptr(cx, dst, t));
+    if cx.unreachable.get() {
+        return;
+    }
+
+    let store = Store(cx, to_arg_ty(cx, v, t), to_arg_ty_ptr(cx, dst, t));
+    unsafe {
+        llvm::LLVMSetAlignment(store, type_of::align_of(cx.ccx(), t));
+    }
 }
 
 pub fn to_arg_ty(bcx: Block, val: ValueRef, ty: Ty) -> ValueRef {
@@ -847,8 +873,7 @@ pub fn with_cond<'blk, 'tcx, F>(bcx: Block<'blk, 'tcx>,
 {
     let _icx = push_ctxt("with_cond");
 
-    if bcx.unreachable.get() ||
-            (common::is_const(val) && common::const_to_uint(val) == 0) {
+    if bcx.unreachable.get() || common::const_to_opt_uint(val) == Some(0) {
         return bcx;
     }
 
@@ -1057,25 +1082,17 @@ fn build_cfg(tcx: &ty::ctxt, id: ast::NodeId) -> (ast::NodeId, Option<cfg::CFG>)
         Some(ast_map::NodeTraitItem(trait_item)) => {
             match trait_item.node {
                 ast::MethodTraitItem(_, Some(ref body)) => body,
-                ast::MethodTraitItem(_, None) => {
-                    tcx.sess.bug("unexpected variant: required trait method \
-                                  in has_nested_returns")
-                }
-                ast::TypeTraitItem(..) => {
-                    tcx.sess.bug("unexpected variant: associated type trait item in \
-                                  has_nested_returns")
+                _ => {
+                    tcx.sess.bug("unexpected variant: trait item other than a \
+                                  provided method in has_nested_returns")
                 }
             }
         }
         Some(ast_map::NodeImplItem(impl_item)) => {
             match impl_item.node {
                 ast::MethodImplItem(_, ref body) => body,
-                ast::TypeImplItem(_) => {
-                    tcx.sess.bug("unexpected variant: associated type impl item in \
-                                  has_nested_returns")
-                }
-                ast::MacImplItem(_) => {
-                    tcx.sess.bug("unexpected variant: unexpanded macro impl item in \
+                _ => {
+                    tcx.sess.bug("unexpected variant: non-method impl item in \
                                   has_nested_returns")
                 }
             }
@@ -1925,11 +1942,17 @@ pub fn update_linkage(ccx: &CrateContext,
     match id {
         Some(id) if ccx.reachable().contains(&id) => {
             llvm::SetLinkage(llval, llvm::ExternalLinkage);
+            if ccx.use_dll_storage_attrs() {
+                llvm::SetDLLStorageClass(llval, llvm::DLLExportStorageClass);
+            }
         },
         _ => {
             // `id` does not refer to an item in `ccx.reachable`.
             if ccx.sess().opts.cg.codegen_units > 1 {
                 llvm::SetLinkage(llval, llvm::ExternalLinkage);
+                if ccx.use_dll_storage_attrs() {
+                    llvm::SetDLLStorageClass(llval, llvm::DLLExportStorageClass);
+                }
             } else {
                 llvm::SetLinkage(llval, llvm::InternalLinkage);
             }
@@ -2088,9 +2111,15 @@ fn finish_register_fn(ccx: &CrateContext, sym: String, node_id: ast::NodeId,
     if ccx.tcx().lang_items.stack_exhausted() == Some(def) {
         attributes::split_stack(llfn, false);
         llvm::SetLinkage(llfn, llvm::ExternalLinkage);
+        if ccx.use_dll_storage_attrs() {
+            llvm::SetDLLStorageClass(llfn, llvm::DLLExportStorageClass);
+        }
     }
     if ccx.tcx().lang_items.eh_personality() == Some(def) {
         llvm::SetLinkage(llfn, llvm::ExternalLinkage);
+        if ccx.use_dll_storage_attrs() {
+            llvm::SetDLLStorageClass(llfn, llvm::DLLExportStorageClass);
+        }
     }
 }
 
@@ -2162,7 +2191,7 @@ pub fn create_entry_wrapper(ccx: &CrateContext,
         // FIXME: #16581: Marking a symbol in the executable with `dllexport`
         // linkage forces MinGW's linker to output a `.reloc` section for ASLR
         if ccx.sess().target.target.options.is_like_windows {
-            unsafe { llvm::LLVMRustSetDLLExportStorageClass(llfn) }
+            llvm::SetDLLStorageClass(llfn, llvm::DLLExportStorageClass);
         }
 
         let llbb = unsafe {
@@ -2173,7 +2202,7 @@ pub fn create_entry_wrapper(ccx: &CrateContext,
         unsafe {
             llvm::LLVMPositionBuilderAtEnd(bld, llbb);
 
-            debuginfo::insert_reference_to_gdb_debug_scripts_section_global(ccx);
+            debuginfo::gdb::insert_reference_to_gdb_debug_scripts_section_global(ccx);
 
             let (start_fn, args) = if use_start_lang_item {
                 let start_def_id = match ccx.tcx().lang_items.require(StartFnLangItem) {
@@ -2347,12 +2376,13 @@ pub fn get_item_val(ccx: &CrateContext, id: ast::NodeId) -> ValueRef {
         ast_map::NodeTraitItem(trait_item) => {
             debug!("get_item_val(): processing a NodeTraitItem");
             match trait_item.node {
-                ast::MethodTraitItem(_, None) | ast::TypeTraitItem(..) => {
-                    ccx.sess().span_bug(trait_item.span,
-                        "unexpected variant: required trait method in get_item_val()");
-                }
                 ast::MethodTraitItem(_, Some(_)) => {
                     register_method(ccx, id, &trait_item.attrs, trait_item.span)
+                }
+                _ => {
+                    ccx.sess().span_bug(trait_item.span,
+                        "unexpected variant: trait item other than a provided \
+                         method in get_item_val()");
                 }
             }
         }
@@ -2362,13 +2392,10 @@ pub fn get_item_val(ccx: &CrateContext, id: ast::NodeId) -> ValueRef {
                 ast::MethodImplItem(..) => {
                     register_method(ccx, id, &impl_item.attrs, impl_item.span)
                 }
-                ast::TypeImplItem(_) => {
+                _ => {
                     ccx.sess().span_bug(impl_item.span,
-                        "unexpected variant: associated type in get_item_val()")
-                }
-                ast::MacImplItem(_) => {
-                    ccx.sess().span_bug(impl_item.span,
-                        "unexpected variant: unexpanded macro in get_item_val()")
+                        "unexpected variant: non-method impl item in \
+                         get_item_val()");
                 }
             }
         }
@@ -2520,7 +2547,7 @@ pub fn write_metadata(cx: &SharedCrateContext, krate: &ast::Crate) -> Vec<u8> {
     };
     unsafe {
         llvm::LLVMSetInitializer(llglobal, llconst);
-        let name = loader::meta_section_name(cx.sess().target.target.options.is_like_osx);
+        let name = loader::meta_section_name(&cx.sess().target.target);
         let name = CString::new(name).unwrap();
         llvm::LLVMSetSection(llglobal, name.as_ptr())
     }
@@ -2581,6 +2608,7 @@ fn internalize_symbols(cx: &SharedCrateContext, reachable: &HashSet<String>) {
                 if !declared.contains(&name) &&
                    !reachable.contains(str::from_utf8(&name).unwrap()) {
                     llvm::SetLinkage(val, llvm::InternalLinkage);
+                    llvm::SetDLLStorageClass(val, llvm::DefaultStorageClass);
                 }
             }
         }

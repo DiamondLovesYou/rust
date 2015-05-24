@@ -10,29 +10,25 @@
 
 // force-host
 
-#![feature(plugin_registrar, quote)]
-#![feature(box_syntax, rustc_private)]
+#![feature(plugin_registrar, quote, rustc_private)]
 
 extern crate syntax;
 extern crate rustc;
 
-use syntax::ast::{self, TokenTree, Item, MetaItem};
+use syntax::ast::{self, TokenTree, Item, MetaItem, ImplItem, TraitItem};
 use syntax::codemap::Span;
 use syntax::ext::base::*;
-use syntax::parse::token;
-use syntax::parse;
+use syntax::parse::{self, token};
 use syntax::ptr::P;
 use rustc::plugin::Registry;
 
 #[macro_export]
 macro_rules! exported_macro { () => (2) }
-
 macro_rules! unexported_macro { () => (3) }
 
 #[plugin_registrar]
 pub fn plugin_registrar(reg: &mut Registry) {
     reg.register_macro("make_a_1", expand_make_a_1);
-    reg.register_macro("forged_ident", expand_forged_ident);
     reg.register_macro("identity", expand_identity);
     reg.register_syntax_extension(
         token::intern("into_foo"),
@@ -42,6 +38,10 @@ pub fn plugin_registrar(reg: &mut Registry) {
         token::intern("into_multi_foo"),
         // FIXME (#22405): Replace `Box::new` with `box` here when/if possible.
         MultiModifier(Box::new(expand_into_foo_multi)));
+    reg.register_syntax_extension(
+        token::intern("duplicate"),
+        // FIXME (#22405): Replace `Box::new` with `box` here when/if possible.
+        MultiDecorator(Box::new(expand_duplicate)));
 }
 
 fn expand_make_a_1(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree])
@@ -104,29 +104,49 @@ fn expand_into_foo_multi(cx: &mut ExtCtxt,
     }
 }
 
-fn expand_forged_ident(cx: &mut ExtCtxt, sp: Span, tts: &[TokenTree]) -> Box<MacResult+'static> {
-    use syntax::ext::quote::rt::*;
-
-    if !tts.is_empty() {
-        cx.span_fatal(sp, "forged_ident takes no arguments");
-    }
-
-    // Most of this is modelled after the expansion of the `quote_expr!`
-    // macro ...
-    let parse_sess = cx.parse_sess();
-    let cfg = cx.cfg();
-
-    // ... except this is where we inject a forged identifier,
-    // and deliberately do not call `cx.parse_tts_with_hygiene`
-    // (because we are testing that this will be *rejected*
-    //  by the default parser).
-
-    let expr = {
-        let tt = cx.parse_tts("\x00name_2,ctxt_0\x00".to_string());
-        let mut parser = new_parser_from_tts(parse_sess, cfg, tt);
-        parser.parse_expr()
+// Create a duplicate of the annotatable, based on the MetaItem
+fn expand_duplicate(cx: &mut ExtCtxt,
+                    sp: Span,
+                    mi: &MetaItem,
+                    it: Annotatable,
+                    push: &mut FnMut(Annotatable))
+{
+    let copy_name = match mi.node {
+        ast::MetaItem_::MetaList(_, ref xs) => {
+            if let ast::MetaItem_::MetaWord(ref w) = xs[0].node {
+                token::str_to_ident(&w)
+            } else {
+                cx.span_err(mi.span, "Expected word");
+                return;
+            }
+        }
+        _ => {
+            cx.span_err(mi.span, "Expected list");
+            return;
+        }
     };
-    MacEager::expr(expr)
+
+    // Duplicate the item but replace its ident by the MetaItem
+    match it.clone() {
+        Annotatable::Item(it) => {
+            let mut new_it = (*it).clone();
+            new_it.attrs.clear();
+            new_it.ident = copy_name;
+            push(Annotatable::Item(P(new_it)));
+        }
+        Annotatable::ImplItem(it) => {
+            let mut new_it = (*it).clone();
+            new_it.attrs.clear();
+            new_it.ident = copy_name;
+            push(Annotatable::ImplItem(P(new_it)));
+        }
+        Annotatable::TraitItem(tt) => {
+            let mut new_it = (*tt).clone();
+            new_it.attrs.clear();
+            new_it.ident = copy_name;
+            push(Annotatable::TraitItem(P(new_it)));
+        }
+    }
 }
 
 pub fn foo() {}

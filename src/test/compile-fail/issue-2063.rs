@@ -12,11 +12,9 @@
 // cause compiler to loop.  Note that no instances
 // of such a type could ever be constructed.
 
-use std::marker::MarkerTrait;
-
 struct t(Box<t>); //~ ERROR this type cannot be instantiated
 
-trait to_str_2 : MarkerTrait {
+trait to_str_2 {
     fn my_to_string() -> String;
 }
 
@@ -28,7 +26,10 @@ impl to_str_2 for t {
 }
 
 fn new_t(x: t) {
-    x.my_to_string(); //~ ERROR does not implement
+    x.my_to_string();
+    // (there used to be an error emitted right here as well. It was
+    // spurious, at best; if `t` did exist as a type, it clearly would
+    // have an impl of the `to_str_2` trait.)
 }
 
 fn main() {

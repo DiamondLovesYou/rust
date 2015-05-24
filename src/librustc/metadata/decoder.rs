@@ -21,7 +21,8 @@ use metadata::common::*;
 use metadata::csearch::MethodInfo;
 use metadata::csearch;
 use metadata::cstore;
-use metadata::tydecode::{parse_ty_data, parse_region_data, parse_def_id,
+use metadata::encoder::def_to_u64;
+use metadata::tydecode::{parse_ty_data, parse_region_data,
                          parse_type_param_def_data, parse_bare_fn_ty_data,
                          parse_trait_ref_data, parse_predicate_data};
 use middle::def;
@@ -30,12 +31,13 @@ use middle::subst;
 use middle::ty::{ImplContainer, TraitContainer};
 use middle::ty::{self, Ty};
 use middle::astencode::vtable_decoder_helpers;
+use util::nodemap::FnvHashMap;
 
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::hash::{self, Hash, SipHasher};
 use std::io::prelude::*;
 use std::io;
-use std::num::FromPrimitive;
 use std::rc::Rc;
 use std::slice::bytes;
 use std::str;
@@ -189,29 +191,32 @@ fn item_symbol(item: rbml::Doc) -> String {
     reader::get_doc(item, tag_items_data_item_symbol).as_str().to_string()
 }
 
-fn item_parent_item(d: rbml::Doc) -> Option<ast::DefId> {
+fn translated_def_id(cdata: Cmd, d: rbml::Doc) -> ast::DefId {
+    let id = reader::doc_as_u64(d);
+    let def_id = ast::DefId { krate: (id >> 32) as u32, node: id as u32 };
+    translate_def_id(cdata, def_id)
+}
+
+fn item_parent_item(cdata: Cmd, d: rbml::Doc) -> Option<ast::DefId> {
     let mut ret = None;
     reader::tagged_docs(d, tag_items_data_parent_item, |did| {
-        ret = Some(reader::with_doc_data(did, parse_def_id));
+        ret = Some(translated_def_id(cdata, did));
         false
     });
     ret
 }
 
-fn item_reqd_and_translated_parent_item(cnum: ast::CrateNum,
-                                        d: rbml::Doc) -> ast::DefId {
-    let trait_did = item_parent_item(d).expect("item without parent");
-    ast::DefId { krate: cnum, node: trait_did.node }
+fn item_require_parent_item(cdata: Cmd, d: rbml::Doc) -> ast::DefId {
+    translated_def_id(cdata, reader::get_doc(d, tag_items_data_parent_item))
 }
 
 fn item_def_id(d: rbml::Doc, cdata: Cmd) -> ast::DefId {
-    let tagdoc = reader::get_doc(d, tag_def_id);
-    return translate_def_id(cdata, reader::with_doc_data(tagdoc, parse_def_id));
+    translated_def_id(cdata, reader::get_doc(d, tag_def_id))
 }
 
 fn get_provided_source(d: rbml::Doc, cdata: Cmd) -> Option<ast::DefId> {
     reader::maybe_get_doc(d, tag_item_method_provided_source).map(|doc| {
-        translate_def_id(cdata, reader::with_doc_data(doc, parse_def_id))
+        translated_def_id(cdata, doc)
     })
 }
 
@@ -248,49 +253,40 @@ pub fn item_type<'tcx>(_item_id: ast::DefId, item: rbml::Doc,
 }
 
 fn doc_trait_ref<'tcx>(doc: rbml::Doc, tcx: &ty::ctxt<'tcx>, cdata: Cmd)
-                       -> Rc<ty::TraitRef<'tcx>> {
+                       -> ty::TraitRef<'tcx> {
     parse_trait_ref_data(doc.data, cdata.cnum, doc.start, tcx,
                          |_, did| translate_def_id(cdata, did))
 }
 
 fn item_trait_ref<'tcx>(doc: rbml::Doc, tcx: &ty::ctxt<'tcx>, cdata: Cmd)
-                        -> Rc<ty::TraitRef<'tcx>> {
+                        -> ty::TraitRef<'tcx> {
     let tp = reader::get_doc(doc, tag_item_trait_ref);
     doc_trait_ref(tp, tcx, cdata)
 }
 
 fn enum_variant_ids(item: rbml::Doc, cdata: Cmd) -> Vec<ast::DefId> {
-    let mut ids: Vec<ast::DefId> = Vec::new();
-    let v = tag_items_data_item_variant;
-    reader::tagged_docs(item, v, |p| {
-        let ext = reader::with_doc_data(p, parse_def_id);
-        ids.push(ast::DefId { krate: cdata.cnum, node: ext.node });
+    let mut ids = vec![];
+    reader::tagged_docs(item, tag_items_data_item_variant, |p| {
+        ids.push(translated_def_id(cdata, p));
         true
     });
-    return ids;
+    ids
 }
 
 fn item_path(item_doc: rbml::Doc) -> Vec<ast_map::PathElem> {
     let path_doc = reader::get_doc(item_doc, tag_path);
-
-    let len_doc = reader::get_doc(path_doc, tag_path_len);
-    let len = reader::doc_as_u32(len_doc) as usize;
-
-    let mut result = Vec::with_capacity(len);
-    reader::docs(path_doc, |tag, elt_doc| {
+    reader::docs(path_doc).filter_map(|(tag, elt_doc)| {
         if tag == tag_path_elem_mod {
             let s = elt_doc.as_str_slice();
-            result.push(ast_map::PathMod(token::intern(s)));
+            Some(ast_map::PathMod(token::intern(s)))
         } else if tag == tag_path_elem_name {
             let s = elt_doc.as_str_slice();
-            result.push(ast_map::PathName(token::intern(s)));
+            Some(ast_map::PathName(token::intern(s)))
         } else {
             // ignore tag_path_len element
+            None
         }
-        true
-    });
-
-    result
+    }).collect()
 }
 
 fn item_name(intr: &IdentInterner, item: rbml::Doc) -> ast::Name {
@@ -302,11 +298,26 @@ fn item_name(intr: &IdentInterner, item: rbml::Doc) -> ast::Name {
     }
 }
 
-fn item_to_def_like(item: rbml::Doc, did: ast::DefId, cnum: ast::CrateNum)
-    -> DefLike {
+fn item_to_def_like(cdata: Cmd, item: rbml::Doc, did: ast::DefId) -> DefLike {
     let fam = item_family(item);
     match fam {
-        Constant  => DlDef(def::DefConst(did)),
+        Constant  => {
+            // Check whether we have an associated const item.
+            if item_sort(item) == Some('C') {
+                // Check whether the associated const is from a trait or impl.
+                // See the comment for methods below.
+                let provenance = if reader::maybe_get_doc(
+                      item, tag_item_trait_parent_sort).is_some() {
+                    def::FromTrait(item_require_parent_item(cdata, item))
+                } else {
+                    def::FromImpl(item_require_parent_item(cdata, item))
+                };
+                DlDef(def::DefAssociatedConst(did, provenance))
+            } else {
+                // Regular const item.
+                DlDef(def::DefConst(did))
+            }
+        }
         ImmStatic => DlDef(def::DefStatic(did, false)),
         MutStatic => DlDef(def::DefStatic(did, true)),
         Struct    => DlDef(def::DefStruct(did)),
@@ -320,17 +331,15 @@ fn item_to_def_like(item: rbml::Doc, did: ast::DefId, cnum: ast::CrateNum)
             // a trait_parent_sort.
             let provenance = if reader::maybe_get_doc(
                   item, tag_item_trait_parent_sort).is_some() {
-                def::FromTrait(item_reqd_and_translated_parent_item(cnum,
-                                                                    item))
+                def::FromTrait(item_require_parent_item(cdata, item))
             } else {
-                def::FromImpl(item_reqd_and_translated_parent_item(cnum,
-                                                                   item))
+                def::FromImpl(item_require_parent_item(cdata, item))
             };
             DlDef(def::DefMethod(did, provenance))
         }
         Type => {
             if item_sort(item) == Some('t') {
-                let trait_did = item_reqd_and_translated_parent_item(cnum, item);
+                let trait_did = item_require_parent_item(cdata, item);
                 DlDef(def::DefAssociatedTy(trait_did, did))
             } else {
                 DlDef(def::DefTy(did, false))
@@ -339,11 +348,11 @@ fn item_to_def_like(item: rbml::Doc, did: ast::DefId, cnum: ast::CrateNum)
         Mod => DlDef(def::DefMod(did)),
         ForeignMod => DlDef(def::DefForeignMod(did)),
         StructVariant => {
-            let enum_did = item_reqd_and_translated_parent_item(cnum, item);
+            let enum_did = item_require_parent_item(cdata, item);
             DlDef(def::DefVariant(enum_did, did, true))
         }
         TupleVariant => {
-            let enum_did = item_reqd_and_translated_parent_item(cnum, item);
+            let enum_did = item_require_parent_item(cdata, item);
             DlDef(def::DefVariant(enum_did, did, false))
         }
         Trait => DlDef(def::DefTrait(did)),
@@ -403,6 +412,9 @@ pub fn get_trait_def<'tcx>(cdata: Cmd,
         generics: generics,
         trait_ref: item_trait_ref(item_doc, tcx, cdata),
         associated_type_names: associated_type_names,
+        nonblanket_impls: RefCell::new(FnvHashMap()),
+        blanket_impls: RefCell::new(vec![]),
+        flags: Cell::new(ty::TraitFlags::NO_TRAIT_FLAGS)
     }
 }
 
@@ -470,10 +482,20 @@ pub fn get_impl_polarity<'tcx>(cdata: Cmd,
     }
 }
 
+pub fn get_custom_coerce_unsized_kind<'tcx>(cdata: Cmd,
+                                            id: ast::NodeId)
+                                            -> Option<ty::CustomCoerceUnsized> {
+    let item_doc = lookup_item(id, cdata.data());
+    reader::maybe_get_doc(item_doc, tag_impl_coerce_unsized_kind).map(|kind_doc| {
+        let mut decoder = reader::Decoder::new(kind_doc);
+        Decodable::decode(&mut decoder).unwrap()
+    })
+}
+
 pub fn get_impl_trait<'tcx>(cdata: Cmd,
                             id: ast::NodeId,
                             tcx: &ty::ctxt<'tcx>)
-                            -> Option<Rc<ty::TraitRef<'tcx>>>
+                            -> Option<ty::TraitRef<'tcx>>
 {
     let item_doc = lookup_item(id, cdata.data());
     let fam = item_family(item_doc);
@@ -538,9 +560,7 @@ fn each_child_of_item_or_crate<F, G>(intr: Rc<IdentInterner>,
 {
     // Iterate over all children.
     let _ = reader::tagged_docs(item_doc, tag_mod_child, |child_info_doc| {
-        let child_def_id = reader::with_doc_data(child_info_doc,
-                                                 parse_def_id);
-        let child_def_id = translate_def_id(cdata, child_def_id);
+        let child_def_id = translated_def_id(cdata, child_info_doc);
 
         // This item may be in yet another crate if it was the child of a
         // reexport.
@@ -562,9 +582,7 @@ fn each_child_of_item_or_crate<F, G>(intr: Rc<IdentInterner>,
             Some(child_item_doc) => {
                 // Hand off the item to the callback.
                 let child_name = item_name(&*intr, child_item_doc);
-                let def_like = item_to_def_like(child_item_doc,
-                                                child_def_id,
-                                                cdata.cnum);
+                let def_like = item_to_def_like(crate_data, child_item_doc, child_def_id);
                 let visibility = item_visibility(child_item_doc);
                 callback(def_like, child_name, visibility);
 
@@ -593,9 +611,8 @@ fn each_child_of_item_or_crate<F, G>(intr: Rc<IdentInterner>,
                     if let StaticMethod = item_family(impl_method_doc) {
                         // Hand off the static method to the callback.
                         let static_method_name = item_name(&*intr, impl_method_doc);
-                        let static_method_def_like = item_to_def_like(impl_method_doc,
-                                                                      impl_item_def_id,
-                                                                      cdata.cnum);
+                        let static_method_def_like = item_to_def_like(cdata, impl_method_doc,
+                                                                      impl_item_def_id);
                         callback(static_method_def_like,
                                  static_method_name,
                                  item_visibility(impl_method_doc));
@@ -611,9 +628,7 @@ fn each_child_of_item_or_crate<F, G>(intr: Rc<IdentInterner>,
     let _ = each_reexport(item_doc, |reexport_doc| {
         let def_id_doc = reader::get_doc(reexport_doc,
                                          tag_items_data_item_reexport_def_id);
-        let child_def_id = reader::with_doc_data(def_id_doc,
-                                                 parse_def_id);
-        let child_def_id = translate_def_id(cdata, child_def_id);
+        let child_def_id = translated_def_id(cdata, def_id_doc);
 
         let name_doc = reader::get_doc(reexport_doc,
                                        tag_items_data_item_reexport_name);
@@ -635,9 +650,7 @@ fn each_child_of_item_or_crate<F, G>(intr: Rc<IdentInterner>,
         // Get the item.
         if let Some(child_item_doc) = maybe_find_item(child_def_id.node, other_crates_items) {
             // Hand off the item to the callback.
-            let def_like = item_to_def_like(child_item_doc,
-                                            child_def_id,
-                                            child_def_id.krate);
+            let def_like = item_to_def_like(crate_data, child_item_doc, child_def_id);
             // These items have a public visibility because they're part of
             // a public re-export.
             callback(def_like, token::intern(name), ast::Public);
@@ -711,9 +724,8 @@ pub fn maybe_get_item_ast<'tcx>(cdata: Cmd, tcx: &ty::ctxt<'tcx>, id: ast::NodeI
     match decode_inlined_item(cdata, tcx, path, item_doc) {
         Ok(ii) => csearch::FoundAst::Found(ii),
         Err(path) => {
-            match item_parent_item(item_doc) {
+            match item_parent_item(cdata, item_doc) {
                 Some(did) => {
-                    let did = translate_def_id(cdata, did);
                     let parent_item = lookup_item(did.node, cdata.data());
                     match decode_inlined_item(cdata, tcx, path, parent_item) {
                         Ok(ii) => csearch::FoundAst::FoundParent(did, ii),
@@ -737,7 +749,7 @@ pub fn get_enum_variant_defs(intr: &IdentInterner,
         let item = find_item(did.node, items);
         let name = item_name(intr, item);
         let visibility = item_visibility(item);
-        match item_to_def_like(item, *did, cdata.cnum) {
+        match item_to_def_like(cdata, item, *did) {
             DlDef(def @ def::DefVariant(..)) => (def, name, visibility),
             _ => unreachable!()
         }
@@ -827,6 +839,7 @@ pub fn get_impl_items(cdata: Cmd, impl_id: ast::NodeId)
                         tag_item_impl_item, |doc| {
         let def_id = item_def_id(doc, cdata);
         match item_sort(doc) {
+            Some('C') => impl_items.push(ty::ConstTraitItemId(def_id)),
             Some('r') | Some('p') => {
                 impl_items.push(ty::MethodTraitItemId(def_id))
             }
@@ -866,8 +879,7 @@ pub fn get_impl_or_trait_item<'tcx>(intr: Rc<IdentInterner>,
 
     let def_id = item_def_id(method_doc, cdata);
 
-    let container_id = item_reqd_and_translated_parent_item(cdata.cnum,
-                                                            method_doc);
+    let container_id = item_require_parent_item(cdata, method_doc);
     let container_doc = lookup_item(container_id.node, cdata.data());
     let container = match item_family(container_doc) {
         Trait => TraitContainer(container_id),
@@ -878,6 +890,18 @@ pub fn get_impl_or_trait_item<'tcx>(intr: Rc<IdentInterner>,
     let vis = item_visibility(method_doc);
 
     match item_sort(method_doc) {
+        Some('C') => {
+            let ty = doc_type(method_doc, tcx, cdata);
+            let default = get_provided_source(method_doc, cdata);
+            ty::ConstTraitItem(Rc::new(ty::AssociatedConst {
+                name: name,
+                ty: ty,
+                vis: vis,
+                def_id: def_id,
+                container: container,
+                default: default,
+            }))
+        }
         Some('r') | Some('p') => {
             let generics = doc_generics(method_doc, tcx, cdata, tag_method_ty_generics);
             let predicates = doc_predicates(method_doc, tcx, cdata, tag_method_ty_generics);
@@ -915,6 +939,7 @@ pub fn get_trait_item_def_ids(cdata: Cmd, id: ast::NodeId)
     reader::tagged_docs(item, tag_item_trait_item, |mth| {
         let def_id = item_def_id(mth, cdata);
         match item_sort(mth) {
+            Some('C') => result.push(ty::ConstTraitItemId(def_id)),
             Some('r') | Some('p') => {
                 result.push(ty::MethodTraitItemId(def_id));
             }
@@ -952,15 +977,42 @@ pub fn get_provided_trait_methods<'tcx>(intr: Rc<IdentInterner>,
                                                     cdata,
                                                     did.node,
                                                     tcx);
-            match trait_item {
-                ty::MethodTraitItem(ref method) => {
-                    result.push((*method).clone())
-                }
-                ty::TypeTraitItem(_) => {}
+            if let ty::MethodTraitItem(ref method) = trait_item {
+                result.push((*method).clone())
             }
         }
         true
     });
+
+    return result;
+}
+
+pub fn get_associated_consts<'tcx>(intr: Rc<IdentInterner>,
+                                   cdata: Cmd,
+                                   id: ast::NodeId,
+                                   tcx: &ty::ctxt<'tcx>)
+                                   -> Vec<Rc<ty::AssociatedConst<'tcx>>> {
+    let data = cdata.data();
+    let item = lookup_item(id, data);
+    let mut result = Vec::new();
+
+    for &tag in &[tag_item_trait_item, tag_item_impl_item] {
+        reader::tagged_docs(item, tag, |ac_id| {
+            let did = item_def_id(ac_id, cdata);
+            let ac_doc = lookup_item(did.node, data);
+
+            if item_sort(ac_doc) == Some('C') {
+                let trait_item = get_impl_or_trait_item(intr.clone(),
+                                                        cdata,
+                                                        did.node,
+                                                        tcx);
+                if let ty::ConstTraitItem(ref ac) = trait_item {
+                    result.push((*ac).clone())
+                }
+            }
+            true
+        });
+    }
 
     return result;
 }
@@ -1031,7 +1083,7 @@ pub fn get_tuple_struct_definition_if_ctor(cdata: Cmd,
     let item = lookup_item(node_id, cdata.data());
     let mut ret = None;
     reader::tagged_docs(item, tag_items_data_item_is_tuple_struct_ctor, |_| {
-        ret = Some(item_reqd_and_translated_parent_item(cdata.cnum, item));
+        ret = Some(item_require_parent_item(cdata, item));
         false
     });
     ret
@@ -1081,7 +1133,7 @@ pub fn get_struct_fields(intr: Rc<IdentInterner>, cdata: Cmd, id: ast::NodeId)
             let name = item_name(&*intr, an_item);
             let did = item_def_id(an_item, cdata);
             let tagdoc = reader::get_doc(an_item, tag_item_field_origin);
-            let origin_id =  translate_def_id(cdata, reader::with_doc_data(tagdoc, parse_def_id));
+            let origin_id =  translated_def_id(cdata, tagdoc);
             result.push(ty::field_ty {
                 name: name,
                 id: did,
@@ -1095,7 +1147,7 @@ pub fn get_struct_fields(intr: Rc<IdentInterner>, cdata: Cmd, id: ast::NodeId)
         let did = item_def_id(an_item, cdata);
         let tagdoc = reader::get_doc(an_item, tag_item_field_origin);
         let f = item_family(an_item);
-        let origin_id =  translate_def_id(cdata, reader::with_doc_data(tagdoc, parse_def_id));
+        let origin_id =  translated_def_id(cdata, tagdoc);
         result.push(ty::field_ty {
             name: special_idents::unnamed_field.name,
             id: did,
@@ -1279,55 +1331,77 @@ pub fn translate_def_id(cdata: Cmd, did: ast::DefId) -> ast::DefId {
     }
 }
 
-pub fn each_impl<F>(cdata: Cmd, mut callback: F) where
-    F: FnMut(ast::DefId),
-{
-    let impls_doc = reader::get_doc(rbml::Doc::new(cdata.data()), tag_impls);
-    let _ = reader::tagged_docs(impls_doc, tag_impls_impl, |impl_doc| {
-        callback(item_def_id(impl_doc, cdata));
-        true
-    });
+// Translate a DefId from the current compilation environment to a DefId
+// for an external crate.
+fn reverse_translate_def_id(cdata: Cmd, did: ast::DefId) -> Option<ast::DefId> {
+    if did.krate == cdata.cnum {
+        return Some(ast::DefId { krate: ast::LOCAL_CRATE, node: did.node });
+    }
+
+    for (&local, &global) in &cdata.cnum_map {
+        if global == did.krate {
+            return Some(ast::DefId { krate: local, node: did.node });
+        }
+    }
+
+    None
 }
 
-pub fn each_implementation_for_type<F>(cdata: Cmd,
-                                       id: ast::NodeId,
-                                       mut callback: F)
+pub fn each_inherent_implementation_for_type<F>(cdata: Cmd,
+                                                id: ast::NodeId,
+                                                mut callback: F)
     where F: FnMut(ast::DefId),
 {
     let item_doc = lookup_item(id, cdata.data());
     reader::tagged_docs(item_doc,
                         tag_items_data_item_inherent_impl,
                         |impl_doc| {
-        let implementation_def_id = item_def_id(impl_doc, cdata);
-        callback(implementation_def_id);
+        if reader::maybe_get_doc(impl_doc, tag_item_trait_ref).is_none() {
+            callback(item_def_id(impl_doc, cdata));
+        }
         true
     });
 }
 
 pub fn each_implementation_for_trait<F>(cdata: Cmd,
-                                        id: ast::NodeId,
+                                        def_id: ast::DefId,
                                         mut callback: F) where
     F: FnMut(ast::DefId),
 {
-    let item_doc = lookup_item(id, cdata.data());
+    if cdata.cnum == def_id.krate {
+        let item_doc = lookup_item(def_id.node, cdata.data());
+        let _ = reader::tagged_docs(item_doc,
+                                    tag_items_data_item_extension_impl,
+                                    |impl_doc| {
+            callback(item_def_id(impl_doc, cdata));
+            true
+        });
+        return;
+    }
 
-    let _ = reader::tagged_docs(item_doc,
-                                tag_items_data_item_extension_impl,
-                                |impl_doc| {
-        let implementation_def_id = item_def_id(impl_doc, cdata);
-        callback(implementation_def_id);
-        true
-    });
+    // Do a reverse lookup beforehand to avoid touching the crate_num
+    // hash map in the loop below.
+    if let Some(crate_local_did) = reverse_translate_def_id(cdata, def_id) {
+        let def_id_u64 = def_to_u64(crate_local_did);
+
+        let impls_doc = reader::get_doc(rbml::Doc::new(cdata.data()), tag_impls);
+        let _ = reader::tagged_docs(impls_doc, tag_impls_impl, |impl_doc| {
+            let impl_trait = reader::get_doc(impl_doc, tag_impls_impl_trait_def_id);
+            if reader::doc_as_u64(impl_trait) == def_id_u64 {
+                callback(item_def_id(impl_doc, cdata));
+            }
+            true
+        });
+    }
 }
 
 pub fn get_trait_of_item(cdata: Cmd, id: ast::NodeId, tcx: &ty::ctxt)
                          -> Option<ast::DefId> {
     let item_doc = lookup_item(id, cdata.data());
-    let parent_item_id = match item_parent_item(item_doc) {
+    let parent_item_id = match item_parent_item(cdata, item_doc) {
         None => return None,
         Some(item_id) => item_id,
     };
-    let parent_item_id = translate_def_id(cdata, parent_item_id);
     let parent_item_doc = lookup_item(parent_item_id.node, cdata.data());
     match item_family(parent_item_doc) {
         Trait => Some(item_def_id(parent_item_doc, cdata)),
@@ -1349,7 +1423,7 @@ pub fn get_native_libraries(cdata: Cmd)
         let kind_doc = reader::get_doc(lib_doc, tag_native_libraries_kind);
         let name_doc = reader::get_doc(lib_doc, tag_native_libraries_name);
         let kind: cstore::NativeLibraryKind =
-            FromPrimitive::from_u32(reader::doc_as_u32(kind_doc)).unwrap();
+            cstore::NativeLibraryKind::from_u32(reader::doc_as_u32(kind_doc)).unwrap();
         let name = name_doc.as_str().to_string();
         result.push((kind, name));
         true
@@ -1359,7 +1433,7 @@ pub fn get_native_libraries(cdata: Cmd)
 
 pub fn get_plugin_registrar_fn(data: &[u8]) -> Option<ast::NodeId> {
     reader::maybe_get_doc(rbml::Doc::new(data), tag_plugin_registrar_fn)
-        .map(|doc| FromPrimitive::from_u32(reader::doc_as_u32(doc)).unwrap())
+        .map(|doc| reader::doc_as_u32(doc))
 }
 
 pub fn each_exported_macro<F>(data: &[u8], intr: &IdentInterner, mut f: F) where
@@ -1407,7 +1481,7 @@ pub fn get_missing_lang_items(cdata: Cmd)
     let mut result = Vec::new();
     reader::tagged_docs(items, tag_lang_items_missing, |missing_docs| {
         let item: lang_items::LangItem =
-            FromPrimitive::from_u32(reader::doc_as_u32(missing_docs)).unwrap();
+            lang_items::LangItem::from_u32(reader::doc_as_u32(missing_docs)).unwrap();
         result.push(item);
         true
     });
@@ -1475,8 +1549,7 @@ fn doc_generics<'tcx>(base_doc: rbml::Doc,
         let name = item_name(&*token::get_ident_interner(), ident_str_doc);
         let def_id_doc = reader::get_doc(rp_doc,
                                          tag_region_param_def_def_id);
-        let def_id = reader::with_doc_data(def_id_doc, parse_def_id);
-        let def_id = translate_def_id(cdata, def_id);
+        let def_id = translated_def_id(cdata, def_id_doc);
 
         let doc = reader::get_doc(rp_doc, tag_region_param_def_space);
         let space = subst::ParamSpace::from_uint(reader::doc_as_u64(doc) as usize);

@@ -19,6 +19,11 @@ err() {
     exit 1
 }
 
+run() {
+    msg "$@"
+    "$@"
+}
+
 need_ok() {
     if [ $? -ne 0 ]
     then
@@ -36,8 +41,7 @@ need_cmd() {
 make_dir() {
     if [ ! -d $1 ]
     then
-        msg "mkdir -p $1"
-        mkdir -p $1
+        run mkdir -p $1
     fi
 }
 
@@ -46,8 +50,7 @@ copy_if_changed() {
     then
         msg "leaving $2 unchanged"
     else
-        msg "cp $1 $2"
-        cp -f $1 $2
+        run cp -f $1 $2
         chmod u-w $2 # make copied artifact read-only
     fi
 }
@@ -57,8 +60,7 @@ move_if_changed() {
     then
         msg "leaving $2 unchanged"
     else
-        msg "mv $1 $2"
-        mv -f $1 $2
+        run mv -f $1 $2
         chmod u-w $2 # make moved artifact read-only
     fi
 }
@@ -104,8 +106,8 @@ probe() {
         T=$(command -v $P 2>&1)
         if [ $? -eq 0 ]
         then
-            VER0=$($P --version 2>/dev/null | head -1 \
-                |  sed -e 's/[^0-9]*\([vV]\?[0-9.]\+[^ ]*\).*/\1/' )
+            VER0=$($P --version 2>/dev/null \
+                |  grep -o '[vV]\?[0-9][0-9.][a-z0-9.-]*' | head -1 )
             if [ $? -eq 0 -a "x${VER0}" != "x" ]
             then
               VER="($VER0)"
@@ -337,6 +339,15 @@ to_gnu_triple() {
     esac
 }
 
+# Prints the absolute path of a directory to stdout
+abs_path() {
+    local _path="$1"
+    # Unset CDPATH because it causes havok: it makes the destination unpredictable
+    # and triggers 'cd' to print the path to stdout. Route `cd`'s output to /dev/null
+    # for good measure.
+    (unset CDPATH && cd "$_path" > /dev/null && pwd)
+}
+
 msg "looking for configure programs"
 need_cmd cmp
 need_cmd mkdir
@@ -509,7 +520,7 @@ fi
 
 DEFAULT_BUILD="${CFG_CPUTYPE}-${CFG_OSTYPE}"
 
-CFG_SRC_DIR="$(cd $(dirname $0) && pwd)/"
+CFG_SRC_DIR="$(abs_path $(dirname $0))/"
 CFG_BUILD_DIR="$(pwd)/"
 CFG_SELF="$0"
 CFG_CONFIGURE_ARGS="$@"
@@ -535,13 +546,14 @@ fi
 BOOL_OPTIONS=""
 VAL_OPTIONS=""
 
-opt debug 0 "debug mode"
+opt debug 0 "debug mode; disables optimization unless \`--enable-optimize\` given"
 opt valgrind 0 "run tests with valgrind (memcheck by default)"
 opt helgrind 0 "run tests with helgrind instead of memcheck"
 opt valgrind-rpass 1 "run rpass-valgrind tests with valgrind"
 opt docs     1 "build standard library documentation"
 opt compiler-docs     0 "build compiler documentation"
 opt optimize-tests 1 "build tests with optimizations"
+opt debuginfo-tests 0 "build tests with debugger metadata"
 opt libcpp 1 "build with llvm with libc++ instead of libstdc++ when using clang"
 opt llvm-assertions 0 "build LLVM with assertions"
 opt debug-assertions 0 "build with debugging assertions"
@@ -576,6 +588,7 @@ valopt jemalloc-root "" "set directory where libjemalloc_pic.a is located"
 valopt build "${DEFAULT_BUILD}" "GNUs ./configure syntax LLVM build triple"
 valopt android-cross-path "/opt/ndk_standalone" "Android NDK standalone path"
 valopt release-channel "dev" "the name of the release channel to build"
+valopt musl-root "/usr/local" "MUSL root installation directory"
 
 # Many of these are saved below during the "writing configuration" step
 # (others are conditionally saved).
@@ -599,7 +612,7 @@ CFG_TARGET=$(to_llvm_triple $CFG_TARGET)
 # there's no rpath. This is where the build system itself puts libraries;
 # --libdir is used to configure the installation directory.
 # FIXME: This needs to parameterized over target triples. Do it in platform.mk
-if [ "$CFG_OSTYPE" = "pc-windows-gnu" ]
+if [ "$CFG_OSTYPE" = "pc-windows-gnu" ] || [ "$CFG_OSTYPE" = "pc-windows-msvc" ]
 then
     CFG_LIBDIR_RELATIVE=bin
 else
@@ -617,7 +630,8 @@ esac
 
 CFG_LIBDIR_RELATIVE=`echo ${CFG_LIBDIR} | cut -c$((${#CFG_PREFIX}+${CAT_INC}))-`
 
-if [ "$CFG_OSTYPE" = "pc-windows-gnu" ] && [ "$CFG_LIBDIR_RELATIVE" != "bin" ]; then
+if ( [ "$CFG_OSTYPE" = "pc-windows-gnu" ] || [ "$CFG_OSTYPE" = "pc-windows-msvc" ] ) \
+	&& [ "$CFG_LIBDIR_RELATIVE" != "bin" ]; then
     err "libdir on windows should be set to 'bin'"
 fi
 
@@ -652,9 +666,10 @@ if [ -n "$CFG_ENABLE_DEBUG" ]; then
         CFG_DISABLE_OPTIMIZE=1
         CFG_DISABLE_OPTIMIZE_CXX=1
     fi
-    CFG_ENABLE_LLVM_ASSERTIONS=1
     CFG_ENABLE_DEBUG_ASSERTIONS=1
     CFG_ENABLE_DEBUG_JEMALLOC=1
+    CFG_ENABLE_DEBUGINFO=1
+    CFG_ENABLE_LLVM_ASSERTIONS=1
 fi
 
 # OK, now write the debugging options
@@ -699,6 +714,20 @@ else
     probe_need CFG_GIT     git
 fi
 
+# Use `md5sum` on GNU platforms, or `md5 -q` on BSD
+probe CFG_MD5              md5
+probe CFG_MD5SUM           md5sum
+if [ -n "$CFG_MD5" ]
+then
+    CFG_HASH_COMMAND="$CFG_MD5 -q | cut -c 1-8"
+elif [ -n "$CFG_MD5SUM" ]
+then
+    CFG_HASH_COMMAND="$CFG_MD5SUM | cut -c 1-8"
+else
+    err 'could not find one of: md5 md5sum'
+fi
+putvar CFG_HASH_COMMAND
+
 probe CFG_CLANG            clang++
 probe CFG_CCACHE           ccache
 probe CFG_GCC              gcc
@@ -721,6 +750,20 @@ probe CFG_LLDB             lldb
 if [ ! -z "$CFG_ANTLR4" ]
 then
    probe CFG_JAVAC            javac
+fi
+
+# the valgrind rpass tests will fail if you don't have a valgrind, but they're
+# only disabled if you opt out.
+if [ -z "$CFG_VALGRIND" ]
+then
+    # If the user has explicitly asked for valgrind tests, then fail
+    if [ -n "$CFG_ENABLE_VALGRIND" ] && [ -n "$CFG_ENABLE_VALGRIND_PROVIDED" ]
+    then
+        err "No valgrind present, but valgrind tests explicitly requested"
+    else
+        CFG_DISABLE_VALGRIND_RPASS=1
+        putvar CFG_DISABLE_VALGRIND_RPASS
+    fi
 fi
 
 if [ ! -z "$CFG_GDB" ]
@@ -777,7 +820,7 @@ then
 fi
 
 BIN_SUF=
-if [ "$CFG_OSTYPE" = "pc-windows-gnu" ]
+if [ "$CFG_OSTYPE" = "pc-windows-gnu" ] || [ "$CFG_OSTYPE" = "pc-windows-msvc" ]
 then
     BIN_SUF=.exe
 fi
@@ -834,7 +877,7 @@ then
     CFG_OSX_GCC_VERSION=$("$CFG_GCC" --version 2>&1 | grep "Apple LLVM version")
     if [ $? -eq 0 ]
     then
-        step_msg "on OS X 10.9, forcing use of clang"
+        step_msg "on OS X >=10.9, forcing use of clang"
         CFG_ENABLE_CLANG=1
     else
         if [ $("$CFG_GCC" --version 2>&1 | grep -c ' 4\.[0-6]') -ne 0 ]; then
@@ -1090,6 +1133,72 @@ do
             fi
             ;;
 
+
+        *-musl)
+            if [ ! -f $CFG_MUSL_ROOT/lib/libc.a ]
+            then
+                err "musl libc $CFG_MUSL_ROOT/lib/libc.a not found"
+            fi
+            ;;
+
+        x86_64-*-msvc)
+            # Currently the build system is not configured to build jemalloc
+            # with MSVC, so we omit this optional dependency.
+            step_msg "targeting MSVC, disabling jemalloc"
+            CFG_DISABLE_JEMALLOC=1
+            putvar CFG_DISABLE_JEMALLOC
+
+            # There are some MSYS python builds which will auto-translate
+            # windows-style paths to MSYS-style paths in Python itself.
+            # Unfortunately this breaks LLVM's build system as somewhere along
+            # the line LLVM prints a path into a file from Python and then CMake
+            # later tries to interpret that path. If Python prints a MSYS path
+            # and CMake tries to use it as a Windows path, you're gonna have a
+            # Bad Time.
+            #
+            # Consequently here we try to detect when that happens and print an
+            # error if it does.
+            if $CFG_PYTHON -c 'import sys; print sys.argv[1]' `pwd` | grep '^/'
+            then
+                err "python is silently translating windows paths to MSYS paths \
+                     and the build will fail if this python is used.\n\n \
+                     Either an official python install must be used or an \
+                     alternative python package in MinGW must be used."
+            fi
+
+            # MSVC requires cmake because that's how we're going to build LLVM
+            probe_need CFG_CMAKE cmake
+
+            # Use the REG program to figure out where VS is installed
+            # We need to figure out where cl.exe and link.exe are, so we do some
+            # munging and some probing here. We also look for the default
+            # INCLUDE and LIB variables for MSVC so we can set those in the
+            # build system as well.
+            install=$(reg QUERY \
+                       'HKLM\SOFTWARE\Wow6432Node\Microsoft\VisualStudio\12.0' \
+                       -v InstallDir)
+            need_ok "couldn't find visual studio install root"
+            CFG_MSVC_ROOT=$(echo "$install" | grep InstallDir | sed 's/.*REG_SZ[ ]*//')
+            CFG_MSVC_ROOT=$(dirname "$CFG_MSVC_ROOT")
+            CFG_MSVC_ROOT=$(dirname "$CFG_MSVC_ROOT")
+            CFG_MSVC_CL="${CFG_MSVC_ROOT}/VC/bin/amd64/cl.exe"
+            CFG_MSVC_LIB="${CFG_MSVC_ROOT}/VC/bin/amd64/lib.exe"
+            CFG_MSVC_LINK="${CFG_MSVC_ROOT}/VC/bin/amd64/link.exe"
+
+            vcvarsall="${CFG_MSVC_ROOT}/VC/vcvarsall.bat"
+            CFG_MSVC_INCLUDE_PATH=$(cmd /c "\"$vcvarsall\" amd64 && cmd /c echo %INCLUDE%")
+            need_ok "failed to learn about MSVC's INCLUDE"
+            CFG_MSVC_LIB_PATH=$(cmd /c "\"$vcvarsall\" amd64 && cmd /c echo %LIB%")
+            need_ok "failed to learn about MSVC's LIB"
+
+            putvar CFG_MSVC_ROOT
+            putvar CFG_MSVC_CL
+            putvar CFG_MSVC_LIB
+            putvar CFG_MSVC_LINK
+            putvar CFG_MSVC_INCLUDE_PATH
+            putvar CFG_MSVC_LIB_PATH
+            ;;
+
         *)
             ;;
     esac
@@ -1131,6 +1240,7 @@ do
   do
     make_dir $t/rt/stage$s
     make_dir $t/rt/jemalloc
+    make_dir $t/rt/compiler-rt
     for i in                                          \
       isaac sync test \
       arch/i386 arch/x86_64 arch/arm arch/aarch64 arch/mips arch/powerpc
@@ -1176,6 +1286,7 @@ do
     make_dir $h/test/run-pass-valgrind
     make_dir $h/test/run-pass-fulldeps
     make_dir $h/test/run-fail
+    make_dir $h/test/run-fail-fulldeps
     make_dir $h/test/compile-fail
     make_dir $h/test/parse-fail
     make_dir $h/test/compile-fail-fulldeps
@@ -1429,7 +1540,39 @@ do
         done
     fi
 
-    if [ ${do_reconfigure} -ne 0 ]
+    use_cmake=0
+    case "$t" in
+        (*-msvc)
+        use_cmake=1
+        ;;
+    esac
+
+    if [ ${do_reconfigure} -ne 0 ] && [ ${use_cmake} -ne 0 ]
+    then
+        msg "configuring LLVM for $t with cmake"
+
+        CMAKE_ARGS="-DLLVM_INCLUDE_TESTS=OFF"
+        if [ ! -z "$CFG_DISABLE_OPTIMIZE_LLVM" ]; then
+            CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_BUILD_TYPE=Debug"
+        else
+            CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release"
+        fi
+        if [ -z "$CFG_ENABLE_LLVM_ASSERTIONS" ]
+        then
+            CMAKE_ARGS="$CMAKE_ARGS -DLLVM_ENABLE_ASSERTIONS=OFF"
+        else
+            CMAKE_ARGS="$CMAKE_ARGS -DLLVM_ENABLE_ASSERTIONS=ON"
+        fi
+
+        msg "configuring LLVM with:"
+        msg "$CMAKE_ARGS"
+        (cd $LLVM_BUILD_DIR && "$CFG_CMAKE" $CFG_LLVM_SRC_DIR \
+                                            -G "Visual Studio 12 2013 Win64" \
+                                            $CMAKE_ARGS)
+        need_ok "LLVM cmake configure failed"
+    fi
+
+    if [ ${do_reconfigure} -ne 0 ] && [ ${use_cmake} -eq 0 ]
     then
         msg "configuring LLVM for $gnu_t"
 
@@ -1464,7 +1607,7 @@ do
         # (llvm's configure tries to find pthread first, so we have to disable it explicitly.)
         # Also note that pthreads works badly on mingw-w64 systems: #8996
         case "$CFG_BUILD" in
-            (*-windows-*)
+            (*-windows-gnu)
             LLVM_OPTS="$LLVM_OPTS --disable-pthreads"
             ;;
         esac
@@ -1588,11 +1731,6 @@ do
     CFG_BINUTILS_BUILD_DIR=$(echo CFG_BINUTILS_BUILD_DIR_${t} | tr - _)
     putvar $CFG_BINUTILS_BUILD_DIR
 done
-
-# Munge any paths that appear in config.mk back to posix-y
-cp config.tmp config.tmp.bak
-sed -e 's@ \([a-zA-Z]\):[/\\]@ /\1/@g;' <config.tmp.bak >config.tmp
-rm -f config.tmp.bak
 
 msg
 copy_if_changed ${CFG_SRC_DIR}Makefile.in ./Makefile

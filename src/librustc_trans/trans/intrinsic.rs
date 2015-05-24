@@ -144,6 +144,9 @@ pub fn check_intrinsics(ccx: &CrateContext) {
     ccx.sess().abort_if_errors();
 }
 
+/// Remember to add all intrinsics here, in librustc_typeck/check/mod.rs,
+/// and in libcore/intrinsics.rs; if you need access to any llvm intrinsics,
+/// add them to librustc_trans/trans/context.rs
 pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
                                             node: ast::NodeId,
                                             callee_ty: Ty<'tcx>,
@@ -323,9 +326,30 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
             let lltp_ty = type_of::type_of(ccx, tp_ty);
             C_uint(ccx, machine::llsize_of_alloc(ccx, lltp_ty))
         }
+        (_, "size_of_val") => {
+            let tp_ty = *substs.types.get(FnSpace, 0);
+            if !type_is_sized(tcx, tp_ty) {
+                let info = Load(bcx, expr::get_len(bcx, llargs[0]));
+                let (llsize, _) = glue::size_and_align_of_dst(bcx, tp_ty, info);
+                llsize
+            } else {
+                let lltp_ty = type_of::type_of(ccx, tp_ty);
+                C_uint(ccx, machine::llsize_of_alloc(ccx, lltp_ty))
+            }
+        }
         (_, "min_align_of") => {
             let tp_ty = *substs.types.get(FnSpace, 0);
             C_uint(ccx, type_of::align_of(ccx, tp_ty))
+        }
+        (_, "min_align_of_val") => {
+            let tp_ty = *substs.types.get(FnSpace, 0);
+            if !type_is_sized(tcx, tp_ty) {
+                let info = Load(bcx, expr::get_len(bcx, llargs[0]));
+                let (_, llalign) = glue::size_and_align_of_dst(bcx, tp_ty, info);
+                llalign
+            } else {
+                C_uint(ccx, type_of::align_of(ccx, tp_ty))
+            }
         }
         (_, "pref_align_of") => {
             let tp_ty = *substs.types.get(FnSpace, 0);
@@ -346,6 +370,11 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
                 kind: Rvalue::new(mode)
             };
             bcx = src.store_to(bcx, llargs[0]);
+            C_nil(ccx)
+        }
+        (_, "drop_in_place") => {
+            let tp_ty = *substs.types.get(FnSpace, 0);
+            glue::drop_ty(bcx, llargs[0], tp_ty, call_debug_location);
             C_nil(ccx)
         }
         (_, "type_name") => {
@@ -384,14 +413,15 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
 
             C_bool(ccx, bcx.fcx.type_needs_drop(tp_ty))
         }
-        (_, "owns_managed") => {
-            let tp_ty = *substs.types.get(FnSpace, 0);
-            C_bool(ccx, ty::type_contents(ccx.tcx(), tp_ty).owns_managed())
-        }
         (_, "offset") => {
             let ptr = llargs[0];
             let offset = llargs[1];
             InBoundsGEP(bcx, ptr, &[offset])
+        }
+        (_, "arith_offset") => {
+            let ptr = llargs[0];
+            let offset = llargs[1];
+            GEP(bcx, ptr, &[offset])
         }
 
         (_, "copy_nonoverlapping") => {
@@ -456,13 +486,20 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
         (_, "volatile_load") => {
             let tp_ty = *substs.types.get(FnSpace, 0);
             let ptr = to_arg_ty_ptr(bcx, llargs[0], tp_ty);
-            from_arg_ty(bcx, VolatileLoad(bcx, ptr), tp_ty)
+            let load = VolatileLoad(bcx, ptr);
+            unsafe {
+                llvm::LLVMSetAlignment(load, type_of::align_of(ccx, tp_ty));
+            }
+            from_arg_ty(bcx, load, tp_ty)
         },
         (_, "volatile_store") => {
             let tp_ty = *substs.types.get(FnSpace, 0);
             let ptr = to_arg_ty_ptr(bcx, llargs[0], tp_ty);
             let val = to_arg_ty(bcx, llargs[1], tp_ty);
-            VolatileStore(bcx, val, ptr);
+            let store = VolatileStore(bcx, val, ptr);
+            unsafe {
+                llvm::LLVMSetAlignment(store, type_of::align_of(ccx, tp_ty));
+            }
             C_nil(ccx)
         },
 
@@ -669,6 +706,11 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
                                     llargs[1],
                                     call_debug_location),
 
+        (_, "unchecked_udiv") => UDiv(bcx, llargs[0], llargs[1], call_debug_location),
+        (_, "unchecked_sdiv") => SDiv(bcx, llargs[0], llargs[1], call_debug_location),
+        (_, "unchecked_urem") => URem(bcx, llargs[0], llargs[1], call_debug_location),
+        (_, "unchecked_srem") => SRem(bcx, llargs[0], llargs[1], call_debug_location),
+
         (_, "overflowing_add") => Add(bcx, llargs[0], llargs[1], call_debug_location),
         (_, "overflowing_sub") => Sub(bcx, llargs[0], llargs[1], call_debug_location),
         (_, "overflowing_mul") => Mul(bcx, llargs[0], llargs[1], call_debug_location),
@@ -739,11 +781,7 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
                     let src = to_arg_ty(bcx, llargs[2], tp_ty);
                     let res = AtomicCmpXchg(bcx, ptr, cmp, src, order,
                                             strongest_failure_ordering);
-                    if unsafe { llvm::LLVMVersionMinor() >= 5 } {
-                        ExtractValue(bcx, res, 0)
-                    } else {
-                        res
-                    }
+                    ExtractValue(bcx, res, 0)
                 }
 
                 "load" => {
@@ -760,7 +798,12 @@ pub fn trans_intrinsic_call<'a, 'blk, 'tcx>(mut bcx: Block<'blk, 'tcx>,
                 }
 
                 "fence" => {
-                    AtomicFence(bcx, order);
+                    AtomicFence(bcx, order, llvm::CrossThread);
+                    C_nil(ccx)
+                }
+
+                "singlethreadfence" => {
+                    AtomicFence(bcx, order, llvm::SingleThread);
                     C_nil(ccx)
                 }
 

@@ -17,7 +17,6 @@ use sys::mutex::{self, Mutex};
 use sys::time;
 use sys::sync as ffi;
 use time::Duration;
-use num::{Int, NumCast};
 
 pub struct Condvar { inner: UnsafeCell<ffi::pthread_cond_t> }
 
@@ -58,41 +57,37 @@ impl Condvar {
     // https://github.com/llvm-mirror/libcxx/blob/release_35/src/condition_variable.cpp#L46
     // https://github.com/llvm-mirror/libcxx/blob/release_35/include/__mutex_base#L367
     pub unsafe fn wait_timeout(&self, mutex: &Mutex, dur: Duration) -> bool {
-        if dur <= Duration::zero() {
-            return false;
-        }
-
-        // First, figure out what time it currently is, in both system and stable time.
-        // pthread_cond_timedwait uses system time, but we want to report timeout based on stable
-        // time.
+        // First, figure out what time it currently is, in both system and
+        // stable time.  pthread_cond_timedwait uses system time, but we want to
+        // report timeout based on stable time.
         let mut sys_now = libc::timeval { tv_sec: 0, tv_usec: 0 };
         let stable_now = time::SteadyTime::now();
         let r = ffi::gettimeofday(&mut sys_now, ptr::null_mut());
         debug_assert_eq!(r, 0);
 
-        let seconds = NumCast::from(dur.num_seconds());
-        let timeout = match seconds.and_then(|s| sys_now.tv_sec.checked_add(s)) {
+        let seconds = dur.secs() as libc::time_t;
+        let timeout = match sys_now.tv_sec.checked_add(seconds) {
             Some(sec) => {
                 libc::timespec {
                     tv_sec: sec,
-                    tv_nsec: (dur - Duration::seconds(dur.num_seconds()))
-                        .num_nanoseconds().unwrap() as libc::c_long,
+                    tv_nsec: dur.extra_nanos() as libc::c_long,
                 }
             }
             None => {
                 libc::timespec {
-                    tv_sec: Int::max_value(),
+                    tv_sec: <libc::time_t>::max_value(),
                     tv_nsec: 1_000_000_000 - 1,
                 }
             }
         };
 
         // And wait!
-        let r = ffi::pthread_cond_timedwait(self.inner.get(), mutex::raw(mutex), &timeout);
+        let r = ffi::pthread_cond_timedwait(self.inner.get(), mutex::raw(mutex),
+                                            &timeout);
         debug_assert!(r == libc::ETIMEDOUT || r == 0);
 
-        // ETIMEDOUT is not a totally reliable method of determining timeout due to clock shifts,
-        // so do the check ourselves
+        // ETIMEDOUT is not a totally reliable method of determining timeout due
+        // to clock shifts, so do the check ourselves
         &time::SteadyTime::now() - &stable_now < dur
     }
 

@@ -7,8 +7,6 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
-//
-// ignore-lexer-test FIXME #15679
 
 #[test]
 fn test_is_lowercase() {
@@ -210,6 +208,7 @@ fn test_len_utf16() {
     assert!('\u{1f4a9}'.len_utf16() == 2);
 }
 
+#[allow(deprecated)]
 #[test]
 fn test_width() {
     assert_eq!('\x00'.width(false),Some(0));

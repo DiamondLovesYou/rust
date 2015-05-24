@@ -6,16 +6,16 @@ or a Mac, all you need to do is this (note that you don't need to type in the
 `$`s, they just indicate the start of each command):
 
 ```bash
-$ curl -sf -L https://static.rust-lang.org/rustup.sh | sudo sh
+$ curl -sf -L https://static.rust-lang.org/rustup.sh | sh
 ```
 
 If you're concerned about the [potential insecurity][insecurity] of using `curl
-| sudo sh`, please keep reading and see our disclaimer below. And feel free to
+| sh`, please keep reading and see our disclaimer below. And feel free to
 use a two-step version of the installation and examine our installation script:
 
 ```bash
 $ curl -f -L https://static.rust-lang.org/rustup.sh -O
-$ sudo sh rustup.sh
+$ sh rustup.sh
 ```
 
 [insecurity]: http://curlpipesh.tumblr.com
@@ -23,8 +23,8 @@ $ sudo sh rustup.sh
 If you're on Windows, please download either the [32-bit installer][win32] or
 the [64-bit installer][win64] and run it.
 
-[win32]: https://static.rust-lang.org/dist/rust-1.0.0-beta-i686-pc-windows-gnu.msi
-[win64]: https://static.rust-lang.org/dist/rust-1.0.0-beta-x86_64-pc-windows-gnu.msi
+[win32]: https://static.rust-lang.org/dist/rust-1.0.0-i686-pc-windows-gnu.msi
+[win64]: https://static.rust-lang.org/dist/rust-1.0.0-x86_64-pc-windows-gnu.msi
 
 ## Uninstalling
 
@@ -40,13 +40,11 @@ If you used the Windows installer, just re-run the `.msi` and it will give you
 an uninstall option.
 
 Some people, and somewhat rightfully so, get very upset when we tell you to
-`curl | sudo sh`. Basically, when you do this, you are trusting that the good
+`curl | sh`. Basically, when you do this, you are trusting that the good
 people who maintain Rust aren't going to hack your computer and do bad things.
 That's a good instinct! If you're one of those people, please check out the
 documentation on [building Rust from Source][from source], or [the official
-binary downloads][install page]. And we promise that this method will not be
-the way to install Rust forever: it's just the easiest way to keep people
-updated while Rust is in its alpha state.
+binary downloads][install page].
 
 [from source]: https://github.com/rust-lang/rust#building-from-source
 [install page]: http://www.rust-lang.org/install.html
@@ -76,7 +74,7 @@ $ rustc --version
 You should see the version number, commit hash, commit date and build date:
 
 ```bash
-rustc 1.0.0-beta (9854143cb 2015-04-02) (built 2015-04-02)
+rustc 1.0.0 (a59de37e9 2015-05-13) (built 2015-05-14)
 ```
 
 If you did, Rust has been installed successfully! Congrats!
@@ -91,9 +89,9 @@ If not, there are a number of places where you can get help. The easiest is
 [Mibbit][mibbit]. Click that link, and you'll be chatting with other Rustaceans
 (a silly nickname we call ourselves), and we can help you out. Other great
 resources include [the user’s forum][users], and
-[Stack Overflow][stack overflow].
+[Stack Overflow][stackoverflow].
 
 [irc]: irc://irc.mozilla.org/#rust
 [mibbit]: http://chat.mibbit.com/?server=irc.mozilla.org&channel=%23rust
 [users]: http://users.rust-lang.org/ 
-[stack overflow]: http://stackoverflow.com/questions/tagged/rust
+[stackoverflow]: http://stackoverflow.com/questions/tagged/rust

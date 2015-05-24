@@ -7,8 +7,6 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
-//
-// ignore-lexer-test FIXME #15883
 
 use self::Entry::*;
 use self::SearchResult::*;
@@ -207,15 +205,16 @@ fn test_resize_policy() {
 /// A hash map implementation which uses linear probing with Robin
 /// Hood bucket stealing.
 ///
-/// The hashes are all keyed by the task-local random number generator
+/// The hashes are all keyed by the thread-local random number generator
 /// on creation by default. This means that the ordering of the keys is
 /// randomized, but makes the tables more resistant to
 /// denial-of-service attacks (Hash DoS). This behaviour can be
 /// overridden with one of the constructors.
 ///
 /// It is required that the keys implement the `Eq` and `Hash` traits, although
-/// this can frequently be achieved by using `#[derive(Eq, Hash)]`. If you
-/// implement these yourself, it is important that the following property holds:
+/// this can frequently be achieved by using `#[derive(PartialEq, Eq, Hash)]`.
+/// If you implement these yourself, it is important that the following
+/// property holds:
 ///
 /// ```text
 /// k1 == k2 -> hash(k1) == hash(k2)
@@ -252,26 +251,26 @@ fn test_resize_policy() {
 /// book_reviews.insert("The Adventures of Sherlock Holmes", "Eye lyked it alot.");
 ///
 /// // check for a specific one.
-/// if !book_reviews.contains_key(&("Les Misérables")) {
+/// if !book_reviews.contains_key("Les Misérables") {
 ///     println!("We've got {} reviews, but Les Misérables ain't one.",
 ///              book_reviews.len());
 /// }
 ///
 /// // oops, this review has a lot of spelling mistakes, let's delete it.
-/// book_reviews.remove(&("The Adventures of Sherlock Holmes"));
+/// book_reviews.remove("The Adventures of Sherlock Holmes");
 ///
 /// // look up the values associated with some keys.
 /// let to_find = ["Pride and Prejudice", "Alice's Adventure in Wonderland"];
-/// for book in to_find.iter() {
+/// for book in &to_find {
 ///     match book_reviews.get(book) {
-///         Some(review) => println!("{}: {}", *book, *review),
-///         None => println!("{} is unreviewed.", *book)
+///         Some(review) => println!("{}: {}", book, review),
+///         None => println!("{} is unreviewed.", book)
 ///     }
 /// }
 ///
 /// // iterate over everything.
-/// for (book, review) in book_reviews.iter() {
-///     println!("{}: \"{}\"", *book, *review);
+/// for (book, review) in &book_reviews {
+///     println!("{}: \"{}\"", book, review);
 /// }
 /// ```
 ///
@@ -302,7 +301,7 @@ fn test_resize_policy() {
 /// vikings.insert(Viking::new("Harald", "Iceland"), 12);
 ///
 /// // Use derived implementation to print the status of the vikings.
-/// for (viking, health) in vikings.iter() {
+/// for (viking, health) in &vikings {
 ///     println!("{:?} has {} hp", viking, health);
 /// }
 /// ```
@@ -540,7 +539,7 @@ impl<K, V, S> HashMap<K, V, S>
 {
     /// Creates an empty hashmap which will use the given hasher to hash keys.
     ///
-    /// The creates map has the default initial capacity.
+    /// The created map has the default initial capacity.
     ///
     /// # Examples
     ///
@@ -916,34 +915,25 @@ impl<K, V, S> HashMap<K, V, S>
         IterMut { inner: self.table.iter_mut() }
     }
 
-    /// Creates a consuming iterator, that is, one that moves each key-value
-    /// pair out of the map in arbitrary order. The map cannot be used after
-    /// calling this.
+    /// Gets the given key's corresponding entry in the map for in-place manipulation.
     ///
     /// # Examples
     ///
     /// ```
     /// use std::collections::HashMap;
     ///
-    /// let mut map = HashMap::new();
-    /// map.insert("a", 1);
-    /// map.insert("b", 2);
-    /// map.insert("c", 3);
+    /// let mut letters = HashMap::new();
     ///
-    /// // Not possible with .iter()
-    /// let vec: Vec<(&str, isize)> = map.into_iter().collect();
+    /// for ch in "a short treatise on fungi".chars() {
+    ///     let counter = letters.entry(ch).or_insert(0);
+    ///     *counter += 1;
+    /// }
+    ///
+    /// assert_eq!(letters[&'s'], 2);
+    /// assert_eq!(letters[&'t'], 3);
+    /// assert_eq!(letters[&'u'], 1);
+    /// assert_eq!(letters.get(&'y'), None);
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn into_iter(self) -> IntoIter<K, V> {
-        fn last_two<A, B, C>((_, b, c): (A, B, C)) -> (B, C) { (b, c) }
-        let last_two: fn((SafeHash, K, V)) -> (K, V) = last_two;
-
-        IntoIter {
-            inner: self.table.into_iter().map(last_two)
-        }
-    }
-
-    /// Gets the given key's corresponding entry in the map for in-place manipulation.
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn entry(&mut self, key: K) -> Entry<K, V> {
         // Gotta resize now.
@@ -1094,9 +1084,8 @@ impl<K, V, S> HashMap<K, V, S>
     ///
     /// let mut map = HashMap::new();
     /// map.insert(1, "a");
-    /// match map.get_mut(&1) {
-    ///     Some(x) => *x = "b",
-    ///     None => (),
+    /// if let Some(x) = map.get_mut(&1) {
+    ///     *x = "b";
     /// }
     /// assert_eq!(map[&1], "b");
     /// ```
@@ -1233,7 +1222,7 @@ impl<K, V, S> Debug for HashMap<K, V, S>
     where K: Eq + Hash + Debug, V: Debug, S: HashState
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.iter().fold(f.debug_map(), |b, (k, v)| b.entry(k, v)).finish()
+        f.debug_map().entries(self.iter()).finish()
     }
 }
 
@@ -1391,8 +1380,30 @@ impl<K, V, S> IntoIterator for HashMap<K, V, S>
     type Item = (K, V);
     type IntoIter = IntoIter<K, V>;
 
+    /// Creates a consuming iterator, that is, one that moves each key-value
+    /// pair out of the map in arbitrary order. The map cannot be used after
+    /// calling this.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    ///
+    /// let mut map = HashMap::new();
+    /// map.insert("a", 1);
+    /// map.insert("b", 2);
+    /// map.insert("c", 3);
+    ///
+    /// // Not possible with .iter()
+    /// let vec: Vec<(&str, isize)> = map.into_iter().collect();
+    /// ```
     fn into_iter(self) -> IntoIter<K, V> {
-        self.into_iter()
+        fn last_two<A, B, C>((_, b, c): (A, B, C)) -> (B, C) { (b, c) }
+        let last_two: fn((SafeHash, K, V)) -> (K, V) = last_two;
+
+        IntoIter {
+            inner: self.table.into_iter().map(last_two)
+        }
     }
 }
 
@@ -1469,7 +1480,6 @@ impl<'a, K, V> ExactSizeIterator for Drain<'a, K, V> {
 }
 
 impl<'a, K, V> Entry<'a, K, V> {
-    /// Returns a mutable reference to the entry if occupied, or the VacantEntry if vacant.
     #[unstable(feature = "std_misc",
                reason = "will soon be replaced by or_insert")]
     #[deprecated(since = "1.0",
@@ -1609,13 +1619,13 @@ impl RandomState {
            reason = "hashing an hash maps may be altered")]
 impl HashState for RandomState {
     type Hasher = SipHasher;
+    #[inline]
     fn hasher(&self) -> SipHasher {
         SipHasher::new_with_keys(self.k0, self.k1)
     }
 }
 
-#[unstable(feature = "std_misc",
-           reason = "hashing an hash maps may be altered")]
+#[stable(feature = "rust1", since = "1.0.0")]
 impl Default for RandomState {
     #[inline]
     fn default() -> RandomState {
@@ -1629,7 +1639,7 @@ mod test_map {
 
     use super::HashMap;
     use super::Entry::{Occupied, Vacant};
-    use iter::{range_inclusive, range_step_inclusive, repeat};
+    use iter::{range_inclusive, repeat};
     use cell::RefCell;
     use rand::{thread_rng, Rng};
 
@@ -1865,7 +1875,7 @@ mod test_map {
             }
 
             // remove backwards
-            for i in range_step_inclusive(1000, 1, -1) {
+            for i in (1..1001).rev() {
                 assert!(m.remove(&i).is_some());
 
                 for j in range_inclusive(i, 1000) {

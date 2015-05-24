@@ -145,9 +145,6 @@ LLVMRustCreateTargetMachine(const char *triple,
     TargetOptions Options;
     Options.PositionIndependentExecutable = PositionIndependentExecutable;
     Options.NoFramePointerElim = NoFramePointerElim;
-#if LLVM_VERSION_MINOR < 5
-    Options.EnableSegmentedStacks = EnableSegmentedStacks;
-#endif
     Options.FloatABIType = FloatABI::Default;
     Options.UseSoftFloat = UseSoftFloat;
     if (UseSoftFloat) {
@@ -182,10 +179,8 @@ LLVMRustAddAnalysisPasses(LLVMTargetMachineRef TM,
     PassManagerBase *PM = unwrap(PMR);
 #if LLVM_VERSION_MINOR >= 6
     PM->add(new DataLayoutPass());
-#elif LLVM_VERSION_MINOR == 5
-    PM->add(new DataLayoutPass(unwrap(M)));
 #else
-    PM->add(new DataLayout(unwrap(M)));
+    PM->add(new DataLayoutPass(unwrap(M)));
 #endif
     if(TM != NULL) {
       unwrap(TM)->addAnalysisPasses(*PM);
@@ -258,10 +253,8 @@ LLVMRustWriteOutputFile(LLVMTargetMachineRef Target,
   raw_fd_ostream OS(path, EC, sys::fs::F_None);
   if (EC)
     ErrorInfo = EC.message();
-#elif LLVM_VERSION_MINOR >= 4
-  raw_fd_ostream OS(path, ErrorInfo, sys::fs::F_None);
 #else
-  raw_fd_ostream OS(path, ErrorInfo, raw_fd_ostream::F_Binary);
+  raw_fd_ostream OS(path, ErrorInfo, sys::fs::F_None);
 #endif
   if (ErrorInfo != "") {
     LLVMRustSetLastError(ErrorInfo.c_str());
@@ -286,19 +279,13 @@ LLVMRustPrintModule(LLVMPassManagerRef PMR,
   raw_fd_ostream OS(path, EC, sys::fs::F_None);
   if (EC)
     ErrorInfo = EC.message();
-#elif LLVM_VERSION_MINOR >= 4
-  raw_fd_ostream OS(path, ErrorInfo, sys::fs::F_None);
 #else
-  raw_fd_ostream OS(path, ErrorInfo, raw_fd_ostream::F_Binary);
+  raw_fd_ostream OS(path, ErrorInfo, sys::fs::F_None);
 #endif
 
   formatted_raw_ostream FOS(OS);
 
-#if LLVM_VERSION_MINOR >= 5
   PM->add(createPrintModulePass(FOS));
-#else
-  PM->add(createPrintModulePass(&FOS));
-#endif
 
   PM->run(*unwrap(M));
 }

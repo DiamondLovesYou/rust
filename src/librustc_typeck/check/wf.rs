@@ -9,8 +9,8 @@
 // except according to those terms.
 
 use astconv::AstConv;
-use check::{FnCtxt, Inherited, blank_fn_ctxt, vtable, regionck};
-use constrained_type_params::identify_constrained_type_params;
+use check::{FnCtxt, Inherited, blank_fn_ctxt, regionck};
+use constrained_type_params::{identify_constrained_type_params, Parameter};
 use CrateCtxt;
 use middle::region;
 use middle::subst::{self, TypeSpace, FnSpace, ParamSpace, SelfSpace};
@@ -151,7 +151,7 @@ impl<'ccx, 'tcx> CheckTypeWellFormedVisitor<'ccx, 'tcx> {
         let inh = Inherited::new(ccx.tcx, param_env);
         let fcx = blank_fn_ctxt(ccx, &inh, ty::FnConverging(type_scheme.ty), item.id);
         f(self, &fcx);
-        vtable::select_all_fcx_obligations_or_error(&fcx);
+        fcx.select_all_obligations_or_error();
         regionck::regionck_item(&fcx, item);
     }
 
@@ -252,7 +252,7 @@ impl<'ccx, 'tcx> CheckTypeWellFormedVisitor<'ccx, 'tcx> {
             // trait reference. Instead, this is done at the impl site.
             // Arguably this is wrong and we should treat the trait-reference
             // the same way as we treat the self-type.
-            bounds_checker.check_trait_ref(&*trait_ref);
+            bounds_checker.check_trait_ref(&trait_ref);
 
             let cause =
                 traits::ObligationCause::new(
@@ -287,10 +287,11 @@ impl<'ccx, 'tcx> CheckTypeWellFormedVisitor<'ccx, 'tcx> {
 
         let mut constrained_parameters: HashSet<_> =
             variances.types
-            .iter_enumerated()
-            .filter(|&(_, _, &variance)| variance != ty::Bivariant)
-            .map(|(space, index, _)| self.param_ty(ast_generics, space, index))
-            .collect();
+                     .iter_enumerated()
+                     .filter(|&(_, _, &variance)| variance != ty::Bivariant)
+                     .map(|(space, index, _)| self.param_ty(ast_generics, space, index))
+                     .map(|p| Parameter::Type(p))
+                     .collect();
 
         identify_constrained_type_params(self.tcx(),
                                          ty_predicates.predicates.as_slice(),
@@ -299,7 +300,7 @@ impl<'ccx, 'tcx> CheckTypeWellFormedVisitor<'ccx, 'tcx> {
 
         for (space, index, _) in variances.types.iter_enumerated() {
             let param_ty = self.param_ty(ast_generics, space, index);
-            if constrained_parameters.contains(&param_ty) {
+            if constrained_parameters.contains(&Parameter::Type(param_ty)) {
                 continue;
             }
             let span = self.ty_param_span(ast_generics, item, space, index);

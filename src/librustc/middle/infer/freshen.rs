@@ -37,7 +37,7 @@ use middle::ty_fold::TypeFolder;
 use std::collections::hash_map::{self, Entry};
 
 use super::InferCtxt;
-use super::unify::ToType;
+use super::unify_key::ToType;
 
 pub struct TypeFreshener<'a, 'tcx:'a> {
     infcx: &'a InferCtxt<'a, 'tcx>,
@@ -129,11 +129,12 @@ impl<'a, 'tcx> TypeFolder<'tcx> for TypeFreshener<'a, 'tcx> {
                                                       .probe(v)
                                                       .map(|v| v.to_type(tcx)),
                     ty::FloatVar(v),
-                    ty::FreshIntTy)
+                    ty::FreshFloatTy)
             }
 
             ty::ty_infer(ty::FreshTy(c)) |
-            ty::ty_infer(ty::FreshIntTy(c)) => {
+            ty::ty_infer(ty::FreshIntTy(c)) |
+            ty::ty_infer(ty::FreshFloatTy(c)) => {
                 if c >= self.freshen_count {
                     tcx.sess.bug(
                         &format!("Encountered a freshend type with id {} \

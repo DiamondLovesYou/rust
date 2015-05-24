@@ -7,8 +7,6 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
-//
-// ignore-lexer-test FIXME #15679
 
 //! String manipulation
 //!
@@ -23,11 +21,11 @@ use self::pattern::{Searcher, ReverseSearcher, DoubleEndedSearcher};
 use char::CharExt;
 use clone::Clone;
 use cmp::{self, Eq};
+use convert::AsRef;
 use default::Default;
 use fmt;
 use iter::ExactSizeIterator;
 use iter::{Map, Iterator, DoubleEndedIterator};
-use marker::Sized;
 use mem;
 use ops::{Fn, FnMut, FnOnce};
 use option::Option::{self, None, Some};
@@ -46,8 +44,11 @@ pub trait FromStr {
     #[stable(feature = "rust1", since = "1.0.0")]
     type Err;
 
-    /// Parses a string `s` to return an optional value of this type. If the
-    /// string is ill-formatted, the None is returned.
+    /// Parses a string `s` to return a value of this type.
+    ///
+    /// If parsing succeeds, return the value inside `Ok`, otherwise
+    /// when the string is ill-formatted return an error specific to the
+    /// inside `Err`. The error type is specific to implementation of the trait.
     #[stable(feature = "rust1", since = "1.0.0")]
     fn from_str(s: &str) -> Result<Self, Self::Err>;
 }
@@ -139,6 +140,7 @@ pub fn from_utf8(v: &[u8]) -> Result<&str, Utf8Error> {
 
 /// Converts a slice of bytes to a string slice without checking
 /// that the string contains valid UTF-8.
+#[inline(always)]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub unsafe fn from_utf8_unchecked<'a>(v: &'a [u8]) -> &'a str {
     mem::transmute(v)
@@ -341,7 +343,7 @@ impl<'a> DoubleEndedIterator for CharIndices<'a> {
 /// External iterator for a string's bytes.
 /// Use with the `std::iter` module.
 ///
-/// Created with `str::bytes`
+/// Created with the method `.bytes()`.
 #[stable(feature = "rust1", since = "1.0.0")]
 #[derive(Clone)]
 pub struct Bytes<'a>(Map<slice::Iter<'a, u8>, BytesDeref>);
@@ -423,7 +425,7 @@ macro_rules! derive_pattern_clone {
 /// wrapping an private internal one that makes use of the `Pattern` API.
 ///
 /// For all patterns `P: Pattern<'a>` the following items will be
-/// generated (generics ommitted):
+/// generated (generics omitted):
 ///
 /// struct $forward_iterator($internal_iterator);
 /// struct $reverse_iterator($internal_iterator);
@@ -636,10 +638,10 @@ impl<'a, P: Pattern<'a>> SplitInternal<'a, P> {
 
 generate_pattern_iterators! {
     forward:
-        /// Return type of `str::split()`
+        /// Created with the method `.split()`.
         struct Split;
     reverse:
-        /// Return type of `str::rsplit()`
+        /// Created with the method `.rsplit()`.
         struct RSplit;
     stability:
         #[stable(feature = "rust1", since = "1.0.0")]
@@ -650,10 +652,10 @@ generate_pattern_iterators! {
 
 generate_pattern_iterators! {
     forward:
-        /// Return type of `str::split_terminator()`
+        /// Created with the method `.split_terminator()`.
         struct SplitTerminator;
     reverse:
-        /// Return type of `str::rsplit_terminator()`
+        /// Created with the method `.rsplit_terminator()`.
         struct RSplitTerminator;
     stability:
         #[stable(feature = "rust1", since = "1.0.0")]
@@ -696,10 +698,10 @@ impl<'a, P: Pattern<'a>> SplitNInternal<'a, P> {
 
 generate_pattern_iterators! {
     forward:
-        /// Return type of `str::splitn()`
+        /// Created with the method `.splitn()`.
         struct SplitN;
     reverse:
-        /// Return type of `str::rsplitn()`
+        /// Created with the method `.rsplitn()`.
         struct RSplitN;
     stability:
         #[stable(feature = "rust1", since = "1.0.0")]
@@ -730,10 +732,10 @@ impl<'a, P: Pattern<'a>> MatchIndicesInternal<'a, P> {
 
 generate_pattern_iterators! {
     forward:
-        /// Return type of `str::match_indices()`
+        /// Created with the method `.match_indices()`.
         struct MatchIndices;
     reverse:
-        /// Return type of `str::rmatch_indices()`
+        /// Created with the method `.rmatch_indices()`.
         struct RMatchIndices;
     stability:
         #[unstable(feature = "core",
@@ -771,10 +773,10 @@ impl<'a, P: Pattern<'a>> MatchesInternal<'a, P> {
 
 generate_pattern_iterators! {
     forward:
-        /// Return type of `str::matches()`
+        /// Created with the method `.matches()`.
         struct Matches;
     reverse:
-        /// Return type of `str::rmatches()`
+        /// Created with the method `.rmatches()`.
         struct RMatches;
     stability:
         #[unstable(feature = "core", reason = "type got recently added")]
@@ -783,7 +785,7 @@ generate_pattern_iterators! {
     delegate double ended;
 }
 
-/// Return type of `str::lines()`
+/// Created with the method `.lines()`.
 #[stable(feature = "rust1", since = "1.0.0")]
 #[derive(Clone)]
 pub struct Lines<'a>(SplitTerminator<'a, char>);
@@ -811,7 +813,7 @@ impl<'a> DoubleEndedIterator for Lines<'a> {
     }
 }
 
-/// Return type of `str::lines_any()`
+/// Created with the method `.lines_any()`.
 #[stable(feature = "rust1", since = "1.0.0")]
 #[derive(Clone)]
 pub struct LinesAny<'a>(Map<Lines<'a>, LinesAnyMap>);
@@ -1186,7 +1188,7 @@ fn eq_slice_(a: &str, b: &str) -> bool {
 /// Bytewise slice equality
 /// NOTE: This function is (ab)used in rustc::middle::trans::_match
 /// to compare &[u8] byte slices that are not necessarily valid UTF-8.
-#[lang="str_eq"]
+#[lang = "str_eq"]
 #[inline]
 fn eq_slice(a: &str, b: &str) -> bool {
     eq_slice_(a, b)
@@ -1463,30 +1465,6 @@ mod traits {
             self
         }
     }
-}
-
-/// Any string that can be represented as a slice
-#[unstable(feature = "core",
-           reason = "Instead of taking this bound generically, this trait will be \
-                     replaced with one of slicing syntax (&foo[..]), deref coercions, or \
-                     a more generic conversion trait")]
-#[deprecated(since = "1.0.0",
-             reason = "use std::convert::AsRef<str> instead")]
-pub trait Str {
-    /// Work with `self` as a slice.
-    fn as_slice<'a>(&'a self) -> &'a str;
-}
-
-#[allow(deprecated)]
-impl Str for str {
-    #[inline]
-    fn as_slice<'a>(&'a self) -> &'a str { self }
-}
-
-#[allow(deprecated)]
-impl<'a, S: ?Sized> Str for &'a S where S: Str {
-    #[inline]
-    fn as_slice(&self) -> &str { Str::as_slice(*self) }
 }
 
 /// Methods for string slices
@@ -1866,6 +1844,14 @@ impl StrExt for str {
 
     #[inline]
     fn parse<T: FromStr>(&self) -> Result<T, T::Err> { FromStr::from_str(self) }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+impl AsRef<[u8]> for str {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
 }
 
 /// Pluck a code point out of a UTF-8-like byte slice and return the

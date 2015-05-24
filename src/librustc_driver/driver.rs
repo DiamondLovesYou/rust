@@ -52,11 +52,11 @@ pub fn compile_input(sess: Session,
                      output: &Option<PathBuf>,
                      addl_plugins: Option<Vec<String>>,
                      control: CompileController) {
-    macro_rules! controller_entry_point{($point: ident, $make_state: expr) => ({
-        {
-            let state = $make_state;
-            (control.$point.callback)(state);
-        }
+    macro_rules! controller_entry_point{($point: ident, $tsess: expr, $make_state: expr) => ({
+        let state = $make_state;
+        (control.$point.callback)(state);
+
+        $tsess.abort_if_errors();
         if control.$point.stop == Compilation::Stop {
             return;
         }
@@ -70,6 +70,7 @@ pub fn compile_input(sess: Session,
             let krate = phase_1_parse_input(&sess, cfg, input);
 
             controller_entry_point!(after_parse,
+                                    sess,
                                     CompileState::state_after_parse(input,
                                                                     &sess,
                                                                     outdir,
@@ -96,6 +97,7 @@ pub fn compile_input(sess: Session,
         };
 
         controller_entry_point!(after_expand,
+                                sess,
                                 CompileState::state_after_expand(input,
                                                                  &sess,
                                                                  outdir,
@@ -109,6 +111,7 @@ pub fn compile_input(sess: Session,
         write_out_deps(&sess, input, &outputs, &id[..]);
 
         controller_entry_point!(after_write_deps,
+                                sess,
                                 CompileState::state_after_write_deps(input,
                                                                      &sess,
                                                                      outdir,
@@ -123,6 +126,7 @@ pub fn compile_input(sess: Session,
                                                    control.make_glob_map);
 
         controller_entry_point!(after_analysis,
+                                analysis.ty_cx.sess,
                                 CompileState::state_after_analysis(input,
                                                                    &analysis.ty_cx.sess,
                                                                    outdir,
@@ -149,6 +153,7 @@ pub fn compile_input(sess: Session,
     if !sess.targeting_pnacl() {
         phase_5_run_llvm_passes(&sess, &mut trans, &outputs);
         controller_entry_point!(after_llvm,
+                            sess,
                             CompileState::state_after_llvm(input,
                                                            &sess,
                                                            outdir,
@@ -385,17 +390,8 @@ pub fn phase_2_configure_and_expand(sess: &Session,
                                     -> Option<ast::Crate> {
     let time_passes = sess.time_passes();
 
-    *sess.crate_types.borrow_mut() =
-        collect_crate_types(sess, &krate.attrs);
-    *sess.crate_metadata.borrow_mut() =
-        collect_crate_metadata(sess, &krate.attrs);
-
-    time(time_passes, "recursion limit", (), |_| {
-        middle::recursion_limit::update_recursion_limit(sess, &krate);
-    });
-
-    // strip before expansion to allow macros to depend on
-    // configuration variables e.g/ in
+    // strip before anything else because crate metadata may use #[cfg_attr]
+    // and so macros can depend on configuration variables, such as
     //
     //   #[macro_use] #[cfg(foo)]
     //   mod bar { macro_rules! baz!(() => {{}}) }
@@ -404,6 +400,15 @@ pub fn phase_2_configure_and_expand(sess: &Session,
 
     krate = time(time_passes, "configuration 1", krate, |krate|
                  syntax::config::strip_unconfigured_items(sess.diagnostic(), krate));
+
+    *sess.crate_types.borrow_mut() =
+        collect_crate_types(sess, &krate.attrs);
+    *sess.crate_metadata.borrow_mut() =
+        collect_crate_metadata(sess, &krate.attrs);
+
+    time(time_passes, "recursion limit", (), |_| {
+        middle::recursion_limit::update_recursion_limit(sess, &krate);
+    });
 
     time(time_passes, "gated macro checking", (), |_| {
         let features =
@@ -481,7 +486,8 @@ pub fn phase_2_configure_and_expand(sess: &Session,
             let mut _old_path = OsString::new();
             if cfg!(windows) {
                 _old_path = env::var_os("PATH").unwrap_or(_old_path);
-                let mut new_path = sess.host_filesearch(PathKind::All).get_dylib_search_paths();
+                let mut new_path = sess.host_filesearch(PathKind::All)
+                                       .get_dylib_search_paths();
                 new_path.extend(env::split_paths(&_old_path));
                 env::set_var("PATH", &env::join_paths(new_path.iter()).unwrap());
             }
@@ -490,6 +496,7 @@ pub fn phase_2_configure_and_expand(sess: &Session,
                 crate_name: crate_name.to_string(),
                 features: Some(&features),
                 recursion_limit: sess.recursion_limit.get(),
+                trace_mac: sess.opts.debugging_opts.trace_macros,
             };
             let ret = syntax::ext::expand::expand_crate(&sess.parse_sess,
                                               cfg,
@@ -879,11 +886,8 @@ pub fn collect_crate_types(session: &Session,
                     None
                 }
                 _ => {
-                    session.add_lint(lint::builtin::UNKNOWN_CRATE_TYPES,
-                                     ast::CRATE_NODE_ID,
-                                     a.span,
-                                     "`crate_type` requires a \
-                                      value".to_string());
+                    session.span_err(a.span, "`crate_type` requires a value");
+                    session.note("for example: `#![crate_type=\"lib\"]`");
                     None
                 }
             }

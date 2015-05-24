@@ -8,7 +8,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![feature(std_misc, old_path)]
+#![feature(std_misc)]
+
+// We're testing linkage visibility; the compiler warns us, but we want to
+// do the runtime check that these functions aren't exported.
+#![allow(private_no_mangle_fns)]
 
 use std::dynamic_lib::DynamicLibrary;
 
@@ -25,6 +29,7 @@ pub fn foo2<T>() {
 #[no_mangle]
 fn bar() { }
 
+#[allow(dead_code)]
 #[no_mangle]
 fn baz() { }
 

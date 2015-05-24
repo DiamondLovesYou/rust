@@ -17,23 +17,23 @@ use prelude::v1::*;
 use ffi::{OsStr, OsString};
 use io::{self, ErrorKind};
 use libc;
-#[allow(deprecated)]
-use num::Int;
+use num::Zero;
 use os::windows::ffi::{OsStrExt, OsStringExt};
 use path::PathBuf;
+use time::Duration;
 
 pub mod backtrace;
 pub mod c;
 pub mod condvar;
 pub mod ext;
-pub mod fs2;
+pub mod fs;
 pub mod handle;
 pub mod mutex;
 pub mod net;
 pub mod os;
 pub mod os_str;
-pub mod pipe2;
-pub mod process2;
+pub mod pipe;
+pub mod process;
 pub mod rwlock;
 pub mod stack_overflow;
 pub mod sync;
@@ -144,13 +144,33 @@ pub fn truncate_utf16_at_nul<'a>(v: &'a [u16]) -> &'a [u16] {
     }
 }
 
-#[allow(deprecated)]
-fn cvt<I: Int>(i: I) -> io::Result<I> {
-    if i == Int::zero() {
+fn cvt<I: PartialEq + Zero>(i: I) -> io::Result<I> {
+    if i == I::zero() {
         Err(io::Error::last_os_error())
     } else {
         Ok(i)
     }
+}
+
+fn dur2timeout(dur: Duration) -> libc::DWORD {
+    // Note that a duration is a (u64, u32) (seconds, nanoseconds) pair, and the
+    // timeouts in windows APIs are typically u32 milliseconds. To translate, we
+    // have two pieces to take care of:
+    //
+    // * Nanosecond precision is rounded up
+    // * Greater than u32::MAX milliseconds (50 days) is rounded up to INFINITE
+    //   (never time out).
+    dur.secs().checked_mul(1000).and_then(|ms| {
+        ms.checked_add((dur.extra_nanos() as u64) / 1_000_000)
+    }).and_then(|ms| {
+        ms.checked_add(if dur.extra_nanos() % 1_000_000 > 0 {1} else {0})
+    }).map(|ms| {
+        if ms > <libc::DWORD>::max_value() as u64 {
+            libc::INFINITE
+        } else {
+            ms as libc::DWORD
+        }
+    }).unwrap_or(libc::INFINITE)
 }
 
 fn ms_to_filetime(ms: u64) -> libc::FILETIME {

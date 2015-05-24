@@ -22,7 +22,7 @@
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-      html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+      html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
       html_root_url = "http://doc.rust-lang.org/nightly/")]
 
 #![feature(box_syntax)]
@@ -31,11 +31,9 @@
 #![feature(quote)]
 #![feature(rustc_diagnostic_macros)]
 #![feature(rustc_private)]
-#![feature(unsafe_destructor)]
 #![feature(staged_api)]
 #![feature(exit_status)]
 #![feature(set_stdio)]
-#![feature(unicode)]
 
 extern crate arena;
 extern crate flate;
@@ -404,7 +402,7 @@ impl RustcDefaultCalls {
                 &Input::File(ref ifile) => {
                     let path = &(*ifile);
                     let mut v = Vec::new();
-                    metadata::loader::list_file_metadata(sess.target.target.options.is_like_osx,
+                    metadata::loader::list_file_metadata(&sess.target.target,
                                                          path,
                                                          &mut v).unwrap();
                     println!("{}", String::from_utf8(v).unwrap());
@@ -574,7 +572,7 @@ Available lint options:
     let builtin_groups = sort_lint_groups(builtin_groups);
 
     let max_name_len = plugin.iter().chain(builtin.iter())
-        .map(|&s| s.name.width(true))
+        .map(|&s| s.name.chars().count())
         .max().unwrap_or(0);
     let padded = |x: &str| {
         let mut s = repeat(" ").take(max_name_len - x.chars().count())
@@ -601,7 +599,7 @@ Available lint options:
 
 
     let max_name_len = plugin_groups.iter().chain(builtin_groups.iter())
-        .map(|&(s, _)| s.width(true))
+        .map(|&(s, _)| s.chars().count())
         .max().unwrap_or(0);
     let padded = |x: &str| {
         let mut s = repeat(" ").take(max_name_len - x.chars().count())
@@ -790,7 +788,6 @@ fn parse_crate_attrs(sess: &Session, input: &Input) ->
 ///
 /// The diagnostic emitter yielded to the procedure should be used for reporting
 /// errors of the compiler.
-#[allow(deprecated)]
 pub fn monitor<F:FnOnce()+Send+'static>(f: F) {
     const STACK_SIZE: usize = 8 * 1024 * 1024; // 8MB
 
@@ -855,10 +852,11 @@ pub fn monitor<F:FnOnce()+Send+'static>(f: F) {
 pub fn diagnostics_registry() -> diagnostics::registry::Registry {
     use syntax::diagnostics::registry::Registry;
 
-    let all_errors = Vec::new() +
-        &rustc::diagnostics::DIAGNOSTICS[..] +
-        &rustc_typeck::diagnostics::DIAGNOSTICS[..] +
-        &rustc_resolve::diagnostics::DIAGNOSTICS[..];
+    let mut all_errors = Vec::new();
+    all_errors.push_all(&rustc::DIAGNOSTICS);
+    all_errors.push_all(&rustc_typeck::DIAGNOSTICS);
+    all_errors.push_all(&rustc_borrowck::DIAGNOSTICS);
+    all_errors.push_all(&rustc_resolve::DIAGNOSTICS);
 
     Registry::new(&*all_errors)
 }

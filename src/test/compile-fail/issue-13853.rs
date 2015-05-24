@@ -8,9 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::marker::MarkerTrait;
-
-trait Node : MarkerTrait {
+trait Node {
     fn zomg();
 }
 
@@ -33,7 +31,7 @@ impl Node for Stuff {
 }
 
 fn iterate<N: Node, G: Graph<N>>(graph: &G) {
-    for node in graph.iter() { //~ ERROR does not implement any method in scope named
+    for node in graph.iter() { //~ ERROR no method named `iter` found
         node.zomg();  //~ error: the type of this value must be known in this context
     }
 }

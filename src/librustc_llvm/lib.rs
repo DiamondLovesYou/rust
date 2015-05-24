@@ -22,9 +22,10 @@
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+       html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/")]
 
+#![feature(associated_consts)]
 #![feature(box_syntax)]
 #![feature(collections)]
 #![feature(libc)]
@@ -46,6 +47,7 @@ pub use self::RealPredicate::*;
 pub use self::TypeKind::*;
 pub use self::AtomicBinOp::*;
 pub use self::AtomicOrdering::*;
+pub use self::SynchronizationScope::*;
 pub use self::FileType::*;
 pub use self::MetadataType::*;
 pub use self::AsmDialect::*;
@@ -57,13 +59,13 @@ pub use self::CallConv::*;
 pub use self::Visibility::*;
 pub use self::DiagnosticSeverity::*;
 pub use self::Linkage::*;
+pub use self::DLLStorageClassTypes::*;
 
 use std::ffi::CString;
 use std::cell::RefCell;
 use std::{slice, mem};
 use libc::{c_uint, c_ushort, uint64_t, c_int, size_t, c_char};
 use libc::{c_longlong, c_ulonglong, c_void};
-use libc::c_uchar;
 use debuginfo::{DIBuilderRef, DIDescriptor,
                 DIFile, DILexicalBlock, DISubprogram, DIType,
                 DIBasicType, DIDerivedType, DICompositeType, DIScope,
@@ -126,34 +128,43 @@ pub enum DiagnosticSeverity {
     Note,
 }
 
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub enum DLLStorageClassTypes {
+    DefaultStorageClass = 0,
+    DLLImportStorageClass = 1,
+    DLLExportStorageClass = 2,
+}
+
 bitflags! {
     flags Attribute : u32 {
-        const ZExtAttribute = 1 << 0,
-        const SExtAttribute = 1 << 1,
-        const NoReturnAttribute = 1 << 2,
-        const InRegAttribute = 1 << 3,
-        const StructRetAttribute = 1 << 4,
-        const NoUnwindAttribute = 1 << 5,
-        const NoAliasAttribute = 1 << 6,
-        const ByValAttribute = 1 << 7,
-        const NestAttribute = 1 << 8,
-        const ReadNoneAttribute = 1 << 9,
-        const ReadOnlyAttribute = 1 << 10,
-        const NoInlineAttribute = 1 << 11,
-        const AlwaysInlineAttribute = 1 << 12,
-        const OptimizeForSizeAttribute = 1 << 13,
-        const StackProtectAttribute = 1 << 14,
-        const StackProtectReqAttribute = 1 << 15,
-        const AlignmentAttribute = 31 << 16,
-        const NoCaptureAttribute = 1 << 21,
-        const NoRedZoneAttribute = 1 << 22,
-        const NoImplicitFloatAttribute = 1 << 23,
-        const NakedAttribute = 1 << 24,
-        const InlineHintAttribute = 1 << 25,
-        const StackAttribute = 7 << 26,
-        const ReturnsTwiceAttribute = 1 << 29,
-        const UWTableAttribute = 1 << 30,
-        const NonLazyBindAttribute = 1 << 31,
+        const ZExt            = 1 << 0,
+        const SExt            = 1 << 1,
+        const NoReturn        = 1 << 2,
+        const InReg           = 1 << 3,
+        const StructRet       = 1 << 4,
+        const NoUnwind        = 1 << 5,
+        const NoAlias         = 1 << 6,
+        const ByVal           = 1 << 7,
+        const Nest            = 1 << 8,
+        const ReadNone        = 1 << 9,
+        const ReadOnly        = 1 << 10,
+        const NoInline        = 1 << 11,
+        const AlwaysInline    = 1 << 12,
+        const OptimizeForSize = 1 << 13,
+        const StackProtect    = 1 << 14,
+        const StackProtectReq = 1 << 15,
+        const Alignment       = 1 << 16,
+        const NoCapture       = 1 << 21,
+        const NoRedZone       = 1 << 22,
+        const NoImplicitFloat = 1 << 23,
+        const Naked           = 1 << 24,
+        const InlineHint      = 1 << 25,
+        const Stack           = 7 << 26,
+        const ReturnsTwice    = 1 << 29,
+        const UWTable         = 1 << 30,
+        const NonLazyBind     = 1 << 31,
     }
 }
 
@@ -365,6 +376,13 @@ pub enum AtomicOrdering {
     SequentiallyConsistent = 7
 }
 
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub enum SynchronizationScope {
+    SingleThread = 0,
+    CrossThread = 1
+}
+
 // Consts for the LLVMCodeGenFileType type (in include/llvm/c/TargetMachine.h)
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -493,9 +511,12 @@ pub type PassRef = *mut Pass_opaque;
 #[allow(missing_copy_implementations)]
 pub enum TargetMachine_opaque {}
 pub type TargetMachineRef = *mut TargetMachine_opaque;
-#[allow(missing_copy_implementations)]
 pub enum Archive_opaque {}
 pub type ArchiveRef = *mut Archive_opaque;
+pub enum ArchiveIterator_opaque {}
+pub type ArchiveIteratorRef = *mut ArchiveIterator_opaque;
+pub enum ArchiveChild_opaque {}
+pub type ArchiveChildRef = *mut ArchiveChild_opaque;
 #[allow(missing_copy_implementations)]
 pub enum Twine_opaque {}
 pub type TwineRef = *mut Twine_opaque;
@@ -1535,7 +1556,9 @@ extern {
                               SingleThreaded: Bool)
                               -> ValueRef;
 
-    pub fn LLVMBuildAtomicFence(B: BuilderRef, Order: AtomicOrdering);
+    pub fn LLVMBuildAtomicFence(B: BuilderRef,
+                                Order: AtomicOrdering,
+                                Scope: SynchronizationScope);
 
 
     /* Selected entries from the downcasts. */
@@ -1752,7 +1775,7 @@ extern {
                          Dialect: c_uint)
                          -> ValueRef;
 
-    pub static LLVMRustDebugMetadataVersion: u32;
+    pub fn LLVMRustDebugMetadataVersion() -> u32;
 
     pub fn LLVMRustAddModuleFlag(M: ModuleRef,
                                  name: *const c_char,
@@ -2061,18 +2084,18 @@ extern {
     pub fn LLVMRustMarkAllFunctionsNounwind(M: ModuleRef);
 
     pub fn LLVMRustOpenArchive(path: *const c_char) -> ArchiveRef;
-    pub fn LLVMRustArchiveReadSection(AR: ArchiveRef, name: *const c_char,
-                                      out_len: *mut size_t) -> *const c_char;
-    pub fn LLVMRustArchiveReadAllChildren(AR: ArchiveRef,
-                                          callback: extern "C" fn(*const c_uchar, size_t,
-                                                                  *const c_uchar, size_t,
-                                                                  *mut c_void),
-                                          userdata: *mut c_void);
+    pub fn LLVMRustArchiveIteratorNew(AR: ArchiveRef) -> ArchiveIteratorRef;
+    pub fn LLVMRustArchiveIteratorNext(AIR: ArchiveIteratorRef);
+    pub fn LLVMRustArchiveIteratorCurrent(AIR: ArchiveIteratorRef) -> ArchiveChildRef;
+    pub fn LLVMRustArchiveChildName(ACR: ArchiveChildRef,
+                                    size: *mut size_t) -> *const c_char;
+    pub fn LLVMRustArchiveChildData(ACR: ArchiveChildRef,
+                                    size: *mut size_t) -> *const c_char;
+    pub fn LLVMRustArchiveIteratorFree(AIR: ArchiveIteratorRef);
     pub fn LLVMRustDestroyArchive(AR: ArchiveRef);
 
-    pub fn LLVMRustSetDLLExportStorageClass(V: ValueRef);
-    pub fn LLVMVersionMajor() -> c_int;
-    pub fn LLVMVersionMinor() -> c_int;
+    pub fn LLVMRustSetDLLStorageClass(V: ValueRef,
+                                      C: DLLStorageClassTypes);
 
     pub fn LLVMRustGetSectionName(SI: SectionIteratorRef,
                                   data: *mut *const c_char) -> c_int;
@@ -2131,6 +2154,12 @@ pub fn SetFunctionCallConv(fn_: ValueRef, cc: CallConv) {
 pub fn SetLinkage(global: ValueRef, link: Linkage) {
     unsafe {
         LLVMSetLinkage(global, link as c_uint);
+    }
+}
+
+pub fn SetDLLStorageClass(global: ValueRef, class: DLLStorageClassTypes) {
+    unsafe {
+        LLVMRustSetDLLStorageClass(global, class);
     }
 }
 

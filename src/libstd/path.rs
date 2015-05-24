@@ -103,14 +103,14 @@ use core::prelude::*;
 use ascii::*;
 use borrow::{Borrow, IntoCow, ToOwned, Cow};
 use cmp;
-use iter::{self, IntoIterator};
+use iter;
 use mem;
 use ops::{self, Deref};
 use string::String;
 use vec::Vec;
 use fmt;
 
-use ffi::{OsStr, OsString, AsOsStr};
+use ffi::{OsStr, OsString};
 
 use self::platform::{is_sep_byte, is_verbatim_sep, MAIN_SEP_STR, parse_prefix};
 
@@ -358,7 +358,7 @@ pub fn is_separator(c: char) -> bool {
     c.is_ascii() && is_sep_byte(c as u8)
 }
 
-/// The primary sperator for the current platform
+/// The primary separator for the current platform
 #[stable(feature = "rust1", since = "1.0.0")]
 pub const MAIN_SEPARATOR: char = platform::MAIN_SEP;
 
@@ -704,7 +704,7 @@ impl<'a> Components<'a> {
         (comp.len() + extra, self.parse_single_component(comp))
     }
 
-    // trim away repeated separators (i.e. emtpy components) on the left
+    // trim away repeated separators (i.e. empty components) on the left
     fn trim_left(&mut self) {
         while !self.path.is_empty() {
             let (size, comp) = self.parse_next_component();
@@ -716,7 +716,7 @@ impl<'a> Components<'a> {
         }
     }
 
-    // trim away repeated separators (i.e. emtpy components) on the right
+    // trim away repeated separators (i.e. empty components) on the right
     fn trim_right(&mut self) {
         while self.path.len() > self.len_before_body() {
             let (size, comp) = self.parse_next_component_back();
@@ -1185,14 +1185,6 @@ impl AsRef<OsStr> for PathBuf {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-#[deprecated(since = "1.0.0", reason = "trait is deprecated")]
-impl AsOsStr for PathBuf {
-    fn as_os_str(&self) -> &OsStr {
-        &self.inner[..]
-    }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
 impl Into<OsString> for PathBuf {
     fn into(self) -> OsString {
         self.inner
@@ -1207,7 +1199,7 @@ impl Into<OsString> for PathBuf {
 /// absolute, and so on. More details about the overall approach can be found in
 /// the module documentation.
 ///
-/// This is an *unsized* type, meaning that it must always be used with behind a
+/// This is an *unsized* type, meaning that it must always be used behind a
 /// pointer like `&` or `Box`.
 ///
 /// # Examples
@@ -1248,6 +1240,16 @@ impl Path {
     /// use std::path::Path;
     ///
     /// Path::new("foo.txt");
+    /// ```
+    ///
+    /// You can create `Path`s from `String`s, or even other `Path`s:
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// let s = String::from("bar.txt");
+    /// let p = Path::new(&s);
+    /// Path::new(&p);
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn new<S: AsRef<OsStr> + ?Sized>(s: &S) -> &Path {
@@ -1447,6 +1449,8 @@ impl Path {
 
     /// Determines whether `base` is a prefix of `self`.
     ///
+    /// Only considers whole path components to match.
+    ///
     /// # Examples
     ///
     /// ```
@@ -1455,6 +1459,8 @@ impl Path {
     /// let path = Path::new("/etc/passwd");
     ///
     /// assert!(path.starts_with("/etc"));
+    ///
+    /// assert!(!path.starts_with("/e"));
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn starts_with<P: AsRef<Path>>(&self, base: P) -> bool {
@@ -1462,6 +1468,8 @@ impl Path {
     }
 
     /// Determines whether `child` is a suffix of `self`.
+    ///
+    /// Only considers whole path components to match.
     ///
     /// # Examples
     ///
@@ -1477,7 +1485,7 @@ impl Path {
         iter_after(self.components().rev(), child.as_ref().components().rev()).is_some()
     }
 
-    /// Extracts the stem (non-extension) portion of `self.file()`.
+    /// Extracts the stem (non-extension) portion of `self.file_name()`.
     ///
     /// The stem is:
     ///
@@ -1500,7 +1508,7 @@ impl Path {
         self.file_name().map(split_file_at_dot).and_then(|(before, after)| before.or(after))
     }
 
-    /// Extracts the extension of `self.file()`, if possible.
+    /// Extracts the extension of `self.file_name()`, if possible.
     ///
     /// The extension is:
     ///
@@ -1653,14 +1661,6 @@ impl AsRef<OsStr> for Path {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-#[deprecated(since = "1.0.0", reason = "trait is deprecated")]
-impl AsOsStr for Path {
-    fn as_os_str(&self) -> &OsStr {
-        &self.inner
-    }
-}
-
-#[stable(feature = "rust1", since = "1.0.0")]
 impl fmt::Debug for Path {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         self.inner.fmt(formatter)
@@ -1709,22 +1709,6 @@ impl cmp::Ord for Path {
     fn cmp(&self, other: &Path) -> cmp::Ordering {
         self.components().cmp(&other.components())
     }
-}
-
-/// Freely convertible to a `Path`.
-#[unstable(feature = "std_misc")]
-#[deprecated(since = "1.0.0", reason = "use std::convert::AsRef<Path> instead")]
-pub trait AsPath {
-    /// Converts to a `Path`.
-    #[unstable(feature = "std_misc")]
-    fn as_path(&self) -> &Path;
-}
-
-#[unstable(feature = "std_misc")]
-#[deprecated(since = "1.0.0", reason = "use std::convert::AsRef<Path> instead")]
-#[allow(deprecated)]
-impl<T: AsOsStr + ?Sized> AsPath for T {
-    fn as_path(&self) -> &Path { Path::new(self.as_os_str()) }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]

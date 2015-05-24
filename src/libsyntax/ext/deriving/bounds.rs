@@ -8,29 +8,26 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use ast::{MetaItem, Item};
+use ast::MetaItem;
 use codemap::Span;
-use ext::base::ExtCtxt;
+use ext::base::{ExtCtxt, Annotatable};
 use ext::deriving::generic::*;
 use ext::deriving::generic::ty::*;
-use ptr::P;
 
-pub fn expand_deriving_unsafe_bound<F>(cx: &mut ExtCtxt,
-                                       span: Span,
-                                       _: &MetaItem,
-                                       _: &Item,
-                                       _: F) where
-    F: FnOnce(P<Item>),
+pub fn expand_deriving_unsafe_bound(cx: &mut ExtCtxt,
+                                    span: Span,
+                                    _: &MetaItem,
+                                    _: Annotatable,
+                                    _: &mut FnMut(Annotatable))
 {
     cx.span_err(span, "this unsafe trait should be implemented explicitly");
 }
 
-pub fn expand_deriving_copy<F>(cx: &mut ExtCtxt,
-                               span: Span,
-                               mitem: &MetaItem,
-                               item: &Item,
-                               push: F) where
-    F: FnOnce(P<Item>),
+pub fn expand_deriving_copy(cx: &mut ExtCtxt,
+                            span: Span,
+                            mitem: &MetaItem,
+                            item: Annotatable,
+                            push: &mut FnMut(Annotatable))
 {
     let path = Path::new(vec![
         if cx.use_std { "std" } else { "core" },
@@ -48,5 +45,5 @@ pub fn expand_deriving_copy<F>(cx: &mut ExtCtxt,
         associated_types: Vec::new(),
     };
 
-    trait_def.expand(cx, mitem, item, push)
+    trait_def.expand(cx, mitem, &item, push);
 }

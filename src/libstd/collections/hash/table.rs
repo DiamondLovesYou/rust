@@ -7,8 +7,6 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
-//
-// ignore-lexer-test FIXME #15883
 
 use self::BucketState::*;
 
@@ -19,7 +17,7 @@ use iter::{Iterator, ExactSizeIterator};
 use marker::{Copy, Send, Sync, Sized, self};
 use mem::{min_align_of, size_of};
 use mem;
-use num::wrapping::{OverflowingOps, WrappingOps};
+use num::wrapping::OverflowingOps;
 use ops::{Deref, DerefMut, Drop};
 use option::Option;
 use option::Option::{Some, None};
@@ -945,7 +943,6 @@ impl<'a, K, V> ExactSizeIterator for Drain<'a, K, V> {
     fn len(&self) -> usize { self.table.size() }
 }
 
-#[unsafe_destructor]
 impl<'a, K: 'a, V: 'a> Drop for Drain<'a, K, V> {
     fn drop(&mut self) {
         for _ in self.by_ref() {}
@@ -988,7 +985,6 @@ impl<K: Clone, V: Clone> Clone for RawTable<K, V> {
     }
 }
 
-#[unsafe_destructor]
 impl<K, V> Drop for RawTable<K, V> {
     fn drop(&mut self) {
         if self.capacity == 0 || self.capacity == mem::POST_DROP_USIZE {

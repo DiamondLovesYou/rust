@@ -52,18 +52,19 @@
 TARGET_CRATES := libc std flate arena term \
                  serialize getopts collections test rand \
                  log graphviz core rbml alloc \
-                 unicode rustc_bitflags
+                 rustc_unicode rustc_bitflags
 RUSTC_CRATES := rustc rustc_typeck rustc_borrowck rustc_resolve rustc_driver \
-                rustc_trans rustc_back rustc_llvm rustc_privacy rustc_lint
+                rustc_trans rustc_back rustc_llvm rustc_privacy rustc_lint \
+                rustc_data_structures
 HOST_CRATES := syntax $(RUSTC_CRATES) rustdoc fmt_macros rust_pnacl_trans
 CRATES := $(TARGET_CRATES) $(HOST_CRATES)
-TOOLS := compiletest rustdoc rustc rustbook rust_pnacl_trans
+TOOLS := compiletest rustdoc rustc rustbook rust_pnacl_trans error-index-generator
 
 DEPS_core :=
 DEPS_libc := core
-DEPS_unicode := core
+DEPS_rustc_unicode := core
 DEPS_alloc := core libc native:jemalloc
-DEPS_std := core libc rand alloc collections unicode \
+DEPS_std := core libc rand alloc collections rustc_unicode \
 	native:rust_builtin native:backtrace native:rustrt_native \
 	rustc_bitflags
 DEPS_graphviz := std
@@ -80,9 +81,10 @@ DEPS_rustc_resolve := rustc log syntax
 DEPS_rustc_privacy := rustc log syntax
 DEPS_rustc_lint := rustc log syntax
 DEPS_rustc := syntax flate arena serialize getopts rbml \
-              log graphviz rustc_llvm rustc_back
+              log graphviz rustc_llvm rustc_back rustc_data_structures
 DEPS_rustc_llvm := native:rustllvm libc std log
 DEPS_rustc_back := std syntax rustc_llvm flate log libc
+DEPS_rustc_data_structures := std log serialize
 DEPS_rustdoc := rustc rustc_driver native:hoedown serialize getopts \
                 test rustc_lint
 DEPS_rustc_bitflags := core
@@ -95,7 +97,7 @@ DEPS_serialize := std log
 DEPS_rbml := std log serialize
 DEPS_term := std log
 DEPS_getopts := std
-DEPS_collections := core alloc unicode
+DEPS_collections := core alloc rustc_unicode
 DEPS_num := std
 DEPS_test := std getopts serialize rbml term native:rust_test_helpers
 DEPS_rand := core
@@ -107,22 +109,24 @@ TOOL_DEPS_rustdoc := rustdoc
 TOOL_DEPS_rustc := rustc_driver
 TOOL_DEPS_rustbook := std rustdoc
 TOOL_DEPS_rust_pnacl_trans := rust_pnacl_trans
+TOOL_DEPS_error-index-generator := rustdoc syntax serialize
 TOOL_SOURCE_compiletest := $(S)src/compiletest/compiletest.rs
 TOOL_SOURCE_rustdoc := $(S)src/driver/driver.rs
 TOOL_SOURCE_rustc := $(S)src/driver/driver.rs
 TOOL_SOURCE_rustbook := $(S)src/rustbook/main.rs
 TOOL_SOURCE_rust_pnacl_trans := $(S)src/driver/driver.rs
+TOOL_SOURCE_error-index-generator := $(S)src/error-index-generator/main.rs
 
 ONLY_RLIB_core := 1
 ONLY_RLIB_libc := 1
 ONLY_RLIB_alloc := 1
 ONLY_RLIB_rand := 1
 ONLY_RLIB_collections := 1
-ONLY_RLIB_unicode := 1
+ONLY_RLIB_rustc_unicode := 1
 ONLY_RLIB_rustc_bitflags := 1
 
 # Documented-by-default crates
-DOC_CRATES := std alloc collections core libc unicode
+DOC_CRATES := std alloc collections core libc rustc_unicode
 
 ################################################################################
 # You should not need to edit below this line

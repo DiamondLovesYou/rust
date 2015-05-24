@@ -46,13 +46,8 @@ def run(args):
 
 f.write("\n")
 
-version = run([llconfig, '--version']).strip()
-
 # LLVM libs
-if version < '3.5':
-    args = [llconfig, '--libs']
-else:
-    args = [llconfig, '--libs', '--system-libs']
+args = [llconfig, '--libs', '--system-libs']
 
 args.extend(components)
 out = run(args)
@@ -73,11 +68,6 @@ for lib in out.strip().replace("\n", ' ').split(' '):
         f.write(", kind = \"static\"")
     f.write(")]\n")
 
-# llvm-config before 3.5 didn't have a system-libs flag
-if version < '3.5':
-    if os == 'win32':
-        f.write("#[link(name = \"imagehlp\")]")
-
 # LLVM ldflags
 out = run([llconfig, '--ldflags'])
 for lib in out.strip().split(' '):
@@ -90,10 +80,13 @@ if enable_static == '1':
     assert('stdlib=libc++' not in out)
     f.write("#[link(name = \"stdc++\", kind = \"static\")]\n")
 else:
+    # Note that we use `cfg_attr` here because on MSVC the C++ standard library
+    # is not c++ or stdc++, but rather the linker takes care of linking the
+    # right standard library.
     if 'stdlib=libc++' in out:
-        f.write("#[link(name = \"c++\")]\n")
+        f.write("#[cfg_attr(not(target_env = \"msvc\"), link(name = \"c++\"))]\n")
     else:
-        f.write("#[link(name = \"stdc++\")]\n")
+        f.write("#[cfg_attr(not(target_env = \"msvc\"), link(name = \"stdc++\"))]\n")
 
 # Attach everything to an extern block
 f.write("extern {}\n")

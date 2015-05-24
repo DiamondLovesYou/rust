@@ -35,7 +35,12 @@ CRATE_FULLDEPS_$(1)_T_$(2)_H_$(3)_$(4) := \
 		$$(foreach dep,$$(RUST_DEPS_$(4)), \
 		  $$(TLIB$(1)_T_$(2)_H_$(3))/stamp.$$(dep)) \
 		$$(foreach dep,$$(NATIVE_DEPS_$(4)), \
-		  $$(RT_OUTPUT_DIR_$(2))/$$(call CFG_STATIC_LIB_NAME_$(2),$$(dep)))
+		  $$(RT_OUTPUT_DIR_$(2))/$$(call CFG_STATIC_LIB_NAME_$(2),$$(dep))) \
+		$$(foreach dep,$$(NATIVE_DEPS_$(4)_T_$(2)), \
+		  $$(RT_OUTPUT_DIR_$(2))/$$(dep)) \
+		$$(foreach dep,$$(NATIVE_TOOL_DEPS_$(4)_T_$(2)), \
+		  $$(TBIN$(1)_T_$(3)_H_$(3))/$$(dep)) \
+		$$(CUSTOM_DEPS_$(4)_T_$(2))
 endef
 
 $(foreach host,$(CFG_HOST), \
@@ -88,6 +93,7 @@ $$(TLIB$(1)_T_$(2)_H_$(3))/stamp.$(4): \
 		$$(LLVM_LIBDIR_RUSTFLAGS_$(2)) \
 		$$(LLVM_STDCPP_RUSTFLAGS_$(2)) \
 		$$(RUSTFLAGS_$(4)_$(2)) \
+		$$(RUSTFLAGS_$(4)_T_$(2)) \
 		--out-dir $$(@D) \
 		-C extra-filename=-$$(CFG_FILENAME_EXTRA) \
 		$$<
@@ -143,15 +149,13 @@ $$(TBIN$(1)_T_$(2)_H_$(3))/:
 $$(TLIB$(1)_T_$(2)_H_$(3))/:
 	mkdir -p $$@
 
-$$(TLIB$(1)_T_$(2)_H_$(3))/libcompiler-rt.a: \
-	    $$(RT_OUTPUT_DIR_$(2))/$$(call CFG_STATIC_LIB_NAME_$(2),compiler-rt) \
+$$(TLIB$(1)_T_$(2)_H_$(3))/%: $$(RT_OUTPUT_DIR_$(2))/% \
 	    | $$(TLIB$(1)_T_$(2)_H_$(3))/ $$(SNAPSHOT_RUSTC_POST_CLEANUP)
 	@$$(call E, cp: $$@)
 	$$(Q)cp $$< $$@
 
-$$(TLIB$(1)_T_$(2)_H_$(3))/libmorestack.a: \
-	    $$(RT_OUTPUT_DIR_$(2))/$$(call CFG_STATIC_LIB_NAME_$(2),morestack) \
-	    | $$(TLIB$(1)_T_$(2)_H_$(3))/ $$(SNAPSHOT_RUSTC_POST_CLEANUP)
+$$(TBIN$(1)_T_$(2)_H_$(3))/%: $$(CFG_LLVM_INST_DIR_$(2))/bin/% \
+	    | $$(TBIN$(1)_T_$(2)_H_$(3))/ $$(SNAPSHOT_RUSTC_POST_CLEANUP)
 	@$$(call E, cp: $$@)
 	$$(Q)cp $$< $$@
 endef

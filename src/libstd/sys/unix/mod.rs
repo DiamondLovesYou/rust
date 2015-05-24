@@ -15,20 +15,31 @@ use prelude::v1::*;
 
 use io::{self, ErrorKind};
 use libc;
-use num::{Int, SignedInt};
+use num::One;
+use ops::Neg;
+
+#[cfg(target_os = "android")]   pub use os::android as platform;
+#[cfg(target_os = "bitrig")]    pub use os::bitrig as platform;
+#[cfg(target_os = "dragonfly")] pub use os::dragonfly as platform;
+#[cfg(target_os = "freebsd")]   pub use os::freebsd as platform;
+#[cfg(target_os = "ios")]       pub use os::ios as platform;
+#[cfg(target_os = "linux")]     pub use os::linux as platform;
+#[cfg(target_os = "macos")]     pub use os::macos as platform;
+#[cfg(target_os = "nacl")]      pub use os::nacl as platform;
+#[cfg(target_os = "openbsd")]   pub use os::openbsd as platform;
 
 pub mod backtrace;
 pub mod c;
 pub mod condvar;
 pub mod ext;
 pub mod fd;
-pub mod fs2;
+pub mod fs;
 pub mod mutex;
 pub mod net;
 pub mod os;
 pub mod os_str;
-pub mod pipe2;
-pub mod process2;
+pub mod pipe;
+pub mod process;
 pub mod rwlock;
 pub mod stack_overflow;
 pub mod sync;
@@ -63,23 +74,8 @@ pub fn decode_error_kind(errno: i32) -> ErrorKind {
     }
 }
 
-#[inline]
-#[allow(deprecated)]
-pub fn retry<T, F> (mut f: F) -> T where
-    T: SignedInt,
-    F: FnMut() -> T,
-{
-    let one: T = Int::one();
-    loop {
-        let n = f();
-        if n == -one && os::errno() == libc::EINTR as i32 { }
-        else { return n }
-    }
-}
-
-#[allow(deprecated)]
-pub fn cvt<T: SignedInt>(t: T) -> io::Result<T> {
-    let one: T = Int::one();
+pub fn cvt<T: One + PartialEq + Neg<Output=T>>(t: T) -> io::Result<T> {
+    let one: T = T::one();
     if t == -one {
         Err(io::Error::last_os_error())
     } else {
@@ -89,7 +85,7 @@ pub fn cvt<T: SignedInt>(t: T) -> io::Result<T> {
 
 #[allow(deprecated)]
 pub fn cvt_r<T, F>(mut f: F) -> io::Result<T>
-    where T: SignedInt, F: FnMut() -> T
+    where T: One + PartialEq + Neg<Output=T>, F: FnMut() -> T
 {
     loop {
         match cvt(f()) {

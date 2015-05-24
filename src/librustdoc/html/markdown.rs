@@ -274,7 +274,7 @@ pub fn render(w: &mut fmt::Formatter, s: &str, print_toc: bool) -> fmt::Result {
         };
 
         // Transform the contents of the header into a hyphenated string
-        let id = s.words().map(|s| s.to_ascii_lowercase())
+        let id = s.split_whitespace().map(|s| s.to_ascii_lowercase())
             .collect::<Vec<String>>().connect("-");
 
         // This is a terrible hack working around how hoedown gives us rendered
@@ -477,7 +477,7 @@ impl LangString {
 
 /// By default this markdown renderer generates anchors for each header in the
 /// rendered document. The anchor name is the contents of the header separated
-/// by hyphens, and a task-local map is used to disambiguate among duplicate
+/// by hyphens, and a thread-local map is used to disambiguate among duplicate
 /// headers (numbers are appended).
 ///
 /// This method will reset the local table for these headers. This is typically

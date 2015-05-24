@@ -16,7 +16,7 @@
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-      html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+      html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
       html_root_url = "http://doc.rust-lang.org/nightly/")]
 
 #![allow(non_camel_case_types)]
@@ -25,7 +25,6 @@
 #![feature(rustc_diagnostic_macros)]
 #![feature(rustc_private)]
 #![feature(staged_api)]
-#![feature(unsafe_destructor)]
 #![feature(into_cow)]
 
 #[macro_use] extern crate log;
@@ -47,3 +46,8 @@ pub mod diagnostics;
 mod borrowck;
 
 pub mod graphviz;
+
+#[cfg(stage0)]
+__build_diagnostic_array! { DIAGNOSTICS }
+#[cfg(not(stage0))]
+__build_diagnostic_array! { librustc_borrowck, DIAGNOSTICS }

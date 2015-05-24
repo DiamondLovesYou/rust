@@ -40,7 +40,6 @@
 //! ```
 //! # #![feature(collections, core, step_by)]
 //! use std::collections::{BitSet, BitVec};
-//! use std::num::Float;
 //! use std::iter;
 //!
 //! let max_prime = 10000;
@@ -85,12 +84,12 @@ use core::prelude::*;
 
 use core::cmp::Ordering;
 use core::cmp;
-use core::default::Default;
 use core::fmt;
 use core::hash;
 use core::iter::RandomAccessIterator;
 use core::iter::{Chain, Enumerate, Repeat, Skip, Take, repeat, Cloned};
-use core::iter::{self, FromIterator, IntoIterator};
+use core::iter::{self, FromIterator};
+use core::mem::swap;
 use core::ops::Index;
 use core::slice;
 use core::{u8, u32, usize};
@@ -212,15 +211,13 @@ impl BitVec {
         assert_eq!(self.len(), other.len());
         // This could theoretically be a `debug_assert!`.
         assert_eq!(self.storage.len(), other.storage.len());
-        let mut changed = false;
+        let mut changed_bits = 0;
         for (a, b) in self.blocks_mut().zip(other.blocks()) {
             let w = op(*a, b);
-            if *a != w {
-                changed = true;
-                *a = w;
-            }
+            changed_bits |= *a ^ w;
+            *a = w;
         }
-        changed
+        changed_bits != 0
     }
 
     /// Iterator over mutable refs to  the underlying blocks of data.
@@ -604,6 +601,110 @@ impl BitVec {
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn iter(&self) -> Iter {
         Iter { bit_vec: self, next_idx: 0, end_idx: self.nbits }
+    }
+
+    /// Moves all bits from `other` into `Self`, leaving `other` empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #![feature(collections, bit_vec_append_split_off)]
+    /// use std::collections::BitVec;
+    ///
+    /// let mut a = BitVec::from_bytes(&[0b10000000]);
+    /// let mut b = BitVec::from_bytes(&[0b01100001]);
+    ///
+    /// a.append(&mut b);
+    ///
+    /// assert_eq!(a.len(), 16);
+    /// assert_eq!(b.len(), 0);
+    /// assert!(a.eq_vec(&[true, false, false, false, false, false, false, false,
+    ///                    false, true, true, false, false, false, false, true]));
+    /// ```
+    #[unstable(feature = "bit_vec_append_split_off",
+               reason = "recently added as part of collections reform 2")]
+    pub fn append(&mut self, other: &mut Self) {
+        let b = self.len() % u32::BITS;
+
+        self.nbits += other.len();
+        other.nbits = 0;
+
+        if b == 0 {
+            self.storage.append(&mut other.storage);
+        } else {
+            self.storage.reserve(other.storage.len());
+
+            for block in other.storage.drain(..) {
+                *(self.storage.last_mut().unwrap()) |= block << b;
+                self.storage.push(block >> (u32::BITS - b));
+            }
+        }
+    }
+
+    /// Splits the `BitVec` into two at the given bit,
+    /// retaining the first half in-place and returning the second one.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `at` is out of bounds.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #![feature(collections, bit_vec_append_split_off)]
+    /// use std::collections::BitVec;
+    /// let mut a = BitVec::new();
+    /// a.push(true);
+    /// a.push(false);
+    /// a.push(false);
+    /// a.push(true);
+    ///
+    /// let b = a.split_off(2);
+    ///
+    /// assert_eq!(a.len(), 2);
+    /// assert_eq!(b.len(), 2);
+    /// assert!(a.eq_vec(&[true, false]));
+    /// assert!(b.eq_vec(&[false, true]));
+    /// ```
+    #[unstable(feature = "bit_vec_append_split_off",
+               reason = "recently added as part of collections reform 2")]
+    pub fn split_off(&mut self, at: usize) -> Self {
+        assert!(at <= self.len(), "`at` out of bounds");
+
+        let mut other = BitVec::new();
+
+        if at == 0 {
+            swap(self, &mut other);
+            return other;
+        } else if at == self.len() {
+            return other;
+        }
+
+        let w = at / u32::BITS;
+        let b = at % u32::BITS;
+        other.nbits = self.nbits - at;
+        self.nbits = at;
+        if b == 0 {
+            // Split at block boundary
+            other.storage = self.storage.split_off(w);
+        } else {
+            other.storage.reserve(self.storage.len() - w);
+
+            {
+                let mut iter = self.storage[w..].iter();
+                let mut last = *iter.next().unwrap();
+                for &cur in iter {
+                    other.storage.push((last >> b) | (cur << (u32::BITS - b)));
+                    last = cur;
+                }
+                other.storage.push(last >> b);
+            }
+
+            self.storage.truncate(w+1);
+            self.fix_last_block();
+        }
+
+        other
     }
 
     /// Returns `true` if all bits are 0.
@@ -1436,7 +1537,7 @@ impl BitSet {
         bit_vec.nbits = trunc_len * u32::BITS;
     }
 
-    /// Iterator over each u32 stored in the `BitSet`.
+    /// Iterator over each usize stored in the `BitSet`.
     ///
     /// # Examples
     ///
@@ -1454,10 +1555,10 @@ impl BitSet {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn iter(&self) -> bit_set::Iter {
-        SetIter {set: self, next_idx: 0}
+        SetIter(BlockIter::from_blocks(self.bit_vec.blocks()))
     }
 
-    /// Iterator over each u32 stored in `self` union `other`.
+    /// Iterator over each usize stored in `self` union `other`.
     /// See [union_with](#method.union_with) for an efficient in-place version.
     ///
     /// # Examples
@@ -1479,13 +1580,11 @@ impl BitSet {
     pub fn union<'a>(&'a self, other: &'a BitSet) -> Union<'a> {
         fn or(w1: u32, w2: u32) -> u32 { w1 | w2 }
 
-        Union(TwoBitPositions {
-            set: self,
-            other: other,
+        Union(BlockIter::from_blocks(TwoBitPositions {
+            set: self.bit_vec.blocks(),
+            other: other.bit_vec.blocks(),
             merge: or,
-            current_word: 0,
-            next_idx: 0
-        })
+        }))
     }
 
     /// Iterator over each usize stored in `self` intersect `other`.
@@ -1510,13 +1609,12 @@ impl BitSet {
     pub fn intersection<'a>(&'a self, other: &'a BitSet) -> Intersection<'a> {
         fn bitand(w1: u32, w2: u32) -> u32 { w1 & w2 }
         let min = cmp::min(self.bit_vec.len(), other.bit_vec.len());
-        Intersection(TwoBitPositions {
-            set: self,
-            other: other,
+
+        Intersection(BlockIter::from_blocks(TwoBitPositions {
+            set: self.bit_vec.blocks(),
+            other: other.bit_vec.blocks(),
             merge: bitand,
-            current_word: 0,
-            next_idx: 0
-        }.take(min))
+        }).take(min))
     }
 
     /// Iterator over each usize stored in the `self` setminus `other`.
@@ -1548,16 +1646,14 @@ impl BitSet {
     pub fn difference<'a>(&'a self, other: &'a BitSet) -> Difference<'a> {
         fn diff(w1: u32, w2: u32) -> u32 { w1 & !w2 }
 
-        Difference(TwoBitPositions {
-            set: self,
-            other: other,
+        Difference(BlockIter::from_blocks(TwoBitPositions {
+            set: self.bit_vec.blocks(),
+            other: other.bit_vec.blocks(),
             merge: diff,
-            current_word: 0,
-            next_idx: 0
-        })
+        }))
     }
 
-    /// Iterator over each u32 stored in the symmetric difference of `self` and `other`.
+    /// Iterator over each usize stored in the symmetric difference of `self` and `other`.
     /// See [symmetric_difference_with](#method.symmetric_difference_with) for
     /// an efficient in-place version.
     ///
@@ -1580,13 +1676,11 @@ impl BitSet {
     pub fn symmetric_difference<'a>(&'a self, other: &'a BitSet) -> SymmetricDifference<'a> {
         fn bitxor(w1: u32, w2: u32) -> u32 { w1 ^ w2 }
 
-        SymmetricDifference(TwoBitPositions {
-            set: self,
-            other: other,
+        SymmetricDifference(BlockIter::from_blocks(TwoBitPositions {
+            set: self.bit_vec.blocks(),
+            other: other.bit_vec.blocks(),
             merge: bitxor,
-            current_word: 0,
-            next_idx: 0
-        })
+        }))
     }
 
     /// Unions in-place with the specified other bit vector.
@@ -1693,6 +1787,89 @@ impl BitSet {
     #[inline]
     pub fn symmetric_difference_with(&mut self, other: &BitSet) {
         self.other_op(other, |w1, w2| w1 ^ w2);
+    }
+
+    /// Moves all elements from `other` into `Self`, leaving `other` empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #![feature(collections, bit_set_append_split_off)]
+    /// use std::collections::{BitVec, BitSet};
+    ///
+    /// let mut a = BitSet::new();
+    /// a.insert(2);
+    /// a.insert(6);
+    ///
+    /// let mut b = BitSet::new();
+    /// b.insert(1);
+    /// b.insert(3);
+    /// b.insert(6);
+    ///
+    /// a.append(&mut b);
+    ///
+    /// assert_eq!(a.len(), 4);
+    /// assert_eq!(b.len(), 0);
+    /// assert_eq!(a, BitSet::from_bit_vec(BitVec::from_bytes(&[0b01110010])));
+    /// ```
+    #[unstable(feature = "bit_set_append_split_off",
+               reason = "recently added as part of collections reform 2")]
+    pub fn append(&mut self, other: &mut Self) {
+        self.union_with(other);
+        other.clear();
+    }
+
+    /// Splits the `BitSet` into two at the given key including the key.
+    /// Retains the first part in-place while returning the second part.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #![feature(collections, bit_set_append_split_off)]
+    /// use std::collections::{BitSet, BitVec};
+    /// let mut a = BitSet::new();
+    /// a.insert(2);
+    /// a.insert(6);
+    /// a.insert(1);
+    /// a.insert(3);
+    ///
+    /// let b = a.split_off(3);
+    ///
+    /// assert_eq!(a.len(), 2);
+    /// assert_eq!(b.len(), 2);
+    /// assert_eq!(a, BitSet::from_bit_vec(BitVec::from_bytes(&[0b01100000])));
+    /// assert_eq!(b, BitSet::from_bit_vec(BitVec::from_bytes(&[0b00010010])));
+    /// ```
+    #[unstable(feature = "bit_set_append_split_off",
+               reason = "recently added as part of collections reform 2")]
+    pub fn split_off(&mut self, at: usize) -> Self {
+        let mut other = BitSet::new();
+
+        if at == 0 {
+            swap(self, &mut other);
+            return other;
+        } else if at >= self.bit_vec.len() {
+            return other;
+        }
+
+        // Calculate block and bit at which to split
+        let w = at / u32::BITS;
+        let b = at % u32::BITS;
+
+        // Pad `other` with `w` zero blocks,
+        // append `self`'s blocks in the range from `w` to the end to `other`
+        other.bit_vec.storage.extend(repeat(0u32).take(w)
+                                     .chain(self.bit_vec.storage[w..].iter().cloned()));
+        other.bit_vec.nbits = self.bit_vec.nbits;
+
+        if b > 0 {
+            other.bit_vec.storage[w] &= !0 << b;
+        }
+
+        // Sets `bit_vec.len()` and fixes the last block as well
+        self.bit_vec.truncate(at);
+
+        other
     }
 
     /// Returns the number of set bits in this set.
@@ -1810,96 +1987,112 @@ impl hash::Hash for BitSet {
     }
 }
 
-/// An iterator for `BitSet`.
 #[derive(Clone)]
 #[stable(feature = "rust1", since = "1.0.0")]
-pub struct SetIter<'a> {
-    set: &'a BitSet,
-    next_idx: usize
+struct BlockIter<T> where T: Iterator<Item=u32> {
+    head: u32,
+    head_offset: usize,
+    tail: T,
+}
+
+impl<'a, T> BlockIter<T> where T: Iterator<Item=u32> {
+    fn from_blocks(mut blocks: T) -> BlockIter<T> {
+        let h = blocks.next().unwrap_or(0);
+        BlockIter {tail: blocks, head: h, head_offset: 0}
+    }
 }
 
 /// An iterator combining two `BitSet` iterators.
 #[derive(Clone)]
 struct TwoBitPositions<'a> {
-    set: &'a BitSet,
-    other: &'a BitSet,
+    set: Blocks<'a>,
+    other: Blocks<'a>,
     merge: fn(u32, u32) -> u32,
-    current_word: u32,
-    next_idx: usize
 }
 
+/// An iterator for `BitSet`.
 #[derive(Clone)]
 #[stable(feature = "rust1", since = "1.0.0")]
-pub struct Union<'a>(TwoBitPositions<'a>);
+pub struct SetIter<'a>(BlockIter<Blocks<'a>>);
 #[derive(Clone)]
 #[stable(feature = "rust1", since = "1.0.0")]
-pub struct Intersection<'a>(Take<TwoBitPositions<'a>>);
+pub struct Union<'a>(BlockIter<TwoBitPositions<'a>>);
 #[derive(Clone)]
 #[stable(feature = "rust1", since = "1.0.0")]
-pub struct Difference<'a>(TwoBitPositions<'a>);
+pub struct Intersection<'a>(Take<BlockIter<TwoBitPositions<'a>>>);
 #[derive(Clone)]
 #[stable(feature = "rust1", since = "1.0.0")]
-pub struct SymmetricDifference<'a>(TwoBitPositions<'a>);
+pub struct Difference<'a>(BlockIter<TwoBitPositions<'a>>);
+#[derive(Clone)]
+#[stable(feature = "rust1", since = "1.0.0")]
+pub struct SymmetricDifference<'a>(BlockIter<TwoBitPositions<'a>>);
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<'a> Iterator for SetIter<'a> {
+impl<'a, T> Iterator for BlockIter<T> where T: Iterator<Item=u32> {
     type Item = usize;
 
     fn next(&mut self) -> Option<usize> {
-        while self.next_idx < self.set.bit_vec.len() {
-            let idx = self.next_idx;
-            self.next_idx += 1;
-
-            if self.set.contains(&idx) {
-                return Some(idx);
+        while self.head == 0 {
+            match self.tail.next() {
+                Some(w) => self.head = w,
+                None => return None
             }
+            self.head_offset += u32::BITS;
         }
 
-        return None;
+        // from the current block, isolate the
+        // LSB and subtract 1, producing k:
+        // a block with a number of set bits
+        // equal to the index of the LSB
+        let k = (self.head & (!self.head + 1)) - 1;
+        // update block, removing the LSB
+        self.head &= self.head - 1;
+        // return offset + (index of LSB)
+        Some(self.head_offset + (u32::count_ones(k) as usize))
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(self.set.bit_vec.len() - self.next_idx))
+        match self.tail.size_hint() {
+            (_, Some(h)) => (0, Some(1 + h * (u32::BITS as usize))),
+            _ => (0, None)
+        }
     }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a> Iterator for TwoBitPositions<'a> {
-    type Item = usize;
+    type Item = u32;
 
-    fn next(&mut self) -> Option<usize> {
-        while self.next_idx < self.set.bit_vec.len() ||
-              self.next_idx < self.other.bit_vec.len() {
-            let bit_idx = self.next_idx % u32::BITS;
-            if bit_idx == 0 {
-                let s_bit_vec = &self.set.bit_vec;
-                let o_bit_vec = &self.other.bit_vec;
-                // Merging the two words is a bit of an awkward dance since
-                // one BitVec might be longer than the other
-                let word_idx = self.next_idx / u32::BITS;
-                let w1 = if word_idx < s_bit_vec.storage.len() {
-                             s_bit_vec.storage[word_idx]
-                         } else { 0 };
-                let w2 = if word_idx < o_bit_vec.storage.len() {
-                             o_bit_vec.storage[word_idx]
-                         } else { 0 };
-                self.current_word = (self.merge)(w1, w2);
-            }
-
-            self.next_idx += 1;
-            if self.current_word & (1 << bit_idx) != 0 {
-                return Some(self.next_idx - 1);
-            }
+    fn next(&mut self) -> Option<u32> {
+        match (self.set.next(), self.other.next()) {
+            (Some(a), Some(b)) => Some((self.merge)(a, b)),
+            (Some(a), None) => Some((self.merge)(a, 0)),
+            (None, Some(b)) => Some((self.merge)(0, b)),
+            _ => return None
         }
-        return None;
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let cap = cmp::max(self.set.bit_vec.len(), self.other.bit_vec.len());
-        (0, Some(cap - self.next_idx))
+        let (a, au) = self.set.size_hint();
+        let (b, bu) = self.other.size_hint();
+
+        let upper = match (au, bu) {
+            (Some(au), Some(bu)) => Some(cmp::max(au, bu)),
+            _ => None
+        };
+
+        (cmp::max(a, b), upper)
     }
+}
+
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<'a> Iterator for SetIter<'a> {
+    type Item = usize;
+
+    #[inline] fn next(&mut self) -> Option<usize> { self.0.next() }
+    #[inline] fn size_hint(&self) -> (usize, Option<usize>) { self.0.size_hint() }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]

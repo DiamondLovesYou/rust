@@ -86,12 +86,12 @@
 //! useful value.
 //!
 //! Consider the `write_all` method defined for I/O types
-//! by the [`Write`](../io/trait.Write.html) trait:
+//! by the [`Write`](../../std/io/trait.Write.html) trait:
 //!
 //! ```
 //! use std::io;
 //!
-//! trait Writer {
+//! trait Write {
 //!     fn write_all(&mut self, bytes: &[u8]) -> Result<(), io::Error>;
 //! }
 //! ```
@@ -234,8 +234,6 @@ use fmt;
 use iter::{Iterator, DoubleEndedIterator, FromIterator, ExactSizeIterator, IntoIterator};
 use ops::{FnMut, FnOnce};
 use option::Option::{self, None, Some};
-#[allow(deprecated)]
-use slice::AsSlice;
 use slice;
 
 /// `Result` is a type that represents either success (`Ok`) or failure (`Err`).
@@ -547,25 +545,6 @@ impl<T, E> Result<T, E> {
         IterMut { inner: self.as_mut().ok() }
     }
 
-    /// Returns a consuming iterator over the possibly contained value.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// let x: Result<u32, &str> = Ok(5);
-    /// let v: Vec<u32> = x.into_iter().collect();
-    /// assert_eq!(v, [5]);
-    ///
-    /// let x: Result<u32, &str> = Err("nothing!");
-    /// let v: Vec<u32> = x.into_iter().collect();
-    /// assert_eq!(v, []);
-    /// ```
-    #[inline]
-    #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn into_iter(self) -> IntoIter<T> {
-        IntoIter { inner: self.ok() }
-    }
-
     ////////////////////////////////////////////////////////////////////////
     // Boolean operations on the values, eager and lazy
     /////////////////////////////////////////////////////////////////////////
@@ -727,8 +706,8 @@ impl<T, E: fmt::Debug> Result<T, E> {
     ///
     /// # Panics
     ///
-    /// Panics if the value is an `Err`, with a custom panic message provided
-    /// by the `Err`'s value.
+    /// Panics if the value is an `Err`, with a panic message provided by the
+    /// `Err`'s value.
     ///
     /// # Examples
     ///
@@ -787,23 +766,27 @@ impl<T: fmt::Debug, E> Result<T, E> {
 // Trait implementations
 /////////////////////////////////////////////////////////////////////////////
 
-#[unstable(feature = "core",
-           reason = "waiting on the stability of the trait itself")]
-#[deprecated(since = "1.0.0",
-             reason = "use inherent method instead")]
-#[allow(deprecated)]
-impl<T, E> AsSlice<T> for Result<T, E> {
-    /// Converts from `Result<T, E>` to `&[T]` (without copying)
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<T, E> IntoIterator for Result<T, E> {
+    type Item = T;
+    type IntoIter = IntoIter<T>;
+
+    /// Returns a consuming iterator over the possibly contained value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let x: Result<u32, &str> = Ok(5);
+    /// let v: Vec<u32> = x.into_iter().collect();
+    /// assert_eq!(v, [5]);
+    ///
+    /// let x: Result<u32, &str> = Err("nothing!");
+    /// let v: Vec<u32> = x.into_iter().collect();
+    /// assert_eq!(v, []);
+    /// ```
     #[inline]
-    fn as_slice<'a>(&'a self) -> &'a [T] {
-        match *self {
-            Ok(ref x) => slice::ref_slice(x),
-            Err(_) => {
-                // work around lack of implicit coercion from fixed-size array to slice
-                let emp: &[_] = &[];
-                emp
-            }
-        }
+    fn into_iter(self) -> IntoIter<T> {
+        IntoIter { inner: self.ok() }
     }
 }
 

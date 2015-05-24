@@ -234,7 +234,7 @@ impl OverloadedCallType {
             ty::MethodTraitItem(ref method_descriptor) => {
                 (*method_descriptor).clone()
             }
-            ty::TypeTraitItem(_) => {
+            _ => {
                 tcx.sess.bug("overloaded call method wasn't in method map")
             }
         };
@@ -890,10 +890,6 @@ impl<'d,'t,'tcx,TYPER:mc::Typer<'tcx>> ExprUseVisitor<'d,'t,'tcx,TYPER> {
             }
         };
 
-        debug!("walk_autoref: expr.id={} cmt_base={}",
-               expr.id,
-               cmt_base.repr(self.tcx()));
-
         match *autoref {
             ty::AutoPtr(r, m) => {
                 self.delegate.borrow(expr.id,
@@ -1125,7 +1121,7 @@ impl<'d,'t,'tcx,TYPER:mc::Typer<'tcx>> ExprUseVisitor<'d,'t,'tcx,TYPER> {
                         // that case we can adjust the length of the
                         // original vec accordingly, but we'd have to
                         // make trans do the right thing, and it would
-                        // only work for `~` vectors. It seems simpler
+                        // only work for `Box<[T]>`s. It seems simpler
                         // to just require that people call
                         // `vec.pop()` or `vec.unshift()`.
                         let slice_bk = ty::BorrowKind::from_mutbl(slice_mutbl);
@@ -1147,7 +1143,8 @@ impl<'d,'t,'tcx,TYPER:mc::Typer<'tcx>> ExprUseVisitor<'d,'t,'tcx,TYPER> {
             let tcx = typer.tcx();
 
             match pat.node {
-                ast::PatEnum(_, _) | ast::PatIdent(_, _, None) | ast::PatStruct(..) => {
+                ast::PatEnum(_, _) | ast::PatQPath(..) |
+                ast::PatIdent(_, _, None) | ast::PatStruct(..) => {
                     match def_map.get(&pat.id).map(|d| d.full_def()) {
                         None => {
                             // no definition found: pat is not a
@@ -1183,6 +1180,7 @@ impl<'d,'t,'tcx,TYPER:mc::Typer<'tcx>> ExprUseVisitor<'d,'t,'tcx,TYPER> {
                         }
 
                         Some(def::DefConst(..)) |
+                        Some(def::DefAssociatedConst(..)) |
                         Some(def::DefLocal(..)) => {
                             // This is a leaf (i.e. identifier binding
                             // or constant value to match); thus no

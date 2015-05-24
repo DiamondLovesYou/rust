@@ -40,14 +40,6 @@ impl Drop for DynamicLibrary {
 }
 
 impl DynamicLibrary {
-    // FIXME (#12938): Until DST lands, we cannot decompose &str into
-    // & and str, so we cannot usefully take ToCStr arguments by
-    // reference (without forcing an additional & around &str). So we
-    // are instead temporarily adding an instance for &Path, so that
-    // we can take ToCStr as owned. When DST lands, the &Path instance
-    // should be removed, and arguments bound by ToCStr should be
-    // passed by reference. (Here: in the `open` method.)
-
     /// Lazily open a dynamic library. When passed None it gives a
     /// handle to the calling process
     pub fn open(filename: Option<&Path>) -> Result<DynamicLibrary, String> {
@@ -125,7 +117,7 @@ impl DynamicLibrary {
 }
 
 #[cfg(all(test, not(target_os = "ios"), not(target_os = "nacl")))]
-mod test {
+mod tests {
     use super::*;
     use prelude::v1::*;
     use libc;
@@ -133,7 +125,9 @@ mod test {
     use path::Path;
 
     #[test]
-    #[cfg_attr(any(windows, target_os = "android"), ignore)] // FIXME #8818, #10379
+    #[cfg_attr(any(windows,
+                   target_os = "android",  // FIXME #10379
+                   target_env = "musl"), ignore)]
     fn test_loading_cosine() {
         // The math library does not need to be loaded since it is already
         // statically linked in
@@ -259,19 +253,14 @@ mod dl {
 
 #[cfg(target_os = "windows")]
 mod dl {
+    use prelude::v1::*;
+
     use ffi::OsStr;
-    use iter::Iterator;
     use libc;
     use libc::consts::os::extra::ERROR_CALL_NOT_IMPLEMENTED;
-    use ops::FnOnce;
     use sys::os;
     use os::windows::prelude::*;
-    use option::Option::{self, Some, None};
     use ptr;
-    use result::Result;
-    use result::Result::{Ok, Err};
-    use string::String;
-    use vec::Vec;
     use sys::c::compat::kernel32::SetThreadErrorMode;
 
     pub fn open(filename: Option<&OsStr>) -> Result<*mut u8, String> {

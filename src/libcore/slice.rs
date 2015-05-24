@@ -51,7 +51,7 @@ use result::Result::{Ok, Err};
 use ptr;
 use mem;
 use mem::size_of;
-use marker::{Send, Sized, Sync, self};
+use marker::{Send, Sync, self};
 use raw::Repr;
 // Avoid conflicts with *both* the Slice trait (buggy) and the `slice::raw` module.
 use raw::Slice as RawSlice;
@@ -124,6 +124,43 @@ pub trait SliceExt {
     fn clone_from_slice(&mut self, &[Self::Item]) -> usize where Self::Item: Clone;
 }
 
+// Use macros to be generic over const/mut
+#[cfg(stage0)]
+macro_rules! slice_offset {
+    ($ptr:expr, $by:expr) => {{
+        let ptr = $ptr;
+        if size_from_ptr(ptr) == 0 {
+            transmute((ptr as isize).wrapping_add($by))
+        } else {
+            ptr.offset($by)
+        }
+    }};
+}
+
+#[cfg(not(stage0))]
+macro_rules! slice_offset {
+    ($ptr:expr, $by:expr) => {{
+        let ptr = $ptr;
+        if size_from_ptr(ptr) == 0 {
+            ::intrinsics::arith_offset(ptr as *mut i8, $by) as *mut _
+        } else {
+            ptr.offset($by)
+        }
+    }};
+}
+
+macro_rules! slice_ref {
+    ($ptr:expr) => {{
+        let ptr = $ptr;
+        if size_from_ptr(ptr) == 0 {
+            // Use a non-null pointer value
+            &mut *(1 as *mut _)
+        } else {
+            transmute(ptr)
+        }
+    }};
+}
+
 #[unstable(feature = "core")]
 impl<T> SliceExt for [T] {
     type Item = T;
@@ -136,16 +173,18 @@ impl<T> SliceExt for [T] {
     #[inline]
     fn iter<'a>(&'a self) -> Iter<'a, T> {
         unsafe {
-            let p = self.as_ptr();
-            assume(!p.is_null());
-            if mem::size_of::<T>() == 0 {
-                Iter {ptr: p,
-                      end: (p as usize + self.len()) as *const T,
-                      _marker: marker::PhantomData}
+            let p = if mem::size_of::<T>() == 0 {
+                1 as *const _
             } else {
-                Iter {ptr: p,
-                      end: p.offset(self.len() as isize),
-                      _marker: marker::PhantomData}
+                let p = self.as_ptr();
+                assume(!p.is_null());
+                p
+            };
+
+            Iter {
+                ptr: p,
+                end: slice_offset!(p, self.len() as isize),
+                _marker: marker::PhantomData
             }
         }
     }
@@ -273,16 +312,18 @@ impl<T> SliceExt for [T] {
     #[inline]
     fn iter_mut<'a>(&'a mut self) -> IterMut<'a, T> {
         unsafe {
-            let p = self.as_mut_ptr();
-            assume(!p.is_null());
-            if mem::size_of::<T>() == 0 {
-                IterMut {ptr: p,
-                         end: (p as usize + self.len()) as *mut T,
-                         _marker: marker::PhantomData}
+            let p = if mem::size_of::<T>() == 0 {
+                1 as *mut _
             } else {
-                IterMut {ptr: p,
-                         end: p.offset(self.len() as isize),
-                         _marker: marker::PhantomData}
+                let p = self.as_mut_ptr();
+                assume(!p.is_null());
+                p
+            };
+
+            IterMut {
+                ptr: p,
+                end: slice_offset!(p, self.len() as isize),
+                _marker: marker::PhantomData
             }
         }
     }
@@ -595,37 +636,6 @@ impl<T> ops::IndexMut<RangeFull> for [T] {
 // Common traits
 ////////////////////////////////////////////////////////////////////////////////
 
-/// Data that is viewable as a slice.
-#[unstable(feature = "core",
-           reason = "will be replaced by slice syntax")]
-#[deprecated(since = "1.0.0",
-             reason = "use std::convert::AsRef<[T]> instead")]
-pub trait AsSlice<T> {
-    /// Work with `self` as a slice.
-    fn as_slice<'a>(&'a self) -> &'a [T];
-}
-
-#[unstable(feature = "core", reason = "trait is experimental")]
-#[allow(deprecated)]
-impl<T> AsSlice<T> for [T] {
-    #[inline(always)]
-    fn as_slice<'a>(&'a self) -> &'a [T] { self }
-}
-
-#[unstable(feature = "core", reason = "trait is experimental")]
-#[allow(deprecated)]
-impl<'a, T, U: ?Sized + AsSlice<T>> AsSlice<T> for &'a U {
-    #[inline(always)]
-    fn as_slice(&self) -> &[T] { AsSlice::as_slice(*self) }
-}
-
-#[unstable(feature = "core", reason = "trait is experimental")]
-#[allow(deprecated)]
-impl<'a, T, U: ?Sized + AsSlice<T>> AsSlice<T> for &'a mut U {
-    #[inline(always)]
-    fn as_slice(&self) -> &[T] { AsSlice::as_slice(*self) }
-}
-
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, T> Default for &'a [T] {
     #[stable(feature = "rust1", since = "1.0.0")]
@@ -656,6 +666,11 @@ impl<'a, T> IntoIterator for &'a mut [T] {
     }
 }
 
+#[inline(always)]
+fn size_from_ptr<T>(_: *const T) -> usize {
+    mem::size_of::<T>()
+}
+
 // The shared definition of the `Iter` and `IterMut` iterators
 macro_rules! iterator {
     (struct $name:ident -> $ptr:ty, $elem:ty) => {
@@ -667,35 +682,42 @@ macro_rules! iterator {
             fn next(&mut self) -> Option<$elem> {
                 // could be implemented with slices, but this avoids bounds checks
                 unsafe {
-                    ::intrinsics::assume(!self.ptr.is_null());
-                    ::intrinsics::assume(!self.end.is_null());
+                    if mem::size_of::<T>() != 0 {
+                        assume(!self.ptr.is_null());
+                        assume(!self.end.is_null());
+                    }
                     if self.ptr == self.end {
                         None
                     } else {
-                        if mem::size_of::<T>() == 0 {
-                            // purposefully don't use 'ptr.offset' because for
-                            // vectors with 0-size elements this would return the
-                            // same pointer.
-                            self.ptr = transmute(self.ptr as usize + 1);
-
-                            // Use a non-null pointer value
-                            Some(&mut *(1 as *mut _))
-                        } else {
-                            let old = self.ptr;
-                            self.ptr = self.ptr.offset(1);
-
-                            Some(transmute(old))
-                        }
+                        let old = self.ptr;
+                        self.ptr = slice_offset!(self.ptr, 1);
+                        Some(slice_ref!(old))
                     }
                 }
             }
 
             #[inline]
             fn size_hint(&self) -> (usize, Option<usize>) {
-                let diff = (self.end as usize) - (self.ptr as usize);
+                let diff = (self.end as usize).wrapping_sub(self.ptr as usize);
                 let size = mem::size_of::<T>();
                 let exact = diff / (if size == 0 {1} else {size});
                 (exact, Some(exact))
+            }
+
+            #[inline]
+            fn count(self) -> usize {
+                self.size_hint().0
+            }
+
+            #[inline]
+            fn nth(&mut self, n: usize) -> Option<$elem> {
+                // Call helper method. Can't put the definition here because mut versus const.
+                self.iter_nth(n)
+            }
+
+            #[inline]
+            fn last(mut self) -> Option<$elem> {
+                self.next_back()
             }
         }
 
@@ -705,22 +727,15 @@ macro_rules! iterator {
             fn next_back(&mut self) -> Option<$elem> {
                 // could be implemented with slices, but this avoids bounds checks
                 unsafe {
-                    ::intrinsics::assume(!self.ptr.is_null());
-                    ::intrinsics::assume(!self.end.is_null());
+                    if mem::size_of::<T>() != 0 {
+                        assume(!self.ptr.is_null());
+                        assume(!self.end.is_null());
+                    }
                     if self.end == self.ptr {
                         None
                     } else {
-                        if mem::size_of::<T>() == 0 {
-                            // See above for why 'ptr.offset' isn't used
-                            self.end = transmute(self.end as usize - 1);
-
-                            // Use a non-null pointer value
-                            Some(&mut *(1 as *mut _))
-                        } else {
-                            self.end = self.end.offset(-1);
-
-                            Some(transmute(self.end))
-                        }
+                        self.end = slice_offset!(self.end, -1);
+                        Some(slice_ref!(self.end))
                     }
                 }
             }
@@ -729,29 +744,29 @@ macro_rules! iterator {
 }
 
 macro_rules! make_slice {
-    ($t: ty => $result: ty: $start: expr, $end: expr) => {{
-        let diff = $end as usize - $start as usize;
-        let len = if mem::size_of::<T>() == 0 {
-            diff
+    ($start: expr, $end: expr) => {{
+        let start = $start;
+        let diff = ($end as usize).wrapping_sub(start as usize);
+        if size_from_ptr(start) == 0 {
+            // use a non-null pointer value
+            unsafe { from_raw_parts(1 as *const _, diff) }
         } else {
-            diff / mem::size_of::<$t>()
-        };
-        unsafe {
-            from_raw_parts($start, len)
+            let len = diff / size_from_ptr(start);
+            unsafe { from_raw_parts(start, len) }
         }
     }}
 }
 
 macro_rules! make_mut_slice {
-    ($t: ty => $result: ty: $start: expr, $end: expr) => {{
-        let diff = $end as usize - $start as usize;
-        let len = if mem::size_of::<T>() == 0 {
-            diff
+    ($start: expr, $end: expr) => {{
+        let start = $start;
+        let diff = ($end as usize).wrapping_sub(start as usize);
+        if size_from_ptr(start) == 0 {
+            // use a non-null pointer value
+            unsafe { from_raw_parts_mut(1 as *mut _, diff) }
         } else {
-            diff / mem::size_of::<$t>()
-        };
-        unsafe {
-            from_raw_parts_mut($start, len)
+            let len = diff / size_from_ptr(start);
+            unsafe { from_raw_parts_mut(start, len) }
         }
     }}
 }
@@ -767,46 +782,6 @@ pub struct Iter<'a, T: 'a> {
 unsafe impl<'a, T: Sync> Sync for Iter<'a, T> {}
 unsafe impl<'a, T: Sync> Send for Iter<'a, T> {}
 
-#[unstable(feature = "core")]
-impl<'a, T> ops::Index<ops::Range<usize>> for Iter<'a, T> {
-    type Output = [T];
-
-    #[inline]
-    fn index(&self, index: ops::Range<usize>) -> &[T] {
-        self.as_slice().index(index)
-    }
-}
-
-#[unstable(feature = "core")]
-impl<'a, T> ops::Index<ops::RangeTo<usize>> for Iter<'a, T> {
-    type Output = [T];
-
-    #[inline]
-    fn index(&self, index: ops::RangeTo<usize>) -> &[T] {
-        self.as_slice().index(index)
-    }
-}
-
-#[unstable(feature = "core")]
-impl<'a, T> ops::Index<ops::RangeFrom<usize>> for Iter<'a, T> {
-    type Output = [T];
-
-    #[inline]
-    fn index(&self, index: ops::RangeFrom<usize>) -> &[T] {
-        self.as_slice().index(index)
-    }
-}
-
-#[unstable(feature = "core")]
-impl<'a, T> ops::Index<RangeFull> for Iter<'a, T> {
-    type Output = [T];
-
-    #[inline]
-    fn index(&self, _index: RangeFull) -> &[T] {
-        self.as_slice()
-    }
-}
-
 impl<'a, T> Iter<'a, T> {
     /// View the underlying data as a subslice of the original data.
     ///
@@ -814,7 +789,21 @@ impl<'a, T> Iter<'a, T> {
     /// iterator can continue to be used while this exists.
     #[unstable(feature = "core")]
     pub fn as_slice(&self) -> &'a [T] {
-        make_slice!(T => &'a [T]: self.ptr, self.end)
+        make_slice!(self.ptr, self.end)
+    }
+
+    // Helper function for Iter::nth
+    fn iter_nth(&mut self, n: usize) -> Option<&'a T> {
+        match self.as_slice().get(n) {
+            Some(elem_ref) => unsafe {
+                self.ptr = slice_offset!(self.ptr, (n as isize).wrapping_add(1));
+                Some(elem_ref)
+            },
+            None => {
+                self.ptr = self.end;
+                None
+            }
+        }
     }
 }
 
@@ -840,12 +829,7 @@ impl<'a, T> RandomAccessIterator for Iter<'a, T> {
     fn idx(&mut self, index: usize) -> Option<&'a T> {
         unsafe {
             if index < self.indexable() {
-                if mem::size_of::<T>() == 0 {
-                    // Use a non-null pointer value
-                    Some(&mut *(1 as *mut _))
-                } else {
-                    Some(transmute(self.ptr.offset(index as isize)))
-                }
+                Some(slice_ref!(self.ptr.offset(index as isize)))
             } else {
                 None
             }
@@ -864,76 +848,6 @@ pub struct IterMut<'a, T: 'a> {
 unsafe impl<'a, T: Sync> Sync for IterMut<'a, T> {}
 unsafe impl<'a, T: Send> Send for IterMut<'a, T> {}
 
-#[unstable(feature = "core")]
-impl<'a, T> ops::Index<ops::Range<usize>> for IterMut<'a, T> {
-    type Output = [T];
-
-    #[inline]
-    fn index(&self, index: ops::Range<usize>) -> &[T] {
-        self.index(RangeFull).index(index)
-    }
-}
-#[unstable(feature = "core")]
-impl<'a, T> ops::Index<ops::RangeTo<usize>> for IterMut<'a, T> {
-    type Output = [T];
-
-    #[inline]
-    fn index(&self, index: ops::RangeTo<usize>) -> &[T] {
-        self.index(RangeFull).index(index)
-    }
-}
-#[unstable(feature = "core")]
-impl<'a, T> ops::Index<ops::RangeFrom<usize>> for IterMut<'a, T> {
-    type Output = [T];
-
-    #[inline]
-    fn index(&self, index: ops::RangeFrom<usize>) -> &[T] {
-        self.index(RangeFull).index(index)
-    }
-}
-#[unstable(feature = "core")]
-impl<'a, T> ops::Index<RangeFull> for IterMut<'a, T> {
-    type Output = [T];
-
-    #[inline]
-    fn index(&self, _index: RangeFull) -> &[T] {
-        make_slice!(T => &[T]: self.ptr, self.end)
-    }
-}
-
-#[unstable(feature = "core")]
-impl<'a, T> ops::IndexMut<ops::Range<usize>> for IterMut<'a, T> {
-    #[inline]
-    fn index_mut(&mut self, index: ops::Range<usize>) -> &mut [T] {
-        self.index_mut(RangeFull).index_mut(index)
-    }
-}
-#[unstable(feature = "core")]
-impl<'a, T> ops::IndexMut<ops::RangeTo<usize>> for IterMut<'a, T> {
-
-    #[inline]
-    fn index_mut(&mut self, index: ops::RangeTo<usize>) -> &mut [T] {
-        self.index_mut(RangeFull).index_mut(index)
-    }
-}
-#[unstable(feature = "core")]
-impl<'a, T> ops::IndexMut<ops::RangeFrom<usize>> for IterMut<'a, T> {
-
-    #[inline]
-    fn index_mut(&mut self, index: ops::RangeFrom<usize>) -> &mut [T] {
-        self.index_mut(RangeFull).index_mut(index)
-    }
-}
-#[unstable(feature = "core")]
-impl<'a, T> ops::IndexMut<RangeFull> for IterMut<'a, T> {
-
-    #[inline]
-    fn index_mut(&mut self, _index: RangeFull) -> &mut [T] {
-        make_mut_slice!(T => &mut [T]: self.ptr, self.end)
-    }
-}
-
-
 impl<'a, T> IterMut<'a, T> {
     /// View the underlying data as a subslice of the original data.
     ///
@@ -943,7 +857,21 @@ impl<'a, T> IterMut<'a, T> {
     /// restricted lifetimes that do not consume the iterator.
     #[unstable(feature = "core")]
     pub fn into_slice(self) -> &'a mut [T] {
-        make_mut_slice!(T => &'a mut [T]: self.ptr, self.end)
+        make_mut_slice!(self.ptr, self.end)
+    }
+
+    // Helper function for IterMut::nth
+    fn iter_nth(&mut self, n: usize) -> Option<&'a mut T> {
+        match make_mut_slice!(self.ptr, self.end).get_mut(n) {
+            Some(elem_ref) => unsafe {
+                self.ptr = slice_offset!(self.ptr, (n as isize).wrapping_add(1));
+                Some(elem_ref)
+            },
+            None => {
+                self.ptr = self.end;
+                None
+            }
+        }
     }
 }
 

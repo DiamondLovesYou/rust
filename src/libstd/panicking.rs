@@ -17,9 +17,8 @@ use any::Any;
 use cell::RefCell;
 use rt::{backtrace, unwind};
 use sys::stdio::Stderr;
-use thread;
+use sys_common::thread_info;
 
-// Defined in this module instead of old_io::stdio so that the unwinding
 thread_local! {
     pub static LOCAL_STDERR: RefCell<Option<Box<Write + Send>>> = {
         RefCell::new(None)
@@ -35,8 +34,8 @@ pub fn on_panic(obj: &(Any+Send), file: &'static str, line: u32) {
         }
     };
     let mut err = Stderr::new();
-    let thread = thread::current();
-    let name = thread.name().unwrap_or("<unnamed>");
+    let thread = thread_info::current_thread();
+    let name = thread.as_ref().and_then(|t| t.name()).unwrap_or("<unnamed>");
     let prev = LOCAL_STDERR.with(|s| s.borrow_mut().take());
     match prev {
         Some(mut stderr) => {

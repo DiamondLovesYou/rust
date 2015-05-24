@@ -97,25 +97,24 @@ mod imp {
                   target_arch = "powerpc")))]
     fn is_getrandom_available() -> bool {
         use sync::atomic::{AtomicBool, ATOMIC_BOOL_INIT, Ordering};
+        use sync::{Once, ONCE_INIT};
 
-        static GETRANDOM_CHECKED: AtomicBool = ATOMIC_BOOL_INIT;
-        static GETRANDOM_AVAILABLE: AtomicBool = ATOMIC_BOOL_INIT;
+        static CHECKER: Once = ONCE_INIT;
+        static AVAILABLE: AtomicBool = ATOMIC_BOOL_INIT;
 
-        if !GETRANDOM_CHECKED.load(Ordering::Relaxed) {
+        CHECKER.call_once(|| {
             let mut buf: [u8; 0] = [];
             let result = getrandom(&mut buf);
             let available = if result == -1 {
-                let err = errno() as libc::c_int;
-                err != libc::ENOSYS
+                let err = io::Error::last_os_error().raw_os_error();
+                err != Some(libc::ENOSYS)
             } else {
                 true
             };
-            GETRANDOM_AVAILABLE.store(available, Ordering::Relaxed);
-            GETRANDOM_CHECKED.store(true, Ordering::Relaxed);
-            available
-        } else {
-            GETRANDOM_AVAILABLE.load(Ordering::Relaxed)
-        }
+            AVAILABLE.store(available, Ordering::Relaxed);
+        });
+
+        AVAILABLE.load(Ordering::Relaxed)
     }
 
     #[cfg(not(all(target_os = "linux",
@@ -280,6 +279,7 @@ mod imp {
     const CRYPT_VERIFYCONTEXT: DWORD = 0xF0000000;
 
     #[allow(non_snake_case)]
+    #[link(name = "advapi32")]
     extern "system" {
         fn CryptAcquireContextA(phProv: *mut HCRYPTPROV,
                                 pszContainer: LPCSTR,
@@ -347,7 +347,7 @@ mod imp {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use prelude::v1::*;
 
     use sync::mpsc::channel;
@@ -375,7 +375,7 @@ mod test {
             txs.push(tx);
 
             thread::spawn(move|| {
-                // wait until all the tasks are ready to go.
+                // wait until all the threads are ready to go.
                 rx.recv().unwrap();
 
                 // deschedule to attempt to interleave things as much
@@ -395,7 +395,7 @@ mod test {
             });
         }
 
-        // start all the tasks
+        // start all the threads
         for tx in &txs {
             tx.send(()).unwrap();
         }

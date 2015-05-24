@@ -21,7 +21,7 @@ use util::common::time;
 use util::common::path2cstr;
 use syntax::codemap;
 use syntax::diagnostic;
-use syntax::diagnostic::{Emitter, Handler, Level, mk_handler};
+use syntax::diagnostic::{Emitter, Handler, Level};
 
 use std::ffi::{CStr, CString};
 use std::fs;
@@ -86,8 +86,8 @@ struct Diagnostic {
 }
 
 // We use an Arc instead of just returning a list of diagnostics from the
-// child task because we need to make sure that the messages are seen even
-// if the child task panics (for example, when `fatal` is called).
+// child thread because we need to make sure that the messages are seen even
+// if the child thread panics (for example, when `fatal` is called).
 #[derive(Clone)]
 struct SharedEmitter {
     buffer: Arc<Mutex<Vec<Diagnostic>>>,
@@ -354,7 +354,7 @@ unsafe extern "C" fn report_inline_asm<'a, 'b>(cgcx: &'a CodegenContext<'a>,
 
     match cgcx.lto_ctxt {
         Some((sess, _)) => {
-            sess.codemap().with_expn_info(ExpnId::from_llvm_cookie(cookie), |info| match info {
+            sess.codemap().with_expn_info(ExpnId::from_u32(cookie), |info| match info {
                 Some(ei) => sess.span_err(ei.call_site, msg),
                 None     => sess.err(msg),
             });
@@ -669,7 +669,7 @@ pub fn run_passes(sess: &Session,
     }
 
 
-    // Populate a buffer with a list of codegen tasks.  Items are processed in
+    // Populate a buffer with a list of codegen threads.  Items are processed in
     // LIFO order, just because it's a tiny bit simpler that way.  (The order
     // doesn't actually matter.)
     let mut work_items = Vec::with_capacity(1 + trans.modules.len());
@@ -856,7 +856,13 @@ pub fn run_passes(sess: &Session,
                                             p.display())[..]);
                     });
                 let mut bitcodes = Vec::new();
-                archive.foreach_child(|name, bc| {
+                for (id, object) in archive.iter().enumerate() {
+                    let name = object.name()
+                        .map(|name| name.to_string() )
+                        .unwrap_or_else(|| {
+                            format!("unnamed_object_{}", id)
+                        });
+                    let bc = object.data();
                     debug!("processing object `{}`", name);
                     let llctx = unsafe { llvm::LLVMContextCreate() };
                     // Ignore all messages about invalid debug versions (toolchain libraries
@@ -903,7 +909,7 @@ pub fn run_passes(sess: &Session,
                                                         name);
                         work_items.push(work_item);
                     }
-                });
+                }
                 bitcodes.into_iter()
             })
             .collect();
@@ -1185,7 +1191,7 @@ fn run_work_multithreaded(sess: &Session,
         futures.push(rx);
 
         thread::Builder::new().name(format!("codegen-{}", i)).spawn(move || {
-            let diag_handler = mk_handler(true, box diag_emitter);
+            let diag_handler = Handler::with_emitter(true, box diag_emitter);
 
             // Must construct cgcx inside the proc because it has non-Send
             // fields.

@@ -25,7 +25,7 @@
 
 import fileinput, re, os, sys, operator
 
-preamble = '''// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
+preamble = '''// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -207,8 +207,8 @@ def format_table_content(f, content, indent):
 def load_properties(f, interestingprops):
     fetch(f)
     props = {}
-    re1 = re.compile("^([0-9A-F]+) +; (\w+)")
-    re2 = re.compile("^([0-9A-F]+)\.\.([0-9A-F]+) +; (\w+)")
+    re1 = re.compile("^ *([0-9A-F]+) *; *(\w+)")
+    re2 = re.compile("^ *([0-9A-F]+)\.\.([0-9A-F]+) *; *(\w+)")
 
     for line in fileinput.input(os.path.basename(f)):
         prop = None
@@ -234,6 +234,11 @@ def load_properties(f, interestingprops):
         if prop not in props:
             props[prop] = []
         props[prop].append((d_lo, d_hi))
+
+    # optimize if possible
+    for prop in props:
+        props[prop] = group_cat(ungroup_cat(props[prop]))
+
     return props
 
 # load all widths of want_widths, except those in except_cats
@@ -518,11 +523,14 @@ def emit_norm_module(f, canon, compat, combine, norm_props):
     emit_table(f, "combining_class_table", combine, "&'static [(char, char, u8)]", is_pub=False,
             pfun=lambda x: "(%s,%s,%s)" % (escape_char(x[0]), escape_char(x[1]), x[2]))
 
-    f.write("    pub fn canonical_combining_class(c: char) -> u8 {\n"
-        + "        bsearch_range_value_table(c, combining_class_table)\n"
-        + "    }\n")
+    f.write("""    #[deprecated(reason = "use the crates.io `unicode-normalization` lib instead",
+                 since = "1.0.0")]
+    #[unstable(feature = "unicode",
+               reason = "this functionality will be moved to crates.io")]
+    pub fn canonical_combining_class(c: char) -> u8 {
+        bsearch_range_value_table(c, combining_class_table)
+    }
 
-    f.write("""
 }
 
 """)

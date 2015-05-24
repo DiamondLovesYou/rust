@@ -22,12 +22,13 @@ use rustc::middle::def;
 use rustc::middle::ty;
 use rustc::middle::subst;
 use rustc::middle::stability;
+use rustc::middle::const_eval;
 
 use core::DocContext;
 use doctree;
 use clean;
 
-use super::Clean;
+use super::{Clean, ToSource};
 
 /// Attempt to inline the definition of a local node id into this AST.
 ///
@@ -106,7 +107,7 @@ fn try_inline_def(cx: &DocContext, tcx: &ty::ctxt,
             record_extern_fqn(cx, did, clean::TypeStatic);
             clean::StaticItem(build_static(cx, tcx, did, mtbl))
         }
-        def::DefConst(did) => {
+        def::DefConst(did) | def::DefAssociatedConst(did, _) => {
             record_extern_fqn(cx, did, clean::TypeConst);
             clean::ConstantItem(build_const(cx, tcx, did))
         }
@@ -218,15 +219,17 @@ fn build_type(cx: &DocContext, tcx: &ty::ctxt, did: ast::DefId) -> clean::ItemEn
     })
 }
 
-fn build_impls(cx: &DocContext, tcx: &ty::ctxt,
-               did: ast::DefId) -> Vec<clean::Item> {
-    ty::populate_implementations_for_type_if_necessary(tcx, did);
+pub fn build_impls(cx: &DocContext, tcx: &ty::ctxt,
+                   did: ast::DefId) -> Vec<clean::Item> {
+    ty::populate_inherent_implementations_for_type_if_necessary(tcx, did);
     let mut impls = Vec::new();
 
     match tcx.inherent_impls.borrow().get(&did) {
         None => {}
         Some(i) => {
-            impls.extend(i.iter().map(|&did| { build_impl(cx, tcx, did) }));
+            for &did in i.iter() {
+                build_impl(cx, tcx, did, &mut impls);
+            }
         }
     }
 
@@ -247,9 +250,9 @@ fn build_impls(cx: &DocContext, tcx: &ty::ctxt,
 
         fn populate_impls(cx: &DocContext, tcx: &ty::ctxt,
                           def: decoder::DefLike,
-                          impls: &mut Vec<Option<clean::Item>>) {
+                          impls: &mut Vec<clean::Item>) {
             match def {
-                decoder::DlImpl(did) => impls.push(build_impl(cx, tcx, did)),
+                decoder::DlImpl(did) => build_impl(cx, tcx, did, impls),
                 decoder::DlDef(def::DefMod(did)) => {
                     csearch::each_child_of_item(&tcx.sess.cstore,
                                                 did,
@@ -262,14 +265,15 @@ fn build_impls(cx: &DocContext, tcx: &ty::ctxt,
         }
     }
 
-    impls.into_iter().filter_map(|a| a).collect()
+    return impls;
 }
 
-fn build_impl(cx: &DocContext,
-              tcx: &ty::ctxt,
-              did: ast::DefId) -> Option<clean::Item> {
+pub fn build_impl(cx: &DocContext,
+                  tcx: &ty::ctxt,
+                  did: ast::DefId,
+                  ret: &mut Vec<clean::Item>) {
     if !cx.inlined.borrow_mut().as_mut().unwrap().insert(did) {
-        return None
+        return
     }
 
     let attrs = load_attrs(cx, tcx, did);
@@ -278,13 +282,13 @@ fn build_impl(cx: &DocContext,
         // If this is an impl for a #[doc(hidden)] trait, be sure to not inline
         let trait_attrs = load_attrs(cx, tcx, t.def_id);
         if trait_attrs.iter().any(|a| is_doc_hidden(a)) {
-            return None
+            return
         }
     }
 
     // If this is a defaulted impl, then bail out early here
     if csearch::is_default_impl(&tcx.sess.cstore, did) {
-        return Some(clean::Item {
+        return ret.push(clean::Item {
             inner: clean::DefaultImplItem(clean::DefaultImpl {
                 // FIXME: this should be decoded
                 unsafety: ast::Unsafety::Normal,
@@ -309,6 +313,27 @@ fn build_impl(cx: &DocContext,
         let did = did.def_id();
         let impl_item = ty::impl_or_trait_item(tcx, did);
         match impl_item {
+            ty::ConstTraitItem(ref assoc_const) => {
+                let did = assoc_const.def_id;
+                let type_scheme = ty::lookup_item_type(tcx, did);
+                let default = match assoc_const.default {
+                    Some(_) => Some(const_eval::lookup_const_by_id(tcx, did, None)
+                                               .unwrap().span.to_src(cx)),
+                    None => None,
+                };
+                Some(clean::Item {
+                    name: Some(assoc_const.name.clean(cx)),
+                    inner: clean::AssociatedConstItem(
+                        type_scheme.ty.clean(cx),
+                        default,
+                    ),
+                    source: clean::Span::empty(),
+                    attrs: vec![],
+                    visibility: None,
+                    stability: stability::lookup(tcx, did).clean(cx),
+                    def_id: did
+                })
+            }
             ty::MethodTraitItem(method) => {
                 if method.vis != ast::Public && associated_trait.is_none() {
                     return None
@@ -352,19 +377,25 @@ fn build_impl(cx: &DocContext,
                 })
             }
         }
-    }).collect();
+    }).collect::<Vec<_>>();
     let polarity = csearch::get_impl_polarity(tcx, did);
     let ty = ty::lookup_item_type(tcx, did);
-    return Some(clean::Item {
+    let trait_ = associated_trait.clean(cx).map(|bound| {
+        match bound {
+            clean::TraitBound(polyt, _) => polyt.trait_,
+            clean::RegionBound(..) => unreachable!(),
+        }
+    });
+    if let Some(clean::ResolvedPath { did, .. }) = trait_ {
+        if Some(did) == cx.deref_trait_did.get() {
+            super::build_deref_target_impls(cx, &trait_items, ret);
+        }
+    }
+    ret.push(clean::Item {
         inner: clean::ImplItem(clean::Impl {
             unsafety: ast::Unsafety::Normal, // FIXME: this should be decoded
             derived: clean::detect_derived(&attrs),
-            trait_: associated_trait.clean(cx).map(|bound| {
-                match bound {
-                    clean::TraitBound(polyt, _) => polyt.trait_,
-                    clean::RegionBound(..) => unreachable!(),
-                }
-            }),
+            trait_: trait_,
             for_: ty.ty.clean(cx),
             generics: (&ty.generics, &predicates, subst::TypeSpace).clean(cx),
             items: trait_items,
@@ -434,7 +465,7 @@ fn build_const(cx: &DocContext, tcx: &ty::ctxt,
     use rustc::middle::const_eval;
     use syntax::print::pprust;
 
-    let expr = const_eval::lookup_const_by_id(tcx, did).unwrap_or_else(|| {
+    let expr = const_eval::lookup_const_by_id(tcx, did, None).unwrap_or_else(|| {
         panic!("expected lookup_const_by_id to succeed for {:?}", did);
     });
     debug!("converting constant expr {:?} to snippet", expr);

@@ -8,20 +8,19 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use ast::{MetaItem, Item, Expr, MutMutable};
+use ast::{MetaItem, Expr, MutMutable};
 use codemap::Span;
-use ext::base::ExtCtxt;
+use ext::base::{ExtCtxt, Annotatable};
 use ext::build::AstBuilder;
 use ext::deriving::generic::*;
 use ext::deriving::generic::ty::*;
 use ptr::P;
 
-pub fn expand_deriving_hash<F>(cx: &mut ExtCtxt,
-                               span: Span,
-                               mitem: &MetaItem,
-                               item: &Item,
-                               push: F) where
-    F: FnOnce(P<Item>),
+pub fn expand_deriving_hash(cx: &mut ExtCtxt,
+                            span: Span,
+                            mitem: &MetaItem,
+                            item: Annotatable,
+                            push: &mut FnMut(Annotatable))
 {
 
     let path = Path::new_(pathvec_std!(cx, core::hash::Hash), None,
@@ -42,9 +41,10 @@ pub fn expand_deriving_hash<F>(cx: &mut ExtCtxt,
                                   vec![path_std!(cx, core::hash::Hasher)])],
                 },
                 explicit_self: borrowed_explicit_self(),
-                args: vec!(Ptr(box Literal(arg), Borrowed(None, MutMutable))),
+                args: vec!(Ptr(Box::new(Literal(arg)), Borrowed(None, MutMutable))),
                 ret_ty: nil_ty(),
                 attributes: vec![],
+                is_unsafe: false,
                 combine_substructure: combine_substructure(Box::new(|a, b, c| {
                     hash_substructure(a, b, c)
                 }))
@@ -53,12 +53,12 @@ pub fn expand_deriving_hash<F>(cx: &mut ExtCtxt,
         associated_types: Vec::new(),
     };
 
-    hash_trait_def.expand(cx, mitem, item, push);
+    hash_trait_def.expand(cx, mitem, &item, push);
 }
 
 fn hash_substructure(cx: &mut ExtCtxt, trait_span: Span, substr: &Substructure) -> P<Expr> {
-    let state_expr = match substr.nonself_args {
-        [ref state_expr] => state_expr,
+    let state_expr = match (substr.nonself_args.len(), substr.nonself_args.get(0)) {
+        (1, Some(o_f)) => o_f,
         _ => cx.span_bug(trait_span, "incorrect number of arguments in `derive(Hash)`")
     };
     let call_hash = |span, thing_expr| {

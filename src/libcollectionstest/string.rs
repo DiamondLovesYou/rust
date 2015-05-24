@@ -135,7 +135,7 @@ fn test_from_utf16() {
         let s_as_utf16 = s.utf16_units().collect::<Vec<u16>>();
         let u_as_string = String::from_utf16(&u).unwrap();
 
-        assert!(::unicode::str::is_utf16(&u));
+        assert!(::rustc_unicode::str::is_utf16(&u));
         assert_eq!(s_as_utf16, u);
 
         assert_eq!(u_as_string, s);
@@ -348,6 +348,23 @@ fn test_from_iterator() {
     assert_eq!(s, d);
 }
 
+#[test]
+fn test_drain() {
+    let mut s = String::from("αβγ");
+    assert_eq!(s.drain(2..4).collect::<String>(), "β");
+    assert_eq!(s, "αγ");
+
+    let mut t = String::from("abcd");
+    t.drain(..0);
+    assert_eq!(t, "abcd");
+    t.drain(..1);
+    assert_eq!(t, "bcd");
+    t.drain(3..);
+    assert_eq!(t, "bcd");
+    t.drain(..);
+    assert_eq!(t, "");
+}
+
 #[bench]
 fn bench_with_capacity(b: &mut Bencher) {
     b.iter(|| {
@@ -449,4 +466,31 @@ fn bench_exact_size_shrink_to_fit(b: &mut Bencher) {
         r.shrink_to_fit();
         r
     });
+}
+
+#[bench]
+fn bench_from_str(b: &mut Bencher) {
+    let s = "Hello there, the quick brown fox jumped over the lazy dog! \
+             Lorem ipsum dolor sit amet, consectetur. ";
+    b.iter(|| {
+        String::from_str(s)
+    })
+}
+
+#[bench]
+fn bench_from(b: &mut Bencher) {
+    let s = "Hello there, the quick brown fox jumped over the lazy dog! \
+             Lorem ipsum dolor sit amet, consectetur. ";
+    b.iter(|| {
+        String::from(s)
+    })
+}
+
+#[bench]
+fn bench_to_string(b: &mut Bencher) {
+    let s = "Hello there, the quick brown fox jumped over the lazy dog! \
+             Lorem ipsum dolor sit amet, consectetur. ";
+    b.iter(|| {
+        s.to_string()
+    })
 }

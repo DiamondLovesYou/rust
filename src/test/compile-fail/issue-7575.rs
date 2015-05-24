@@ -10,14 +10,12 @@
 
 // Test the mechanism for warning about possible missing `self` declarations.
 
-use std::marker::MarkerTrait;
-
 trait CtxtFn {
     fn f8(self, usize) -> usize;
     fn f9(usize) -> usize; //~ NOTE candidate
 }
 
-trait OtherTrait : MarkerTrait {
+trait OtherTrait {
     fn f9(usize) -> usize; //~ NOTE candidate
 }
 
@@ -26,7 +24,7 @@ trait OtherTrait : MarkerTrait {
 // declaration to match against, so we wind up prisizeing it as a
 // candidate. This seems not unreasonable -- perhaps the user meant to
 // implement it, after all.
-trait UnusedTrait : MarkerTrait {
+trait UnusedTrait {
     fn f9(usize) -> usize; //~ NOTE candidate
 }
 
@@ -54,7 +52,7 @@ impl Myisize {
     }
 }
 
-trait ManyImplTrait : MarkerTrait {
+trait ManyImplTrait {
     fn is_str() -> bool { //~ NOTE candidate
         false
     }
@@ -73,15 +71,15 @@ impl ManyImplTrait for Myisize {}
 
 fn no_param_bound(u: usize, m: Myisize) -> usize {
     u.f8(42) + u.f9(342) + m.fff(42)
-            //~^ ERROR type `usize` does not implement any method in scope named `f9`
+            //~^ ERROR no method named `f9` found for type `usize` in the current scope
             //~^^ NOTE found defined static methods, maybe a `self` is missing?
-            //~^^^ ERROR type `Myisize` does not implement any method in scope named `fff`
+            //~^^^ ERROR no method named `fff` found for type `Myisize` in the current scope
             //~^^^^ NOTE found defined static methods, maybe a `self` is missing?
 }
 
 fn param_bound<T: ManyImplTrait>(t: T) -> bool {
     t.is_str()
-    //~^ ERROR type `T` does not implement any method in scope named `is_str`
+    //~^ ERROR no method named `is_str` found for type `T` in the current scope
     //~^^ NOTE found defined static methods, maybe a `self` is missing?
 }
 

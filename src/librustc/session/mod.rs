@@ -49,8 +49,9 @@ pub struct Session {
     pub entry_type: Cell<Option<config::EntryFnType>>,
     pub plugin_registrar_fn: Cell<Option<ast::NodeId>>,
     pub default_sysroot: Option<PathBuf>,
-    // The name of the root source file of the crate, in the local file system. The path is always
-    // expected to be absolute. `None` means that there is no source file.
+    // The name of the root source file of the crate, in the local file system.
+    // The path is always expected to be absolute. `None` means that there is no
+    // source file.
     pub local_crate_source_file: Option<PathBuf>,
     pub working_dir: PathBuf,
     pub lint_store: RefCell<lint::LintStore>,
@@ -60,11 +61,15 @@ pub struct Session {
     pub crate_metadata: RefCell<Vec<String>>,
     pub features: RefCell<feature_gate::Features>,
 
+    pub delayed_span_bug: RefCell<Option<(codemap::Span, String)>>,
+
     /// The maximum recursion limit for potentially infinitely recursive
     /// operations such as auto-dereference and monomorphization.
     pub recursion_limit: Cell<usize>,
 
-    pub can_print_warnings: bool
+    pub can_print_warnings: bool,
+
+    next_node_id: Cell<ast::NodeId>
 }
 
 impl Session {
@@ -117,7 +122,15 @@ impl Session {
         self.diagnostic().handler().has_errors()
     }
     pub fn abort_if_errors(&self) {
-        self.diagnostic().handler().abort_if_errors()
+        self.diagnostic().handler().abort_if_errors();
+
+        let delayed_bug = self.delayed_span_bug.borrow();
+        match *delayed_bug {
+            Some((span, ref errmsg)) => {
+                self.diagnostic().span_bug(span, errmsg);
+            },
+            _ => {}
+        }
     }
     pub fn span_warn(&self, sp: Span, msg: &str) {
         if self.can_print_warnings {
@@ -174,6 +187,11 @@ impl Session {
             None => self.bug(msg),
         }
     }
+    /// Delay a span_bug() call until abort_if_errors()
+    pub fn delay_span_bug(&self, sp: Span, msg: &str) {
+        let mut delayed = self.delayed_span_bug.borrow_mut();
+        *delayed = Some((sp, msg.to_string()));
+    }
     pub fn span_bug(&self, sp: Span, msg: &str) -> ! {
         self.diagnostic().span_bug(sp, msg)
     }
@@ -200,16 +218,23 @@ impl Session {
         lints.insert(id, vec!((lint_id, sp, msg)));
     }
     pub fn next_node_id(&self) -> ast::NodeId {
-        self.parse_sess.next_node_id()
+        self.reserve_node_ids(1)
     }
     pub fn reserve_node_ids(&self, count: ast::NodeId) -> ast::NodeId {
-        self.parse_sess.reserve_node_ids(count)
+        let id = self.next_node_id.get();
+
+        match id.checked_add(count) {
+            Some(next) => self.next_node_id.set(next),
+            None => self.bug("Input too large, ran out of node ids!")
+        }
+
+        id
     }
     pub fn diagnostic<'a>(&'a self) -> &'a diagnostic::SpanHandler {
         &self.parse_sess.span_diagnostic
     }
     pub fn codemap<'a>(&'a self) -> &'a codemap::CodeMap {
-        &self.parse_sess.span_diagnostic.cm
+        self.parse_sess.codemap()
     }
     // This exists to help with refactoring to eliminate impossible
     // cases later on
@@ -331,7 +356,7 @@ impl Session {
 
     // Emits a fatal error if path is not writeable.
     pub fn check_writeable_output<T: ?Sized>(&self, path: &T, name: &str)
-        where T: AsRef<Path> + ffi::AsOsStr + fmt::Debug
+        where T: AsRef<Path> + AsRef<ffi::OsStr> + fmt::Debug
     {
         use std::fs::metadata;
         use std::io::ErrorKind;
@@ -350,7 +375,7 @@ impl Session {
     // checks if we're saving temps or if we're emitting the specified type.
     // If neither, the file is unlinked from the filesystem.
     pub fn remove_temp<T: ?Sized>(&self, path: &T, t: OutputType)
-        where T: AsRef<Path> + ffi::AsOsStr + fmt::Debug
+        where T: AsRef<Path> + AsRef<ffi::OsStr> + fmt::Debug
     {
         use std::fs;
         if self.opts.cg.save_temps ||
@@ -452,9 +477,9 @@ pub fn build_session(sopts: config::Options,
 
     let codemap = codemap::CodeMap::new();
     let diagnostic_handler =
-        diagnostic::default_handler(sopts.color, Some(registry), can_print_warnings);
+        diagnostic::Handler::new(sopts.color, Some(registry), can_print_warnings);
     let span_diagnostic_handler =
-        diagnostic::mk_span_handler(diagnostic_handler, codemap);
+        diagnostic::SpanHandler::new(diagnostic_handler, codemap);
 
     build_session_(sopts, local_crate_source_file, span_diagnostic_handler)
 }
@@ -471,7 +496,7 @@ pub fn build_session_(sopts: config::Options,
     }
     };
     let target_cfg = config::build_target_config(&sopts, &span_diagnostic);
-    let p_s = parse::new_parse_sess_special_handler(span_diagnostic);
+    let p_s = parse::ParseSess::with_span_handler(span_diagnostic);
     let default_sysroot = match sopts.maybe_sysroot {
         Some(_) => None,
         None => Some(filesearch::get_or_default_sysroot())
@@ -511,9 +536,11 @@ pub fn build_session_(sopts: config::Options,
         plugin_llvm_passes: RefCell::new(Vec::new()),
         crate_types: RefCell::new(Vec::new()),
         crate_metadata: RefCell::new(Vec::new()),
+        delayed_span_bug: RefCell::new(None),
         features: RefCell::new(feature_gate::Features::new()),
         recursion_limit: Cell::new(64),
-        can_print_warnings: can_print_warnings
+        can_print_warnings: can_print_warnings,
+        next_node_id: Cell::new(1)
     };
 
     sess

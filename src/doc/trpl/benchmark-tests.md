@@ -3,7 +3,7 @@
 Rust supports benchmark tests, which can test the performance of your
 code. Let's make our `src/lib.rs` look like this (comments elided):
 
-```{rust,ignore}
+```rust,ignore
 #![feature(test)]
 
 extern crate test;
@@ -13,7 +13,7 @@ pub fn add_two(a: i32) -> i32 {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use test::Bencher;
 
@@ -77,7 +77,7 @@ the benchmark is no longer benchmarking what one expects. For example, the
 compiler might recognize that some calculation has no external effects and
 remove it entirely.
 
-```{rust,ignore}
+```rust,ignore
 #![feature(test)]
 
 extern crate test;

@@ -18,7 +18,6 @@
 
 use prelude::v1::*;
 
-use iter::IntoIterator;
 use error::Error;
 use ffi::{OsStr, OsString};
 use fmt;
@@ -28,7 +27,7 @@ use sync::atomic::{AtomicIsize, ATOMIC_ISIZE_INIT, Ordering};
 use sync::{StaticMutex, MUTEX_INIT};
 use sys::os as os_imp;
 
-/// Returns the current working directory as a `Path`.
+/// Returns the current working directory as a `PathBuf`.
 ///
 /// # Errors
 ///
@@ -67,7 +66,7 @@ pub fn current_dir() -> io::Result<PathBuf> {
 /// println!("Successfully changed working directory to {}!", root.display());
 /// ```
 #[stable(feature = "env", since = "1.0.0")]
-pub fn set_current_dir<P: AsRef<Path> + ?Sized>(p: &P) -> io::Result<()> {
+pub fn set_current_dir<P: AsRef<Path>>(p: P) -> io::Result<()> {
     os_imp::chdir(p.as_ref())
 }
 
@@ -176,7 +175,7 @@ impl Iterator for VarsOs {
 /// }
 /// ```
 #[stable(feature = "env", since = "1.0.0")]
-pub fn var<K: ?Sized>(key: &K) -> Result<String, VarError> where K: AsRef<OsStr> {
+pub fn var<K: AsRef<OsStr>>(key: K) -> Result<String, VarError> {
     match var_os(key) {
         Some(s) => s.into_string().map_err(VarError::NotUnicode),
         None => Err(VarError::NotPresent)
@@ -198,7 +197,7 @@ pub fn var<K: ?Sized>(key: &K) -> Result<String, VarError> where K: AsRef<OsStr>
 /// }
 /// ```
 #[stable(feature = "env", since = "1.0.0")]
-pub fn var_os<K: ?Sized>(key: &K) -> Option<OsString> where K: AsRef<OsStr> {
+pub fn var_os<K: AsRef<OsStr>>(key: K) -> Option<OsString> {
     let _g = ENV_LOCK.lock();
     os_imp::getenv(key.as_ref())
 }
@@ -244,6 +243,17 @@ impl Error for VarError {
 /// Sets the environment variable `k` to the value `v` for the currently running
 /// process.
 ///
+/// Note that while concurrent access to environment variables is safe in Rust,
+/// some platforms only expose inherently unsafe non-threadsafe APIs for
+/// inspecting the environment. As a result extra care needs to be taken when
+/// auditing calls to unsafe external FFI functions to ensure that any external
+/// environment accesses are properly synchronized with accesses in Rust.
+///
+/// Discussion of this unsafety on Unix may be found in:
+///
+///  - [Austin Group Bugzilla](http://austingroupbugs.net/view.php?id=188)
+///  - [GNU C library Bugzilla](https://sourceware.org/bugzilla/show_bug.cgi?id=15607#c2)
+///
 /// # Examples
 ///
 /// ```
@@ -254,14 +264,23 @@ impl Error for VarError {
 /// assert_eq!(env::var(key), Ok("VALUE".to_string()));
 /// ```
 #[stable(feature = "env", since = "1.0.0")]
-pub fn set_var<K: ?Sized, V: ?Sized>(k: &K, v: &V)
-    where K: AsRef<OsStr>, V: AsRef<OsStr>
-{
+pub fn set_var<K: AsRef<OsStr>, V: AsRef<OsStr>>(k: K, v: V) {
     let _g = ENV_LOCK.lock();
     os_imp::setenv(k.as_ref(), v.as_ref())
 }
 
 /// Removes an environment variable from the environment of the currently running process.
+///
+/// Note that while concurrent access to environment variables is safe in Rust,
+/// some platforms only expose inherently unsafe non-threadsafe APIs for
+/// inspecting the environment. As a result extra care needs to be taken when
+/// auditing calls to unsafe external FFI functions to ensure that any external
+/// environment accesses are properly synchronized with accesses in Rust.
+///
+/// Discussion of this unsafety on Unix may be found in:
+///
+///  - [Austin Group Bugzilla](http://austingroupbugs.net/view.php?id=188)
+///  - [GNU C library Bugzilla](https://sourceware.org/bugzilla/show_bug.cgi?id=15607#c2)
 ///
 /// # Examples
 ///
@@ -276,7 +295,7 @@ pub fn set_var<K: ?Sized, V: ?Sized>(k: &K, v: &V)
 /// assert!(env::var(key).is_err());
 /// ```
 #[stable(feature = "env", since = "1.0.0")]
-pub fn remove_var<K: ?Sized>(k: &K) where K: AsRef<OsStr> {
+pub fn remove_var<K: AsRef<OsStr>>(k: K) {
     let _g = ENV_LOCK.lock();
     os_imp::unsetenv(k.as_ref())
 }
@@ -460,8 +479,8 @@ static EXIT_STATUS: AtomicIsize = ATOMIC_ISIZE_INIT;
 
 /// Sets the process exit code
 ///
-/// Sets the exit code returned by the process if all supervised tasks
-/// terminate successfully (without panicking). If the current root task panics
+/// Sets the exit code returned by the process if all supervised threads
+/// terminate successfully (without panicking). If the current root thread panics
 /// and is supervised by the scheduler then any user-specified exit status is
 /// ignored and the process exits with the default panic status.
 ///
@@ -798,7 +817,7 @@ mod tests {
     }
 
     fn eq(a: Option<OsString>, b: Option<&str>) {
-        assert_eq!(a.as_ref().map(|s| &**s), b.map(OsStr::from_str).map(|s| &*s));
+        assert_eq!(a.as_ref().map(|s| &**s), b.map(OsStr::new).map(|s| &*s));
     }
 
     #[test]
@@ -921,7 +940,7 @@ mod tests {
     fn join_paths_unix() {
         fn test_eq(input: &[&str], output: &str) -> bool {
             &*join_paths(input.iter().cloned()).unwrap() ==
-                OsStr::from_str(output)
+                OsStr::new(output)
         }
 
         assert!(test_eq(&[], ""));
@@ -937,7 +956,7 @@ mod tests {
     fn join_paths_windows() {
         fn test_eq(input: &[&str], output: &str) -> bool {
             &*join_paths(input.iter().cloned()).unwrap() ==
-                OsStr::from_str(output)
+                OsStr::new(output)
         }
 
         assert!(test_eq(&[], ""));

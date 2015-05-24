@@ -20,10 +20,9 @@ use self::Entry::*;
 use core::prelude::*;
 
 use core::cmp::Ordering;
-use core::default::Default;
 use core::fmt::Debug;
 use core::hash::{Hash, Hasher};
-use core::iter::{Map, FromIterator, IntoIterator};
+use core::iter::{Map, FromIterator};
 use core::ops::Index;
 use core::{iter, fmt, mem, usize};
 use Bound::{self, Included, Excluded, Unbounded};
@@ -261,9 +260,8 @@ impl<K: Ord, V> BTreeMap<K, V> {
     ///
     /// let mut map = BTreeMap::new();
     /// map.insert(1, "a");
-    /// match map.get_mut(&1) {
-    ///     Some(x) => *x = "b",
-    ///     None => (),
+    /// if let Some(x) = map.get_mut(&1) {
+    ///     *x = "b";
     /// }
     /// assert_eq!(map[&1], "b");
     /// ```
@@ -472,8 +470,32 @@ impl<K, V> IntoIterator for BTreeMap<K, V> {
     type Item = (K, V);
     type IntoIter = IntoIter<K, V>;
 
+    /// Gets an owning iterator over the entries of the map.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeMap;
+    ///
+    /// let mut map = BTreeMap::new();
+    /// map.insert(1, "a");
+    /// map.insert(2, "b");
+    /// map.insert(3, "c");
+    ///
+    /// for (key, value) in map.into_iter() {
+    ///     println!("{}: {}", key, value);
+    /// }
+    /// ```
     fn into_iter(self) -> IntoIter<K, V> {
-        self.into_iter()
+        let len = self.len();
+        let mut lca = VecDeque::new();
+        lca.push_back(Traverse::traverse(self.root));
+        IntoIter {
+            inner: AbsIter {
+                traversals: lca,
+                size: len,
+            }
+        }
     }
 }
 
@@ -904,7 +926,7 @@ impl<K: Ord, V: Ord> Ord for BTreeMap<K, V> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<K: Debug, V: Debug> Debug for BTreeMap<K, V> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.iter().fold(f.debug_map(), |b, (k, v)| b.entry(k, v)).finish()
+        f.debug_map().entries(self.iter()).finish()
     }
 }
 
@@ -1264,48 +1286,18 @@ impl<K, V> BTreeMap<K, V> {
         }
     }
 
-    /// Gets an owning iterator over the entries of the map.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::BTreeMap;
-    ///
-    /// let mut map = BTreeMap::new();
-    /// map.insert(1, "a");
-    /// map.insert(2, "b");
-    /// map.insert(3, "c");
-    ///
-    /// for (key, value) in map.into_iter() {
-    ///     println!("{}: {}", key, value);
-    /// }
-    /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn into_iter(self) -> IntoIter<K, V> {
-        let len = self.len();
-        let mut lca = VecDeque::new();
-        lca.push_back(Traverse::traverse(self.root));
-        IntoIter {
-            inner: AbsIter {
-                traversals: lca,
-                size: len,
-            }
-        }
-    }
-
     /// Gets an iterator over the keys of the map.
     ///
     /// # Examples
     ///
     /// ```
-    /// # #![feature(core)]
     /// use std::collections::BTreeMap;
     ///
     /// let mut a = BTreeMap::new();
     /// a.insert(1, "a");
     /// a.insert(2, "b");
     ///
-    /// let keys: Vec<usize> = a.keys().cloned().collect();
+    /// let keys: Vec<_> = a.keys().cloned().collect();
     /// assert_eq!(keys, [1, 2]);
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
@@ -1321,7 +1313,6 @@ impl<K, V> BTreeMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(core)]
     /// use std::collections::BTreeMap;
     ///
     /// let mut a = BTreeMap::new();
@@ -1562,7 +1553,6 @@ impl<K: Ord, V> BTreeMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(collections)]
     /// use std::collections::BTreeMap;
     ///
     /// let mut count: BTreeMap<&str, usize> = BTreeMap::new();

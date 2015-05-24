@@ -13,7 +13,7 @@
 #![stable(feature = "rust1", since = "1.0.0")]
 
 use cmp;
-use unicode::str as core_str;
+use rustc_unicode::str as core_str;
 use error as std_error;
 use fmt;
 use iter::{self, Iterator, Extend};
@@ -70,8 +70,7 @@ fn append_to_string<F>(buf: &mut String, f: F) -> Result<usize>
     where F: FnOnce(&mut Vec<u8>) -> Result<usize>
 {
     struct Guard<'a> { s: &'a mut Vec<u8>, len: usize }
-    #[unsafe_destructor]
-    impl<'a> Drop for Guard<'a> {
+        impl<'a> Drop for Guard<'a> {
         fn drop(&mut self) {
             unsafe { self.s.set_len(self.len); }
         }
@@ -237,7 +236,7 @@ pub trait Read {
 
     /// Transforms this `Read` instance to an `Iterator` over `char`s.
     ///
-    /// This adaptor will attempt to interpret this reader as an UTF-8 encoded
+    /// This adaptor will attempt to interpret this reader as a UTF-8 encoded
     /// sequence of characters. The returned iterator will return `None` once
     /// EOF is reached for this reader. Otherwise each element yielded will be a
     /// `Result<char, E>` where `E` may contain information about what I/O error
@@ -507,11 +506,14 @@ fn read_until<R: BufRead + ?Sized>(r: &mut R, delim: u8, buf: &mut Vec<u8>)
     }
 }
 
-/// A Buffer is a type of reader which has some form of internal buffering to
+/// A `BufRead` is a type of reader which has some form of internal buffering to
 /// allow certain kinds of reading operations to be more optimized than others.
 ///
 /// This type extends the `Read` trait with a few methods that are not
 /// possible to reasonably implement with purely a read interface.
+///
+/// You can use the [`BufReader` wrapper type](struct.BufReader.html) to turn any
+/// reader into a buffered reader.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub trait BufRead: Read {
     /// Fills the internal buffer of this object, returning the buffer contents.
@@ -845,7 +847,7 @@ impl fmt::Display for CharsError {
 /// An iterator over the contents of an instance of `BufRead` split on a
 /// particular byte.
 ///
-/// See `BufReadExt::split` for more information.
+/// See `BufRead::split` for more information.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Split<B> {
     buf: B,
@@ -874,7 +876,7 @@ impl<B: BufRead> Iterator for Split<B> {
 /// An iterator over the lines of an instance of `BufRead` split on a newline
 /// byte.
 ///
-/// See `BufReadExt::lines` for more information.
+/// See `BufRead::lines` for more information.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Lines<B> {
     buf: B,

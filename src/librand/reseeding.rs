@@ -14,7 +14,6 @@
 use core::prelude::*;
 
 use {Rng, SeedableRng};
-use core::default::Default;
 
 /// How many bytes of entropy the underling RNG is allowed to generate
 /// before it is reseeded.
@@ -121,12 +120,11 @@ impl Default for ReseedWithDefault {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::prelude::v1::*;
 
     use core::iter::{order, repeat};
     use super::{ReseedingRng, ReseedWithDefault};
-    use std::default::Default;
     use {SeedableRng, Rng};
 
     struct Counter {

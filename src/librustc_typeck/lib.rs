@@ -70,19 +70,18 @@ This API is completely unstable and subject to change.
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-      html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+      html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
       html_root_url = "http://doc.rust-lang.org/nightly/")]
 
 #![allow(non_camel_case_types)]
 
 #![feature(box_patterns)]
 #![feature(box_syntax)]
-#![feature(collections)]
+#![feature(collections, collections_drain)]
 #![feature(core)]
 #![feature(quote)]
 #![feature(rustc_diagnostic_macros)]
 #![feature(rustc_private)]
-#![feature(unsafe_destructor)]
 #![feature(staged_api)]
 
 #[macro_use] extern crate log;
@@ -118,13 +117,13 @@ use std::cell::RefCell;
 // registered before they are used.
 pub mod diagnostics;
 
-mod check;
+pub mod check;
 mod rscope;
 mod astconv;
-mod collect;
+pub mod collect;
 mod constrained_type_params;
-mod coherence;
-mod variance;
+pub mod coherence;
+pub mod variance;
 
 pub struct TypeAndSubsts<'tcx> {
     pub substs: subst::Substs<'tcx>,
@@ -133,13 +132,13 @@ pub struct TypeAndSubsts<'tcx> {
 
 pub struct CrateCtxt<'a, 'tcx: 'a> {
     // A mapping from method call sites to traits that have that method.
-    trait_map: ty::TraitMap,
+    pub trait_map: ty::TraitMap,
     /// A vector of every trait accessible in the whole crate
     /// (i.e. including those from subcrates). This is used only for
     /// error reporting, and so is lazily initialised and generally
     /// shouldn't taint the common path (hence the RefCell).
-    all_traits: RefCell<Option<check::method::AllTraitsVec>>,
-    tcx: &'a ty::ctxt<'tcx>,
+    pub all_traits: RefCell<Option<check::method::AllTraitsVec>>,
+    pub tcx: &'a ty::ctxt<'tcx>,
 }
 
 // Functions that write types into the node type table
@@ -344,3 +343,8 @@ pub fn check_crate(tcx: &ty::ctxt, trait_map: ty::TraitMap) {
     check_for_entry_fn(&ccx);
     tcx.sess.abort_if_errors();
 }
+
+#[cfg(stage0)]
+__build_diagnostic_array! { DIAGNOSTICS }
+#[cfg(not(stage0))]
+__build_diagnostic_array! { librustc_typeck, DIAGNOSTICS }

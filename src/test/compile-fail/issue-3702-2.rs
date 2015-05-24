@@ -8,7 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::num::ToPrimitive;
+pub trait ToPrimitive {
+    fn to_int(&self) -> isize { 0 }
+}
+
+impl ToPrimitive for i32 {}
+impl ToPrimitive for isize {}
 
 trait Add {
     fn to_int(&self) -> isize;
@@ -18,7 +23,7 @@ trait Add {
 impl Add for isize {
     fn to_int(&self) -> isize { *self }
     fn add_dynamic(&self, other: &Add) -> isize {
-        self.to_int() + other.to_int() //~ ERROR multiple applicable methods in scope
+        self.to_int() + other.to_int() //~ ERROR multiple applicable items in scope
     }
 }
 

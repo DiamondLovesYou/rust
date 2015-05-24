@@ -273,7 +273,6 @@ impl<T> VecPerParamSpace<T> {
 
     /// `t` is the type space.
     /// `s` is the self space.
-    /// `a` is the assoc space.
     /// `f` is the fn space.
     pub fn new(t: Vec<T>, s: Vec<T>, f: Vec<T>) -> VecPerParamSpace<T> {
         let type_limit = t.len();
@@ -622,11 +621,11 @@ impl<'a, 'tcx> TypeFolder<'tcx> for SubstFolder<'a, 'tcx> {
         // regions that appear in a function signature is done using
         // the specialized routine `ty::replace_late_regions()`.
         match r {
-            ty::ReEarlyBound(_, space, i, region_name) => {
+            ty::ReEarlyBound(data) => {
                 match self.substs.regions {
                     ErasedRegions => ty::ReStatic,
                     NonerasedRegions(ref regions) =>
-                        match regions.opt_get(space, i as usize) {
+                        match regions.opt_get(data.space, data.index as usize) {
                             Some(&r) => {
                                 self.shift_region_through_binders(r)
                             }
@@ -635,11 +634,12 @@ impl<'a, 'tcx> TypeFolder<'tcx> for SubstFolder<'a, 'tcx> {
                                 self.tcx().sess.span_bug(
                                     span,
                                     &format!("Type parameter out of range \
-                                     when substituting in region {} (root type={}) \
-                                     (space={:?}, index={})",
-                                    region_name.as_str(),
-                                    self.root_ty.repr(self.tcx()),
-                                    space, i));
+                                              when substituting in region {} (root type={}) \
+                                              (space={:?}, index={})",
+                                             data.name.as_str(),
+                                             self.root_ty.repr(self.tcx()),
+                                             data.space,
+                                             data.index));
                             }
                         }
                 }

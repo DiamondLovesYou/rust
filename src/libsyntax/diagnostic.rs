@@ -13,17 +13,14 @@ pub use self::RenderSpan::*;
 pub use self::ColorConfig::*;
 use self::Destination::*;
 
-use codemap::{COMMAND_LINE_SP, COMMAND_LINE_EXPN, Pos, Span};
-use codemap;
+use codemap::{self, COMMAND_LINE_SP, COMMAND_LINE_EXPN, Pos, Span};
 use diagnostics;
 
 use std::cell::{RefCell, Cell};
-use std::cmp;
-use std::fmt;
+use std::{cmp, error, fmt};
 use std::io::prelude::*;
 use std::io;
-use term::WriterWrapper;
-use term;
+use term::{self, WriterWrapper};
 use libc;
 
 /// maximum number of lines we will print for each error; arbitrary.
@@ -83,14 +80,38 @@ pub trait Emitter {
 /// Used as a return value to signify a fatal error occurred. (It is also
 /// used as the argument to panic at the moment, but that will eventually
 /// not be true.)
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 #[must_use]
 pub struct FatalError;
 
+impl fmt::Display for FatalError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "parser fatal error")
+    }
+}
+
+impl error::Error for FatalError {
+    fn description(&self) -> &str {
+        "The parser has encountered a fatal error"
+    }
+}
+
 /// Signifies that the compiler died with an explicit call to `.bug`
 /// or `.span_bug` rather than a failed assertion, etc.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct ExplicitBug;
+
+impl fmt::Display for ExplicitBug {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "parser internal bug")
+    }
+}
+
+impl error::Error for ExplicitBug {
+    fn description(&self) -> &str {
+        "The parser has encountered an internal bug"
+    }
+}
 
 /// A span-handler is like a handler but also
 /// accepts span information for source-location
@@ -101,6 +122,12 @@ pub struct SpanHandler {
 }
 
 impl SpanHandler {
+    pub fn new(handler: Handler, cm: codemap::CodeMap) -> SpanHandler {
+        SpanHandler {
+            handler: handler,
+            cm: cm,
+        }
+    }
     pub fn span_fatal(&self, sp: Span, msg: &str) -> FatalError {
         self.handler.emit(Some((&self.cm, sp)), msg, Fatal);
         return FatalError;
@@ -166,6 +193,19 @@ pub struct Handler {
 }
 
 impl Handler {
+    pub fn new(color_config: ColorConfig,
+               registry: Option<diagnostics::registry::Registry>,
+               can_emit_warnings: bool) -> Handler {
+        let emitter = Box::new(EmitterWriter::stderr(color_config, registry));
+        Handler::with_emitter(can_emit_warnings, emitter)
+    }
+    pub fn with_emitter(can_emit_warnings: bool, e: Box<Emitter + Send>) -> Handler {
+        Handler {
+            err_count: Cell::new(0),
+            emit: RefCell::new(e),
+            can_emit_warnings: can_emit_warnings
+        }
+    }
     pub fn fatal(&self, msg: &str) -> ! {
         self.emit.borrow_mut().emit(None, msg, None, Fatal);
         panic!(FatalError);
@@ -230,27 +270,6 @@ impl Handler {
                        sp: RenderSpan, msg: &str, lvl: Level) {
         if lvl == Warning && !self.can_emit_warnings { return }
         self.emit.borrow_mut().custom_emit(cm, sp, msg, lvl);
-    }
-}
-
-pub fn mk_span_handler(handler: Handler, cm: codemap::CodeMap) -> SpanHandler {
-    SpanHandler {
-        handler: handler,
-        cm: cm,
-    }
-}
-
-pub fn default_handler(color_config: ColorConfig,
-                       registry: Option<diagnostics::registry::Registry>,
-                       can_emit_warnings: bool) -> Handler {
-    mk_handler(can_emit_warnings, Box::new(EmitterWriter::stderr(color_config, registry)))
-}
-
-pub fn mk_handler(can_emit_warnings: bool, e: Box<Emitter + Send>) -> Handler {
-    Handler {
-        err_count: Cell::new(0),
-        emit: RefCell::new(e),
-        can_emit_warnings: can_emit_warnings
     }
 }
 
@@ -485,7 +504,7 @@ fn emit(dst: &mut EmitterWriter, cm: &codemap::CodeMap, rsp: RenderSpan,
             match dst.registry.as_ref().and_then(|registry| registry.find_description(code)) {
                 Some(_) => {
                     try!(print_diagnostic(dst, &ss[..], Help,
-                                          &format!("pass `--explain {}` to see a detailed \
+                                          &format!("run `rustc --explain {}` to see a detailed \
                                                    explanation", code), None));
                 }
                 None => ()
@@ -501,7 +520,7 @@ fn highlight_suggestion(err: &mut EmitterWriter,
                         suggestion: &str)
                         -> io::Result<()>
 {
-    let lines = cm.span_to_lines(sp);
+    let lines = cm.span_to_lines(sp).unwrap();
     assert!(!lines.lines.is_empty());
 
     // To build up the result, we want to take the snippet from the first
@@ -546,9 +565,17 @@ fn highlight_lines(err: &mut EmitterWriter,
                    cm: &codemap::CodeMap,
                    sp: Span,
                    lvl: Level,
-                   lines: codemap::FileLines)
+                   lines: codemap::FileLinesResult)
                    -> io::Result<()>
 {
+    let lines = match lines {
+        Ok(lines) => lines,
+        Err(_) => {
+            try!(write!(&mut err.dst, "(internal compiler error: unprintable span)\n"));
+            return Ok(());
+        }
+    };
+
     let fm = &*lines.file;
 
     let line_strings: Option<Vec<&str>> =
@@ -595,7 +622,7 @@ fn highlight_lines(err: &mut EmitterWriter,
         let mut s = String::new();
         // Skip is the number of characters we need to skip because they are
         // part of the 'filename:line ' part of the previous line.
-        let skip = fm.name.width(false) + digits + 3;
+        let skip = fm.name.chars().count() + digits + 3;
         for _ in 0..skip {
             s.push(' ');
         }
@@ -615,7 +642,7 @@ fn highlight_lines(err: &mut EmitterWriter,
                         col += 8 - col%8;
                         s.push('\t');
                     },
-                    c => for _ in 0..c.width(false).unwrap_or(0) {
+                    _ => {
                         col += 1;
                         s.push(' ');
                     },
@@ -623,11 +650,11 @@ fn highlight_lines(err: &mut EmitterWriter,
             }
 
             try!(write!(&mut err.dst, "{}", s));
-            let mut s = String::from_str("^");
+            let mut s = String::from("^");
             let count = match lastc {
                 // Most terminals have a tab stop every eight columns by default
                 '\t' => 8 - col%8,
-                _ => lastc.width(false).unwrap_or(0),
+                _ => 1,
             };
             col += count;
             s.extend(::std::iter::repeat('~').take(count));
@@ -638,7 +665,7 @@ fn highlight_lines(err: &mut EmitterWriter,
                     if pos >= hi.col.to_usize() { break; }
                     let count = match ch {
                         '\t' => 8 - col%8,
-                        _ => ch.width(false).unwrap_or(0),
+                        _ => 1,
                     };
                     col += count;
                     s.extend(::std::iter::repeat('~').take(count));
@@ -664,12 +691,21 @@ fn highlight_lines(err: &mut EmitterWriter,
 /// than 6 lines), `end_highlight_lines` will print the first line, then
 /// dot dot dot, then last line, whereas `highlight_lines` prints the first
 /// six lines.
+#[allow(deprecated)]
 fn end_highlight_lines(w: &mut EmitterWriter,
                           cm: &codemap::CodeMap,
                           sp: Span,
                           lvl: Level,
-                          lines: codemap::FileLines)
+                          lines: codemap::FileLinesResult)
                           -> io::Result<()> {
+    let lines = match lines {
+        Ok(lines) => lines,
+        Err(_) => {
+            try!(write!(&mut w.dst, "(internal compiler error: unprintable span)\n"));
+            return Ok(());
+        }
+    };
+
     let fm = &*lines.file;
 
     let lines = &lines.lines[..];
@@ -694,7 +730,7 @@ fn end_highlight_lines(w: &mut EmitterWriter,
     }
     let last_line_start = format!("{}:{} ", fm.name, lines[lines.len()-1].line_index + 1);
     let hi = cm.lookup_char_pos(sp.hi);
-    let skip = last_line_start.width(false);
+    let skip = last_line_start.chars().count();
     let mut s = String::new();
     for _ in 0..skip {
         s.push(' ');
@@ -710,9 +746,7 @@ fn end_highlight_lines(w: &mut EmitterWriter,
             // position.
             match ch {
                 '\t' => s.push('\t'),
-                c => for _ in 0..c.width(false).unwrap_or(0) {
-                    s.push(' ');
-                },
+                _ => s.push(' '),
             }
         }
     }
@@ -734,12 +768,15 @@ fn print_macro_backtrace(w: &mut EmitterWriter,
                                                |span| cm.span_to_string(span));
                 let (pre, post) = match ei.callee.format {
                     codemap::MacroAttribute => ("#[", "]"),
-                    codemap::MacroBang => ("", "!")
+                    codemap::MacroBang => ("", "!"),
+                    codemap::CompilerExpansion => ("", ""),
                 };
                 try!(print_diagnostic(w, &ss, Note,
-                                      &format!("in expansion of {}{}{}", pre,
-                                              ei.callee.name,
-                                              post), None));
+                                      &format!("in expansion of {}{}{}",
+                                               pre,
+                                               ei.callee.name,
+                                               post),
+                                      None));
                 let ss = cm.span_to_string(ei.call_site);
                 try!(print_diagnostic(w, &ss, Note, "expansion site", None));
                 Ok(Some(ei.call_site))

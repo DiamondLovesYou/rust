@@ -94,7 +94,7 @@ pub fn enc_ty<'a, 'tcx>(w: &mut Encoder, cx: &ctxt<'a, 'tcx>, t: Ty<'tcx>) {
         ty::ty_trait(box ty::TyTrait { ref principal,
                                        ref bounds }) => {
             mywrite!(w, "x[");
-            enc_trait_ref(w, cx, &*principal.0);
+            enc_trait_ref(w, cx, principal.0);
             enc_existential_bounds(w, cx, bounds);
             mywrite!(w, "]");
         }
@@ -149,7 +149,7 @@ pub fn enc_ty<'a, 'tcx>(w: &mut Encoder, cx: &ctxt<'a, 'tcx>, t: Ty<'tcx>) {
         }
         ty::ty_projection(ref data) => {
             mywrite!(w, "P[");
-            enc_trait_ref(w, cx, &*data.trait_ref);
+            enc_trait_ref(w, cx, data.trait_ref);
             mywrite!(w, "{}]", token::get_name(data.item_name));
         }
         ty::ty_err => {
@@ -241,12 +241,12 @@ pub fn enc_region(w: &mut Encoder, cx: &ctxt, r: ty::Region) {
             enc_bound_region(w, cx, br);
             mywrite!(w, "]");
         }
-        ty::ReEarlyBound(node_id, space, index, name) => {
+        ty::ReEarlyBound(ref data) => {
             mywrite!(w, "B[{}|{}|{}|{}]",
-                     node_id,
-                     space.to_uint(),
-                     index,
-                     token::get_name(name));
+                     data.param_id,
+                     data.space.to_uint(),
+                     data.index,
+                     token::get_name(data.name));
         }
         ty::ReFree(ref fr) => {
             mywrite!(w, "f[");
@@ -309,7 +309,7 @@ fn enc_bound_region(w: &mut Encoder, cx: &ctxt, br: ty::BoundRegion) {
 }
 
 pub fn enc_trait_ref<'a, 'tcx>(w: &mut Encoder, cx: &ctxt<'a, 'tcx>,
-                               s: &ty::TraitRef<'tcx>) {
+                               s: ty::TraitRef<'tcx>) {
     mywrite!(w, "{}|", (cx.ds)(s.def_id));
     enc_substs(w, cx, s.substs);
 }
@@ -394,7 +394,7 @@ pub fn enc_bounds<'a, 'tcx>(w: &mut Encoder, cx: &ctxt<'a, 'tcx>,
 
     for tp in &bs.trait_bounds {
         mywrite!(w, "I");
-        enc_trait_ref(w, cx, &*tp.0);
+        enc_trait_ref(w, cx, tp.0);
     }
 
     for tp in &bs.projection_bounds {
@@ -446,7 +446,7 @@ pub fn enc_predicate<'a, 'tcx>(w: &mut Encoder,
     match *p {
         ty::Predicate::Trait(ref trait_ref) => {
             mywrite!(w, "t");
-            enc_trait_ref(w, cx, &*trait_ref.0.trait_ref);
+            enc_trait_ref(w, cx, trait_ref.0.trait_ref);
         }
         ty::Predicate::Equate(ty::Binder(ty::EquatePredicate(a, b))) => {
             mywrite!(w, "e");
@@ -473,7 +473,7 @@ pub fn enc_predicate<'a, 'tcx>(w: &mut Encoder,
 fn enc_projection_predicate<'a, 'tcx>(w: &mut Encoder,
                                       cx: &ctxt<'a, 'tcx>,
                                       data: &ty::ProjectionPredicate<'tcx>) {
-    enc_trait_ref(w, cx, &*data.projection_ty.trait_ref);
+    enc_trait_ref(w, cx, data.projection_ty.trait_ref);
     mywrite!(w, "{}|", token::get_name(data.projection_ty.item_name));
     enc_ty(w, cx, data.ty);
 }

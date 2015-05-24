@@ -95,6 +95,8 @@ impl Write for StderrRaw {
 ///
 /// This handle implements the `Read` trait, but beware that concurrent reads
 /// of `Stdin` must be executed with care.
+///
+/// Created by the function `io::stdin()`.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Stdin {
     inner: Arc<Mutex<BufReader<StdinRaw>>>,
@@ -206,6 +208,8 @@ const OUT_MAX: usize = ::usize::MAX;
 /// Each handle shares a global buffer of data to be written to the standard
 /// output stream. Access is also synchronized via a lock and explicit control
 /// over locking is available via the `lock` method.
+///
+/// Created by the function `io::stdout()`.
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Stdout {
     // FIXME: this should be LineWriter or BufWriter depending on the state of
@@ -351,13 +355,13 @@ impl<'a> Write for StderrLock<'a> {
     }
 }
 
-/// Resets the task-local stderr handle to the specified writer
+/// Resets the thread-local stderr handle to the specified writer
 ///
-/// This will replace the current task's stderr handle, returning the old
+/// This will replace the current thread's stderr handle, returning the old
 /// handle. All future calls to `panic!` and friends will emit their output to
 /// this specified handle.
 ///
-/// Note that this does not need to be called for all new tasks; the default
+/// Note that this does not need to be called for all new threads; the default
 /// output handle is to the process's stderr stream.
 #[unstable(feature = "set_stdio",
            reason = "this function may disappear completely or be replaced \
@@ -374,13 +378,13 @@ pub fn set_panic(sink: Box<Write + Send>) -> Option<Box<Write + Send>> {
     })
 }
 
-/// Resets the task-local stdout handle to the specified writer
+/// Resets the thread-local stdout handle to the specified writer
 ///
-/// This will replace the current task's stdout handle, returning the old
+/// This will replace the current thread's stdout handle, returning the old
 /// handle. All future calls to `print!` and friends will emit their output to
 /// this specified handle.
 ///
-/// Note that this does not need to be called for all new tasks; the default
+/// Note that this does not need to be called for all new threads; the default
 /// output handle is to the process's stdout stream.
 #[unstable(feature = "set_stdio",
            reason = "this function may disappear completely or be replaced \
@@ -414,7 +418,7 @@ pub fn _print(args: fmt::Arguments) {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use thread;
     use super::*;
 

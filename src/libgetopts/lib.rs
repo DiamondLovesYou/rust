@@ -7,8 +7,6 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
-//
-// ignore-lexer-test FIXME #15677
 
 //! Simple getopt alternative.
 //!
@@ -87,13 +85,12 @@
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+       html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/",
        html_playground_url = "http://play.rust-lang.org/")]
 
 #![deny(missing_docs)]
 #![feature(staged_api)]
-#![feature(str_words)]
 #![feature(str_char)]
 #![cfg_attr(test, feature(rustc_private))]
 
@@ -773,7 +770,7 @@ pub fn usage(brief: &str, opts: &[OptGroup]) -> String {
 
         // Normalize desc to contain words separated by one space character
         let mut desc_normalized_whitespace = String::new();
-        for word in desc.words() {
+        for word in desc.split_whitespace() {
             desc_normalized_whitespace.push_str(word);
             desc_normalized_whitespace.push(' ');
         }

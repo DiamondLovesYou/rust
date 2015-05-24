@@ -8,7 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// compile-flags: -Z parse-only
+
 // Verifies that the expected token errors for `extern crate` are
 // raised
 
-extern "C" mod foo; //~ERROR expected `{` or `fn`, found `mod`
+extern "C" mod foo; //~ERROR expected one of `fn` or `{`, found `mod`

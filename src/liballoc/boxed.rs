@@ -10,14 +10,9 @@
 
 //! A pointer type for heap allocation.
 //!
-//! `Box<T>`, casually referred to as a 'box', provides the simplest form of
-//! heap allocation in Rust. Boxes provide ownership for this allocation, and
-//! drop their contents when they go out of scope.
-//!
-//! Boxes are useful in two situations: recursive data structures, and
-//! occasionally when returning data. [The Pointer chapter of the
-//! Book](../../../book/pointers.html#best-practices-1) explains these cases in
-//! detail.
+//! `Box<T>`, casually referred to as a 'box', provides the simplest form of heap allocation in
+//! Rust. Boxes provide ownership for this allocation, and drop their contents when they go out of
+//! scope.
 //!
 //! # Examples
 //!
@@ -42,7 +37,17 @@
 //! }
 //! ```
 //!
-//! This will print `Cons(1, Box(Cons(2, Box(Nil))))`.
+//! This will print `Cons(1, Cons(2, Nil))`.
+//!
+//! Recursive structures must be boxed, because if the definition of `Cons` looked like this:
+//!
+//! ```rust,ignore
+//! Cons(T, List<T>),
+//! ```
+//!
+//! It wouldn't work. This is because the size of a `List` depends on how many elements are in the
+//! list, and so we don't know how much memory to allocate for a `Cons`. By introducing a `Box`,
+//! which has a defined size, we know how big `Cons` needs to be.
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
@@ -50,13 +55,17 @@ use core::prelude::*;
 
 use core::any::Any;
 use core::cmp::Ordering;
-use core::default::Default;
 use core::fmt;
 use core::hash::{self, Hash};
 use core::mem;
 use core::ops::{Deref, DerefMut};
 use core::ptr::{Unique};
 use core::raw::{TraitObject};
+
+#[cfg(not(stage0))]
+use core::marker::Unsize;
+#[cfg(not(stage0))]
+use core::ops::CoerceUnsized;
 
 /// A value that represents the heap. This is the default place that the `box`
 /// keyword allocates into when no place is supplied.
@@ -236,6 +245,7 @@ impl<T: ?Sized + Hash> Hash for Box<T> {
 impl Box<Any> {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
+    /// Attempt to downcast the box to a concrete type.
     pub fn downcast<T: Any>(self) -> Result<Box<T>, Box<Any>> {
         if self.is::<T>() {
             unsafe {
@@ -253,11 +263,15 @@ impl Box<Any> {
     }
 }
 
-impl Box<Any+Send> {
+impl Box<Any + Send> {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn downcast<T: Any>(self) -> Result<Box<T>, Box<Any>> {
-        <Box<Any>>::downcast(self)
+    /// Attempt to downcast the box to a concrete type.
+    pub fn downcast<T: Any>(self) -> Result<Box<T>, Box<Any + Send>> {
+        <Box<Any>>::downcast(self).map_err(|s| unsafe {
+            // reapply the Send marker
+            mem::transmute::<Box<Any>, Box<Any + Send>>(s)
+        })
     }
 }
 
@@ -381,3 +395,6 @@ impl<'a,A,R> FnOnce<A> for Box<FnBox<A,Output=R>+Send+'a> {
         self.call_box(args)
     }
 }
+
+#[cfg(not(stage0))]
+impl<T: ?Sized+Unsize<U>, U: ?Sized> CoerceUnsized<Box<U>> for Box<T> {}

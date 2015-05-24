@@ -119,7 +119,7 @@
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+       html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/",
        html_playground_url = "http://play.rust-lang.org/")]
 
@@ -397,20 +397,43 @@ pub mod reader {
         }
     }
 
-    pub fn docs<F>(d: Doc, mut it: F) -> bool where
-        F: FnMut(usize, Doc) -> bool,
-    {
-        let mut pos = d.start;
-        while pos < d.end {
-            let elt_tag = try_or!(tag_at(d.data, pos), false);
-            let elt_size = try_or!(tag_len_at(d.data, elt_tag), false);
-            pos = elt_size.next + elt_size.val;
-            let doc = Doc { data: d.data, start: elt_size.next, end: pos };
-            if !it(elt_tag.val, doc) {
-                return false;
-            }
+    pub fn docs<'a>(d: Doc<'a>) -> DocsIterator<'a> {
+        DocsIterator {
+            d: d
         }
-        return true;
+    }
+
+    pub struct DocsIterator<'a> {
+        d: Doc<'a>,
+    }
+
+    impl<'a> Iterator for DocsIterator<'a> {
+        type Item = (usize, Doc<'a>);
+
+        fn next(&mut self) -> Option<(usize, Doc<'a>)> {
+            if self.d.start >= self.d.end {
+                return None;
+            }
+
+            let elt_tag = try_or!(tag_at(self.d.data, self.d.start), {
+                self.d.start = self.d.end;
+                None
+            });
+            let elt_size = try_or!(tag_len_at(self.d.data, elt_tag), {
+                self.d.start = self.d.end;
+                None
+            });
+
+            let end = elt_size.next + elt_size.val;
+            let doc = Doc {
+                data: self.d.data,
+                start: elt_size.next,
+                end: end,
+            };
+
+            self.d.start = end;
+            return Some((elt_tag.val, doc));
+        }
     }
 
     pub fn tagged_docs<F>(d: Doc, tg: usize, mut it: F) -> bool where
@@ -836,7 +859,6 @@ pub mod writer {
     use std::io::prelude::*;
     use std::io::{self, SeekFrom, Cursor};
     use std::slice::bytes;
-    use std::num::ToPrimitive;
 
     use super::{ EsVec, EsMap, EsEnum, EsSub8, EsSub32, EsVecElt, EsMapKey,
         EsU64, EsU32, EsU16, EsU8, EsI64, EsI32, EsI16, EsI8,
@@ -1070,10 +1092,10 @@ pub mod writer {
     impl<'a> Encoder<'a> {
         // used internally to emit things like the vector length and so on
         fn _emit_tagged_sub(&mut self, v: usize) -> EncodeResult {
-            if let Some(v) = v.to_u8() {
-                self.wr_tagged_raw_u8(EsSub8 as usize, v)
-            } else if let Some(v) = v.to_u32() {
-                self.wr_tagged_raw_u32(EsSub32 as usize, v)
+            if v as u8 as usize == v {
+                self.wr_tagged_raw_u8(EsSub8 as usize, v as u8)
+            } else if v as u32 as usize == v {
+                self.wr_tagged_raw_u32(EsSub32 as usize, v as u32)
             } else {
                 Err(io::Error::new(io::ErrorKind::Other,
                                    &format!("length or variant id too big: {}",
@@ -1101,21 +1123,24 @@ pub mod writer {
             self.emit_u64(v as u64)
         }
         fn emit_u64(&mut self, v: u64) -> EncodeResult {
-            match v.to_u32() {
-                Some(v) => self.emit_u32(v),
-                None => self.wr_tagged_raw_u64(EsU64 as usize, v)
+            if v as u32 as u64 == v {
+                self.emit_u32(v as u32)
+            } else {
+                self.wr_tagged_raw_u64(EsU64 as usize, v)
             }
         }
         fn emit_u32(&mut self, v: u32) -> EncodeResult {
-            match v.to_u16() {
-                Some(v) => self.emit_u16(v),
-                None => self.wr_tagged_raw_u32(EsU32 as usize, v)
+            if v as u16 as u32 == v {
+                self.emit_u16(v as u16)
+            } else {
+                self.wr_tagged_raw_u32(EsU32 as usize, v)
             }
         }
         fn emit_u16(&mut self, v: u16) -> EncodeResult {
-            match v.to_u8() {
-                Some(v) => self.emit_u8(v),
-                None => self.wr_tagged_raw_u16(EsU16 as usize, v)
+            if v as u8 as u16 == v {
+                self.emit_u8(v as u8)
+            } else {
+                self.wr_tagged_raw_u16(EsU16 as usize, v)
             }
         }
         fn emit_u8(&mut self, v: u8) -> EncodeResult {
@@ -1126,21 +1151,24 @@ pub mod writer {
             self.emit_i64(v as i64)
         }
         fn emit_i64(&mut self, v: i64) -> EncodeResult {
-            match v.to_i32() {
-                Some(v) => self.emit_i32(v),
-                None => self.wr_tagged_raw_i64(EsI64 as usize, v)
+            if v as i32 as i64 == v {
+                self.emit_i32(v as i32)
+            } else {
+                self.wr_tagged_raw_i64(EsI64 as usize, v)
             }
         }
         fn emit_i32(&mut self, v: i32) -> EncodeResult {
-            match v.to_i16() {
-                Some(v) => self.emit_i16(v),
-                None => self.wr_tagged_raw_i32(EsI32 as usize, v)
+            if v as i16 as i32 == v {
+                self.emit_i16(v as i16)
+            } else {
+                self.wr_tagged_raw_i32(EsI32 as usize, v)
             }
         }
         fn emit_i16(&mut self, v: i16) -> EncodeResult {
-            match v.to_i8() {
-                Some(v) => self.emit_i8(v),
-                None => self.wr_tagged_raw_i16(EsI16 as usize, v)
+            if v as i8 as i16 == v {
+                self.emit_i8(v as i8)
+            } else {
+                self.wr_tagged_raw_i16(EsI16 as usize, v)
             }
         }
         fn emit_i8(&mut self, v: i8) -> EncodeResult {

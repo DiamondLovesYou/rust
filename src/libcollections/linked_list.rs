@@ -25,10 +25,9 @@ use core::prelude::*;
 
 use alloc::boxed::Box;
 use core::cmp::Ordering;
-use core::default::Default;
 use core::fmt;
 use core::hash::{Hasher, Hash};
-use core::iter::{self, FromIterator, IntoIterator};
+use core::iter::{self, FromIterator};
 use core::mem;
 use core::ptr;
 
@@ -231,7 +230,6 @@ impl<T> LinkedList<T> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(collections)]
     /// use std::collections::LinkedList;
     ///
     /// let mut a = LinkedList::new();
@@ -294,13 +292,6 @@ impl<T> LinkedList<T> {
             tail: self.list_tail,
             list: self
         }
-    }
-
-    /// Consumes the list into an iterator yielding elements by value.
-    #[inline]
-    #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn into_iter(self) -> IntoIter<T> {
-        IntoIter{list: self}
     }
 
     /// Returns `true` if the `LinkedList` is empty.
@@ -481,7 +472,6 @@ impl<T> LinkedList<T> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(collections)]
     /// use std::collections::LinkedList;
     ///
     /// let mut dl = LinkedList::new();
@@ -529,7 +519,6 @@ impl<T> LinkedList<T> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(collections)]
     /// use std::collections::LinkedList;
     ///
     /// let mut d = LinkedList::new();
@@ -548,7 +537,6 @@ impl<T> LinkedList<T> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(collections)]
     /// use std::collections::LinkedList;
     ///
     /// let mut d = LinkedList::new();
@@ -574,7 +562,6 @@ impl<T> LinkedList<T> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(collections)]
     /// use std::collections::LinkedList;
     ///
     /// let mut d = LinkedList::new();
@@ -632,7 +619,6 @@ impl<T> LinkedList<T> {
     }
 }
 
-#[unsafe_destructor]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Drop for LinkedList<T> {
     fn drop(&mut self) {
@@ -852,8 +838,10 @@ impl<T> IntoIterator for LinkedList<T> {
     type Item = T;
     type IntoIter = IntoIter<T>;
 
+    /// Consumes the list into an iterator yielding elements by value.
+    #[inline]
     fn into_iter(self) -> IntoIter<T> {
-        self.into_iter()
+        IntoIter{list: self}
     }
 }
 
@@ -924,7 +912,7 @@ impl<A: Clone> Clone for LinkedList<A> {
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<A: fmt::Debug> fmt::Debug for LinkedList<A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.iter().fold(f.debug_list(), |b, e| b.entry(e)).finish()
+        f.debug_list().entries(self.iter()).finish()
     }
 }
 
@@ -939,9 +927,9 @@ impl<A: Hash> Hash for LinkedList<A> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::clone::Clone;
-    use std::iter::Iterator;
+    use std::iter::{Iterator, IntoIterator};
     use std::option::Option::{Some, None, self};
     use std::__rand::{thread_rng, Rng};
     use std::thread;

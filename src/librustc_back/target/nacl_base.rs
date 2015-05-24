@@ -23,6 +23,7 @@ pub fn base_target() -> Target {
         target_endian: "".to_string(),
         target_pointer_width: "".to_string(),
         target_os: "nacl".to_string(),
+        target_env: "".to_string(),
         arch: "".to_string(),
         options: opts,
     }

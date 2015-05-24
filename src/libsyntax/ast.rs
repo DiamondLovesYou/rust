@@ -66,8 +66,6 @@ use parse::lexer;
 use ptr::P;
 
 use std::fmt;
-#[allow(deprecated)]
-use std::num::Int;
 use std::rc::Rc;
 use serialize::{Encodable, Decodable, Encoder, Decoder};
 
@@ -90,12 +88,6 @@ impl Ident {
 
     pub fn as_str<'a>(&'a self) -> &'a str {
         self.name.as_str()
-    }
-
-    pub fn encode_with_hygiene(&self) -> String {
-        format!("\x00name_{},ctxt_{}\x00",
-                self.name.usize(),
-                self.ctxt)
     }
 }
 
@@ -600,6 +592,12 @@ pub enum Pat_ {
 
     /// "None" means a * pattern where we don't bind the fields to names.
     PatEnum(Path, Option<Vec<P<Pat>>>),
+
+    /// An associated const named using the qualified path `<T>::CONST` or
+    /// `<T as Trait>::CONST`. Associated consts from inherent impls can be
+    /// referred to as simply `T::CONST`, in which case they will end up as
+    /// PatEnum, and the resolver will have to sort that out.
+    PatQPath(QSelf, Path),
 
     /// Destructuring of a struct, e.g. `Foo {x, y, ..}`
     /// The `bool` is `true` in the presence of a `..`
@@ -1142,15 +1140,23 @@ pub enum Sign {
 }
 
 impl Sign {
-    #[allow(deprecated)] // Int
-    pub fn new<T:Int>(n: T) -> Sign {
-        if n < Int::zero() {
-            Minus
-        } else {
-            Plus
-        }
+    pub fn new<T: IntSign>(n: T) -> Sign {
+        n.sign()
     }
 }
+
+pub trait IntSign {
+    fn sign(&self) -> Sign;
+}
+macro_rules! doit {
+    ($($t:ident)*) => ($(impl IntSign for $t {
+        #[allow(unused_comparisons)]
+        fn sign(&self) -> Sign {
+            if *self < 0 {Minus} else {Plus}
+        }
+    })*)
+}
+doit! { i8 i16 i32 i64 isize u8 u16 u32 u64 usize }
 
 #[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Debug, Copy)]
 pub enum LitIntType {
@@ -1230,6 +1236,7 @@ pub struct TraitItem {
 
 #[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Debug)]
 pub enum TraitItem_ {
+    ConstTraitItem(P<Ty>, Option<P<Expr>>),
     MethodTraitItem(MethodSig, Option<P<Block>>),
     TypeTraitItem(TyParamBounds, Option<P<Ty>>),
 }
@@ -1246,6 +1253,7 @@ pub struct ImplItem {
 
 #[derive(Clone, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Debug)]
 pub enum ImplItem_ {
+    ConstImplItem(P<Ty>, P<Expr>),
     MethodImplItem(MethodSig, P<Block>),
     TypeImplItem(P<Ty>),
     MacImplItem(Mac),
@@ -1863,7 +1871,7 @@ pub struct MacroDef {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use serialize;
     use super::*;
 

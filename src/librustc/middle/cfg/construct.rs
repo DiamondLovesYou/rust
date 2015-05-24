@@ -8,9 +8,9 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use rustc_data_structures::graph;
 use middle::cfg::*;
 use middle::def;
-use middle::graph;
 use middle::pat_util;
 use middle::region::CodeExtent;
 use middle::ty;
@@ -105,6 +105,7 @@ impl<'a, 'tcx> CFGBuilder<'a, 'tcx> {
         match pat.node {
             ast::PatIdent(_, _, None) |
             ast::PatEnum(_, None) |
+            ast::PatQPath(..) |
             ast::PatLit(..) |
             ast::PatRange(..) |
             ast::PatWild(_) => {

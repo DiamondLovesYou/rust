@@ -8,10 +8,12 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+// compile-flags: -Z parse-only
+
 struct Foo;
 
 impl Foo {
     #[stable(feature = "rust1", since = "1.0.0")]
-} //~ ERROR expected one of `extern`, `fn`, `pub`, `type`, or `unsafe`, found `}`
+} //~ ERROR expected one of `const`, `extern`, `fn`, `pub`, `type`, or `unsafe`, found `}`
 
 fn main() {}

@@ -22,15 +22,54 @@ use ptr;
 #[stable(feature = "rust1", since = "1.0.0")]
 pub use intrinsics::transmute;
 
-/// Moves a thing into the void.
+/// Leaks a value into the void, consuming ownership and never running its
+/// destructor.
 ///
-/// The forget function will take ownership of the provided value but neglect
-/// to run any required cleanup or memory management operations on it.
+/// This function will take ownership of its argument, but is distinct from the
+/// `mem::drop` function in that it **does not run the destructor**, leaking the
+/// value and any resources that it owns.
 ///
-/// This function is the unsafe version of the `drop` function because it does
-/// not run any destructors.
+/// # Safety
+///
+/// This function is not marked as `unsafe` as Rust does not guarantee that the
+/// `Drop` implementation for a value will always run. Note, however, that
+/// leaking resources such as memory or I/O objects is likely not desired, so
+/// this function is only recommended for specialized use cases.
+///
+/// The safety of this function implies that when writing `unsafe` code
+/// yourself care must be taken when leveraging a destructor that is required to
+/// run to preserve memory safety. There are known situations where the
+/// destructor may not run (such as if ownership of the object with the
+/// destructor is returned) which must be taken into account.
+///
+/// # Other forms of Leakage
+///
+/// It's important to point out that this function is not the only method by
+/// which a value can be leaked in safe Rust code. Other known sources of
+/// leakage are:
+///
+/// * `Rc` and `Arc` cycles
+/// * `mpsc::{Sender, Receiver}` cycles (they use `Arc` internally)
+/// * Panicking destructors are likely to leak local resources
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use std::mem;
+/// use std::fs::File;
+///
+/// // Leak some heap memory by never deallocating it
+/// let heap_memory = Box::new(3);
+/// mem::forget(heap_memory);
+///
+/// // Leak an I/O object, never closing the file
+/// let file = File::open("foo.txt").unwrap();
+/// mem::forget(file);
+/// ```
 #[stable(feature = "rust1", since = "1.0.0")]
-pub use intrinsics::forget;
+pub fn forget<T>(t: T) {
+    unsafe { intrinsics::forget(t) }
+}
 
 /// Returns the size of a type in bytes.
 ///
@@ -47,6 +86,22 @@ pub fn size_of<T>() -> usize {
     unsafe { intrinsics::size_of::<T>() }
 }
 
+/// Returns the size of the type that `val` points to in bytes.
+///
+/// # Examples
+///
+/// ```
+/// use std::mem;
+///
+/// assert_eq!(4, mem::size_of_val(&5i32));
+/// ```
+#[cfg(not(stage0))]
+#[inline]
+#[stable(feature = "rust1", since = "1.0.0")]
+pub fn size_of_val<T: ?Sized>(val: &T) -> usize {
+    unsafe { intrinsics::size_of_val(val) }
+}
+
 /// Returns the size of the type that `_val` points to in bytes.
 ///
 /// # Examples
@@ -56,6 +111,7 @@ pub fn size_of<T>() -> usize {
 ///
 /// assert_eq!(4, mem::size_of_val(&5i32));
 /// ```
+#[cfg(stage0)]
 #[inline]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub fn size_of_val<T>(_val: &T) -> usize {
@@ -79,6 +135,22 @@ pub fn min_align_of<T>() -> usize {
     unsafe { intrinsics::min_align_of::<T>() }
 }
 
+/// Returns the ABI-required minimum alignment of the type of the value that `val` points to
+///
+/// # Examples
+///
+/// ```
+/// use std::mem;
+///
+/// assert_eq!(4, mem::min_align_of_val(&5i32));
+/// ```
+#[cfg(not(stage0))]
+#[inline]
+#[stable(feature = "rust1", since = "1.0.0")]
+pub fn min_align_of_val<T: ?Sized>(val: &T) -> usize {
+    unsafe { intrinsics::min_align_of_val(val) }
+}
+
 /// Returns the ABI-required minimum alignment of the type of the value that `_val` points to
 ///
 /// # Examples
@@ -88,6 +160,7 @@ pub fn min_align_of<T>() -> usize {
 ///
 /// assert_eq!(4, mem::min_align_of_val(&5i32));
 /// ```
+#[cfg(stage0)]
 #[inline]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub fn min_align_of_val<T>(_val: &T) -> usize {

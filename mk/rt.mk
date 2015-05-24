@@ -85,7 +85,8 @@ $$(RT_OUTPUT_DIR_$(1))/%.o: $(S)src/rt/%.ll $$(MKFILE_DEPS) \
 	@mkdir -p $$(@D)
 	@$$(call E, compile: $$@)
 	$$(Q)$$(LLC_$$(CFG_BUILD)) $$(CFG_LLC_FLAGS_$(1)) \
-	    -filetype=obj -mtriple=$$(CFG_LLVM_TARGET_$(1)) -relocation-model=pic -o $$@ $$<
+	    -filetype=obj -mtriple=$$(CFG_LLVM_TARGET_$(1)) \
+	    -relocation-model=pic -o $$@ $$<
 else
 # le32-unknown-nacl doesn't have a target machine, so llc chokes.
 # Fortunately, PNaCl object files are just bitcode.
@@ -121,8 +122,8 @@ $$(RT_OUTPUT_DIR_$(1))/%.o: $(S)src/rt/%.c $$(MKFILE_DEPS)
 	@mkdir -p $$(@D)
 	@$$(call E, compile: $$@)
 	$$(Q)$$(call CFG_COMPILE_C_$(1), $$@, \
-		-I $$(S)src/rt/hoedown/src \
-		-I $$(S)src/rt \
+		$$(call CFG_CC_INCLUDE_$(1),$$(S)src/rt/hoedown/src) \
+		$$(call CFG_CC_INCLUDE_$(1),$$(S)src/rt) \
                  $$(RUNTIME_CFLAGS_$(1))) $$<
 
 $$(RT_OUTPUT_DIR_$(1))/%.o: $(S)src/rt/%.S $$(MKFILE_DEPS) \
@@ -150,7 +151,7 @@ OBJS_$(2)_$(1) := $$(OBJS_$(2)_$(1):.bc=.o)
 NATIVE_$(2)_$(1) := $$(call CFG_STATIC_LIB_NAME_$(1),$(2))
 $$(RT_OUTPUT_DIR_$(1))/$$(NATIVE_$(2)_$(1)): $$(OBJS_$(2)_$(1))
 	@$$(call E, link: $$@)
-	$$(Q)$$(AR_$(1)) rcs $$@ $$^
+	$$(Q)$$(call CFG_CREATE_ARCHIVE_$(1),$$@) $$^
 
 endef
 
@@ -267,18 +268,32 @@ COMPRT_NAME_$(1) := $$(call CFG_STATIC_LIB_NAME_$(1),compiler-rt)
 COMPRT_LIB_$(1) := $$(RT_OUTPUT_DIR_$(1))/$$(COMPRT_NAME_$(1))
 COMPRT_BUILD_DIR_$(1) := $$(RT_OUTPUT_DIR_$(1))/compiler-rt
 
+# Note that on MSVC-targeting builds we hardwire CC/AR to gcc/ar even though
+# we're targeting MSVC. This is because although compiler-rt has a CMake build
+# config I can't actually figure out how to use it, so I'm not sure how to use
+# cl.exe to build the objects. Additionally, the compiler-rt library when built
+# with gcc has the same ABI as cl.exe, so they're largely compatible
+COMPRT_CC_$(1) := $$(CC_$(1))
+COMPRT_AR_$(1) := $$(AR_$(1))
+COMPRT_CFLAGS_$(1) := $$(CFG_GCCISH_CFLAGS_$(1))
+ifeq ($$(findstring msvc,$(1)),msvc)
+COMPRT_CC_$(1) := gcc
+COMPRT_AR_$(1) := ar
+COMPRT_CFLAGS_$(1) := $$(CFG_GCCISH_CFLAGS_$(1)) -m64
+endif
+
 $$(COMPRT_LIB_$(1)): $$(COMPRT_DEPS) $$(MKFILE_DEPS)
 	@$$(call E, make: compiler-rt)
 	$$(Q)$$(MAKE) -C "$(S)src/compiler-rt" \
 		ProjSrcRoot="$(S)src/compiler-rt" \
 		ProjObjRoot="$$(abspath $$(COMPRT_BUILD_DIR_$(1)))" \
-		CC="$$(CC_$(1))" \
-		AR="$$(AR_$(1))" \
-		RANLIB="$$(AR_$(1)) s" \
-		CFLAGS="$$(CFG_GCCISH_CFLAGS_$(1))" \
+		CC='$$(COMPRT_CC_$(1))' \
+		AR='$$(COMPRT_AR_$(1))' \
+		RANLIB='$$(COMPRT_AR_$(1)) s' \
+		CFLAGS="$$(COMPRT_CFLAGS_$(1))" \
 		TargetTriple=$(1) \
 		triple-builtins
-	$$(Q)cp $$(COMPRT_BUILD_DIR_$(1))/triple/builtins/libcompiler_rt.a $$(COMPRT_LIB_$(1))
+	$$(Q)cp $$(COMPRT_BUILD_DIR_$(1))/triple/builtins/libcompiler_rt.a $$@
 
 ################################################################################
 # libbacktrace
@@ -360,6 +375,19 @@ endif # endif for nacly
 endif # endif for windowsy
 endif # endif for ios
 endif # endif for darwin
+
+################################################################################
+# libc/libunwind for musl
+#
+# When we're building a musl-like target we're going to link libc/libunwind
+# statically into the standard library and liblibc, so we need to make sure
+# they're in a location that we can find
+################################################################################
+
+ifeq ($$(findstring musl,$(1)),musl)
+$$(RT_OUTPUT_DIR_$(1))/%: $$(CFG_MUSL_ROOT)/lib/%
+	cp $$^ $$@
+endif
 
 endef
 

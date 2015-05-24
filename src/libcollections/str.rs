@@ -7,8 +7,6 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
-//
-// ignore-lexer-test FIXME #15679
 
 //! Unicode string manipulation (the `str` type).
 //!
@@ -59,17 +57,16 @@ use core::result::Result;
 use core::str as core_str;
 use core::str::pattern::Pattern;
 use core::str::pattern::{Searcher, ReverseSearcher, DoubleEndedSearcher};
-use unicode::str::{UnicodeStr, Utf16Encoder};
+use rustc_unicode::str::{UnicodeStr, Utf16Encoder};
 
-use core::convert::AsRef;
 use vec_deque::VecDeque;
 use borrow::{Borrow, ToOwned};
 use string::String;
-use unicode;
+use rustc_unicode;
 use vec::Vec;
 use slice::SliceConcatExt;
 
-pub use core::str::{FromStr, Utf8Error, Str};
+pub use core::str::{FromStr, Utf8Error};
 pub use core::str::{Lines, LinesAny, CharRange};
 pub use core::str::{Split, RSplit};
 pub use core::str::{SplitN, RSplitN};
@@ -78,25 +75,27 @@ pub use core::str::{Matches, RMatches};
 pub use core::str::{MatchIndices, RMatchIndices};
 pub use core::str::{from_utf8, Chars, CharIndices, Bytes};
 pub use core::str::{from_utf8_unchecked, ParseBoolError};
-pub use unicode::str::{Words, Graphemes, GraphemeIndices};
+pub use rustc_unicode::str::{SplitWhitespace, Words, Graphemes, GraphemeIndices};
 pub use core::str::pattern;
 
 /*
 Section: Creating a string
 */
 
-impl<S: AsRef<str>> SliceConcatExt<str, String> for [S] {
+impl<S: Borrow<str>> SliceConcatExt<str> for [S] {
+    type Output = String;
+
     fn concat(&self) -> String {
         if self.is_empty() {
             return String::new();
         }
 
         // `len` calculation may overflow but push_str will check boundaries
-        let len = self.iter().map(|s| s.as_ref().len()).sum();
+        let len = self.iter().map(|s| s.borrow().len()).sum();
         let mut result = String::with_capacity(len);
 
         for s in self {
-            result.push_str(s.as_ref())
+            result.push_str(s.borrow())
         }
 
         result
@@ -115,7 +114,7 @@ impl<S: AsRef<str>> SliceConcatExt<str, String> for [S] {
         // this is wrong without the guarantee that `self` is non-empty
         // `len` calculation may overflow but push_str but will check boundaries
         let len = sep.len() * (self.len() - 1)
-            + self.iter().map(|s| s.as_ref().len()).sum::<usize>();
+            + self.iter().map(|s| s.borrow().len()).sum::<usize>();
         let mut result = String::with_capacity(len);
         let mut first = true;
 
@@ -125,7 +124,7 @@ impl<S: AsRef<str>> SliceConcatExt<str, String> for [S] {
             } else {
                 result.push_str(sep);
             }
-            result.push_str(s.as_ref());
+            result.push_str(s.borrow());
         }
         result
     }
@@ -161,6 +160,9 @@ enum DecompositionType {
 /// External iterator for a string decomposition's characters.
 ///
 /// For use with the `std::iter` module.
+#[allow(deprecated)]
+#[deprecated(reason = "use the crates.io `unicode-normalization` library instead",
+             since = "1.0.0")]
 #[derive(Clone)]
 #[unstable(feature = "unicode",
            reason = "this functionality may be replaced with a more generic \
@@ -172,6 +174,7 @@ pub struct Decompositions<'a> {
     sorted: bool
 }
 
+#[allow(deprecated)]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a> Iterator for Decompositions<'a> {
     type Item = char;
@@ -198,7 +201,7 @@ impl<'a> Iterator for Decompositions<'a> {
                 {
                     let callback = |d| {
                         let class =
-                            unicode::char::canonical_combining_class(d);
+                            rustc_unicode::char::canonical_combining_class(d);
                         if class == 0 && !*sorted {
                             canonical_sort(buffer);
                             *sorted = true;
@@ -207,10 +210,10 @@ impl<'a> Iterator for Decompositions<'a> {
                     };
                     match self.kind {
                         Canonical => {
-                            unicode::char::decompose_canonical(ch, callback)
+                            rustc_unicode::char::decompose_canonical(ch, callback)
                         }
                         Compatible => {
-                            unicode::char::decompose_compatible(ch, callback)
+                            rustc_unicode::char::decompose_compatible(ch, callback)
                         }
                     }
                 }
@@ -254,6 +257,9 @@ enum RecompositionState {
 /// External iterator for a string recomposition's characters.
 ///
 /// For use with the `std::iter` module.
+#[allow(deprecated)]
+#[deprecated(reason = "use the crates.io `unicode-normalization` library instead",
+             since = "1.0.0")]
 #[derive(Clone)]
 #[unstable(feature = "unicode",
            reason = "this functionality may be replaced with a more generic \
@@ -266,6 +272,7 @@ pub struct Recompositions<'a> {
     last_ccc: Option<u8>
 }
 
+#[allow(deprecated)]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a> Iterator for Recompositions<'a> {
     type Item = char;
@@ -276,7 +283,7 @@ impl<'a> Iterator for Recompositions<'a> {
             match self.state {
                 Composing => {
                     for ch in self.iter.by_ref() {
-                        let ch_class = unicode::char::canonical_combining_class(ch);
+                        let ch_class = rustc_unicode::char::canonical_combining_class(ch);
                         if self.composee.is_none() {
                             if ch_class != 0 {
                                 return Some(ch);
@@ -288,7 +295,7 @@ impl<'a> Iterator for Recompositions<'a> {
 
                         match self.last_ccc {
                             None => {
-                                match unicode::char::compose(k, ch) {
+                                match rustc_unicode::char::compose(k, ch) {
                                     Some(r) => {
                                         self.composee = Some(r);
                                         continue;
@@ -316,7 +323,7 @@ impl<'a> Iterator for Recompositions<'a> {
                                     self.last_ccc = Some(ch_class);
                                     continue;
                                 }
-                                match unicode::char::compose(k, ch) {
+                                match rustc_unicode::char::compose(k, ch) {
                                     Some(r) => {
                                         self.composee = Some(r);
                                         continue;
@@ -389,6 +396,7 @@ macro_rules! utf8_acc_cont_byte {
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl Borrow<str> for String {
+    #[inline]
     fn borrow(&self) -> &str { &self[..] }
 }
 
@@ -465,6 +473,9 @@ impl str {
 
     /// Returns an iterator over the string in Unicode Normalization Form D
     /// (canonical decomposition).
+    #[allow(deprecated)]
+    #[deprecated(reason = "use the crates.io `unicode-normalization` library instead",
+             since = "1.0.0")]
     #[inline]
     #[unstable(feature = "unicode",
                reason = "this functionality may be replaced with a more generic \
@@ -480,6 +491,9 @@ impl str {
 
     /// Returns an iterator over the string in Unicode Normalization Form KD
     /// (compatibility decomposition).
+    #[allow(deprecated)]
+    #[deprecated(reason = "use the crates.io `unicode-normalization` library instead",
+             since = "1.0.0")]
     #[inline]
     #[unstable(feature = "unicode",
                reason = "this functionality may be replaced with a more generic \
@@ -495,6 +509,9 @@ impl str {
 
     /// An Iterator over the string in Unicode Normalization Form C
     /// (canonical decomposition followed by canonical composition).
+    #[allow(deprecated)]
+    #[deprecated(reason = "use the crates.io `unicode-normalization` library instead",
+             since = "1.0.0")]
     #[inline]
     #[unstable(feature = "unicode",
                reason = "this functionality may be replaced with a more generic \
@@ -511,6 +528,9 @@ impl str {
 
     /// An Iterator over the string in Unicode Normalization Form KC
     /// (compatibility decomposition followed by canonical composition).
+    #[allow(deprecated)]
+    #[deprecated(reason = "use the crates.io `unicode-normalization` library instead",
+             since = "1.0.0")]
     #[inline]
     #[unstable(feature = "unicode",
                reason = "this functionality may be replaced with a more generic \
@@ -695,7 +715,7 @@ impl str {
     /// is skipped if empty.
     ///
     /// This method can be used for string data that is _terminated_,
-    /// rather than _seperated_ by a pattern.
+    /// rather than _separated_ by a pattern.
     ///
     /// # Iterator behavior
     ///
@@ -742,7 +762,7 @@ impl str {
     /// skipped if empty.
     ///
     /// This method can be used for string data that is _terminated_,
-    /// rather than _seperated_ by a pattern.
+    /// rather than _separated_ by a pattern.
     ///
     /// # Iterator behavior
     ///
@@ -1690,6 +1710,8 @@ impl str {
     ///
     /// assert_eq!(&gr2[..], b);
     /// ```
+    #[deprecated(reason = "use the crates.io `unicode-segmentation` library instead",
+             since = "1.0.0")]
     #[unstable(feature = "unicode",
                reason = "this functionality may only be provided by libunicode")]
     pub fn graphemes(&self, is_extended: bool) -> Graphemes {
@@ -1709,31 +1731,50 @@ impl str {
     ///
     /// assert_eq!(&gr_inds[..], b);
     /// ```
+    #[deprecated(reason = "use the crates.io `unicode-segmentation` library instead",
+             since = "1.0.0")]
     #[unstable(feature = "unicode",
                reason = "this functionality may only be provided by libunicode")]
     pub fn grapheme_indices(&self, is_extended: bool) -> GraphemeIndices {
         UnicodeStr::grapheme_indices(&self[..], is_extended)
     }
 
-    /// An iterator over the non-empty words of `self`.
-    ///
-    /// A 'word' is a subsequence separated by any sequence of whitespace.
-    /// Sequences of whitespace
-    /// are collapsed, so empty "words" are not included.
+    /// An iterator over the non-empty substrings of `self` which contain no whitespace,
+    /// and which are separated by any amount of whitespace.
     ///
     /// # Examples
     ///
     /// ```
     /// # #![feature(str_words)]
+    /// # #![allow(deprecated)]
     /// let some_words = " Mary   had\ta little  \n\t lamb";
     /// let v: Vec<&str> = some_words.words().collect();
     ///
     /// assert_eq!(v, ["Mary", "had", "a", "little", "lamb"]);
     /// ```
+    #[deprecated(reason = "words() will be removed. Use split_whitespace() instead",
+                 since = "1.1.0")]
     #[unstable(feature = "str_words",
                reason = "the precise algorithm to use is unclear")]
+    #[allow(deprecated)]
     pub fn words(&self) -> Words {
         UnicodeStr::words(&self[..])
+    }
+
+    /// An iterator over the non-empty substrings of `self` which contain no whitespace,
+    /// and which are separated by any amount of whitespace.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let some_words = " Mary   had\ta little  \n\t lamb";
+    /// let v: Vec<&str> = some_words.split_whitespace().collect();
+    ///
+    /// assert_eq!(v, ["Mary", "had", "a", "little", "lamb"]);
+    /// ```
+    #[stable(feature = "split_whitespace", since = "1.1.0")]
+    pub fn split_whitespace(&self) -> SplitWhitespace {
+        UnicodeStr::split_whitespace(&self[..])
     }
 
     /// Returns a string's displayed width in columns.
@@ -1749,6 +1790,8 @@ impl str {
     /// recommends that these
     /// characters be treated as 1 column (i.e., `is_cjk = false`) if the
     /// locale is unknown.
+    #[deprecated(reason = "use the crates.io `unicode-width` library instead",
+                 since = "1.0.0")]
     #[unstable(feature = "unicode",
                reason = "this functionality may only be provided by libunicode")]
     pub fn width(&self, is_cjk: bool) -> usize {
@@ -1798,8 +1841,12 @@ impl str {
     ///
     /// # Examples
     ///
+    /// ```
+    /// #![feature(collections)]
+    ///
     /// let s = "HELLO";
     /// assert_eq!(s.to_lowercase(), "hello");
+    /// ```
     #[unstable(feature = "collections")]
     pub fn to_lowercase(&self) -> String {
         let mut s = String::with_capacity(self.len());
@@ -1811,8 +1858,12 @@ impl str {
     ///
     /// # Examples
     ///
+    /// ```
+    /// #![feature(collections)]
+    ///
     /// let s = "hello";
     /// assert_eq!(s.to_uppercase(), "HELLO");
+    /// ```
     #[unstable(feature = "collections")]
     pub fn to_uppercase(&self) -> String {
         let mut s = String::with_capacity(self.len());

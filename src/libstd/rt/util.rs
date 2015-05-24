@@ -7,8 +7,6 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
-//
-// ignore-lexer-test FIXME #15677
 
 use io::prelude::*;
 
@@ -65,7 +63,7 @@ pub const ENFORCE_SANITY: bool = true || !cfg!(rtopt) || cfg!(rtdebug) ||
                                   cfg!(rtassert);
 
 pub fn dumb_print(args: fmt::Arguments) {
-    let _ = write!(&mut Stderr::new(), "{}", args);
+    let _ = Stderr::new().write_fmt(args);
 }
 
 pub fn abort(args: fmt::Arguments) -> ! {

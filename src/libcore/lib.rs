@@ -53,7 +53,7 @@
 #![staged_api]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+       html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/",
        html_playground_url = "http://play.rust-lang.org/")]
 #![doc(test(no_crate_inject))]
@@ -65,7 +65,7 @@
 
 #![feature(intrinsics, lang_items)]
 #![feature(on_unimplemented)]
-#![feature(simd, unsafe_destructor)]
+#![feature(simd)]
 #![feature(staged_api)]
 #![feature(unboxed_closures)]
 #![feature(rustc_attrs)]
@@ -108,6 +108,7 @@ mod uint_macros;
 #[path = "num/f32.rs"]   pub mod f32;
 #[path = "num/f64.rs"]   pub mod f64;
 
+#[macro_use]
 pub mod num;
 
 /* The libcore prelude, not as all-encompassing as the libstd prelude */

@@ -7,8 +7,6 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
-//
-// ignore-lexer-test FIXME #15883
 
 use borrow::Borrow;
 use clone::Clone;
@@ -33,10 +31,12 @@ use super::state::HashState;
 // to get rid of it properly.
 
 /// An implementation of a hash set using the underlying representation of a
-/// HashMap where the value is (). As with the `HashMap` type, a `HashSet`
-/// requires that the elements implement the `Eq` and `Hash` traits. This can
-/// frequently be achieved by using `#[derive(Eq, Hash)]`. If you implement
-/// these yourself, it is important that the following property holds:
+/// HashMap where the value is ().
+///
+/// As with the `HashMap` type, a `HashSet` requires that the elements
+/// implement the `Eq` and `Hash` traits. This can frequently be achieved by
+/// using `#[derive(PartialEq, Eq, Hash)]`. If you implement these yourself,
+/// it is important that the following property holds:
 ///
 /// ```text
 /// k1 == k2 -> hash(k1) == hash(k2)
@@ -66,17 +66,17 @@ use super::state::HashState;
 /// books.insert("The Great Gatsby");
 ///
 /// // Check for a specific one.
-/// if !books.contains(&("The Winds of Winter")) {
+/// if !books.contains("The Winds of Winter") {
 ///     println!("We have {} books, but The Winds of Winter ain't one.",
 ///              books.len());
 /// }
 ///
 /// // Remove a book.
-/// books.remove(&"The Odyssey");
+/// books.remove("The Odyssey");
 ///
 /// // Iterate over everything.
-/// for book in books.iter() {
-///     println!("{}", *book);
+/// for book in &books {
+///     println!("{}", book);
 /// }
 /// ```
 ///
@@ -100,7 +100,7 @@ use super::state::HashState;
 /// vikings.insert(Viking { name: "Harald", power: 8 });
 ///
 /// // Use derived implementation to print the vikings.
-/// for x in vikings.iter() {
+/// for x in &vikings {
 ///     println!("{:?}", x);
 /// }
 /// ```
@@ -269,34 +269,6 @@ impl<T, S> HashSet<T, S>
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn iter(&self) -> Iter<T> {
         Iter { iter: self.map.keys() }
-    }
-
-    /// Creates a consuming iterator, that is, one that moves each value out
-    /// of the set in arbitrary order. The set cannot be used after calling
-    /// this.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::HashSet;
-    /// let mut set = HashSet::new();
-    /// set.insert("a".to_string());
-    /// set.insert("b".to_string());
-    ///
-    /// // Not possible to collect to a Vec<String> with a regular `.iter()`.
-    /// let v: Vec<String> = set.into_iter().collect();
-    ///
-    /// // Will print in an arbitrary order.
-    /// for x in v.iter() {
-    ///     println!("{}", x);
-    /// }
-    /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn into_iter(self) -> IntoIter<T> {
-        fn first<A, B>((a, _): (A, B)) -> A { a }
-        let first: fn((T, ())) -> T = first;
-
-        IntoIter { iter: self.map.into_iter().map(first) }
     }
 
     /// Visit the values representing the difference.
@@ -613,7 +585,7 @@ impl<T, S> fmt::Debug for HashSet<T, S>
           S: HashState
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.iter().fold(f.debug_set(), |b, e| b.entry(e)).finish()
+        f.debug_set().entries(self.iter()).finish()
     }
 }
 
@@ -850,8 +822,31 @@ impl<T, S> IntoIterator for HashSet<T, S>
     type Item = T;
     type IntoIter = IntoIter<T>;
 
+    /// Creates a consuming iterator, that is, one that moves each value out
+    /// of the set in arbitrary order. The set cannot be used after calling
+    /// this.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashSet;
+    /// let mut set = HashSet::new();
+    /// set.insert("a".to_string());
+    /// set.insert("b".to_string());
+    ///
+    /// // Not possible to collect to a Vec<String> with a regular `.iter()`.
+    /// let v: Vec<String> = set.into_iter().collect();
+    ///
+    /// // Will print in an arbitrary order.
+    /// for x in v.iter() {
+    ///     println!("{}", x);
+    /// }
+    /// ```
     fn into_iter(self) -> IntoIter<T> {
-        self.into_iter()
+        fn first<A, B>((a, _): (A, B)) -> A { a }
+        let first: fn((T, ())) -> T = first;
+
+        IntoIter { iter: self.map.into_iter().map(first) }
     }
 }
 

@@ -107,9 +107,14 @@ pub type _Unwind_Exception_Cleanup_Fn =
         extern "C" fn(unwind_code: _Unwind_Reason_Code,
                       exception: *mut _Unwind_Exception);
 
-#[cfg(any(target_os = "linux", target_os = "freebsd",
-          all(target_os = "nacl", target_libc = "glibc")))]
+#[cfg(all(any(all(target_os = "linux", not(target_env = "musl")),
+              target_os = "freebsd"),
+          not(target_os = "nacl")))]
 #[link(name = "gcc_s")]
+extern {}
+
+#[cfg(all(target_os = "linux", target_env = "musl", not(test)))]
+#[link(name = "unwind", kind = "static")]
 extern {}
 
 #[cfg(any(target_os = "android", target_os = "openbsd"))]

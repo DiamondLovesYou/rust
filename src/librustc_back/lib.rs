@@ -29,7 +29,7 @@
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-      html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+      html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
       html_root_url = "http://doc.rust-lang.org/nightly/")]
 
 #![feature(box_syntax)]
@@ -41,18 +41,19 @@
 #![feature(path_ext)]
 #![feature(step_by)]
 #![feature(libc)]
+#![feature(fs_canonicalize)]
 #![cfg_attr(test, feature(test, rand))]
 
 extern crate syntax;
 extern crate libc;
 extern crate serialize;
+extern crate rustc_llvm;
 #[macro_use] extern crate log;
 
 pub mod abi;
 pub mod archive;
 pub mod tempdir;
 pub mod arm;
-pub mod fs;
 pub mod le32;
 pub mod mips;
 pub mod mipsel;

@@ -1,4 +1,4 @@
-// Copyright 2012-2014 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012-2015 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -16,10 +16,12 @@ pub use self::const_val::*;
 use self::ErrKind::*;
 
 use metadata::csearch;
-use middle::{astencode, def};
+use middle::{astencode, def, infer, subst, traits};
 use middle::pat_util::def_to_path;
 use middle::ty::{self, Ty};
 use middle::astconv_util::ast_ty_to_prim_ty;
+use util::num::ToPrimitive;
+use util::ppaux::Repr;
 
 use syntax::ast::{self, Expr};
 use syntax::codemap::Span;
@@ -30,17 +32,17 @@ use syntax::{ast_map, ast_util, codemap};
 
 use std::borrow::{Cow, IntoCow};
 use std::num::wrapping::OverflowingOps;
-use std::num::ToPrimitive;
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry::Vacant;
-use std::{i8, i16, i32, i64};
+use std::{i8, i16, i32, i64, u8, u16, u32, u64};
 use std::rc::Rc;
 
 fn lookup_const<'a>(tcx: &'a ty::ctxt, e: &Expr) -> Option<&'a Expr> {
     let opt_def = tcx.def_map.borrow().get(&e.id).map(|d| d.full_def());
     match opt_def {
-        Some(def::DefConst(def_id)) => {
-            lookup_const_by_id(tcx, def_id)
+        Some(def::DefConst(def_id)) |
+        Some(def::DefAssociatedConst(def_id, _)) => {
+            lookup_const_by_id(tcx, def_id, Some(e.id))
         }
         Some(def::DefVariant(enum_def, variant_def, _)) => {
             lookup_variant_by_id(tcx, enum_def, variant_def)
@@ -101,14 +103,46 @@ fn lookup_variant_by_id<'a>(tcx: &'a ty::ctxt,
     }
 }
 
-pub fn lookup_const_by_id<'a>(tcx: &'a ty::ctxt, def_id: ast::DefId)
-                          -> Option<&'a Expr> {
+pub fn lookup_const_by_id<'a, 'tcx: 'a>(tcx: &'a ty::ctxt<'tcx>,
+                                        def_id: ast::DefId,
+                                        maybe_ref_id: Option<ast::NodeId>)
+                                        -> Option<&'tcx Expr> {
     if ast_util::is_local(def_id) {
         match tcx.map.find(def_id.node) {
             None => None,
             Some(ast_map::NodeItem(it)) => match it.node {
                 ast::ItemConst(_, ref const_expr) => {
-                    Some(&**const_expr)
+                    Some(&*const_expr)
+                }
+                _ => None
+            },
+            Some(ast_map::NodeTraitItem(ti)) => match ti.node {
+                ast::ConstTraitItem(_, _) => {
+                    match maybe_ref_id {
+                        // If we have a trait item, and we know the expression
+                        // that's the source of the obligation to resolve it,
+                        // `resolve_trait_associated_const` will select an impl
+                        // or the default.
+                        Some(ref_id) => {
+                            let trait_id = ty::trait_of_item(tcx, def_id)
+                                              .unwrap();
+                            resolve_trait_associated_const(tcx, ti, trait_id,
+                                                           ref_id)
+                        }
+                        // Technically, without knowing anything about the
+                        // expression that generates the obligation, we could
+                        // still return the default if there is one. However,
+                        // it's safer to return `None` than to return some value
+                        // that may differ from what you would get from
+                        // correctly selecting an impl.
+                        None => None
+                    }
+                }
+                _ => None
+            },
+            Some(ast_map::NodeImplItem(ii)) => match ii.node {
+                ast::ConstImplItem(_, ref expr) => {
+                    Some(&*expr)
                 }
                 _ => None
             },
@@ -122,16 +156,44 @@ pub fn lookup_const_by_id<'a>(tcx: &'a ty::ctxt, def_id: ast::DefId)
             }
             None => {}
         }
+        let mut used_ref_id = false;
         let expr_id = match csearch::maybe_get_item_ast(tcx, def_id,
             Box::new(|a, b, c, d| astencode::decode_inlined_item(a, b, c, d))) {
             csearch::FoundAst::Found(&ast::IIItem(ref item)) => match item.node {
                 ast::ItemConst(_, ref const_expr) => Some(const_expr.id),
                 _ => None
             },
+            csearch::FoundAst::Found(&ast::IITraitItem(trait_id, ref ti)) => match ti.node {
+                ast::ConstTraitItem(_, _) => {
+                    used_ref_id = true;
+                    match maybe_ref_id {
+                        // As mentioned in the comments above for in-crate
+                        // constants, we only try to find the expression for
+                        // a trait-associated const if the caller gives us
+                        // the expression that refers to it.
+                        Some(ref_id) => {
+                            resolve_trait_associated_const(tcx, ti, trait_id,
+                                                           ref_id).map(|e| e.id)
+                        }
+                        None => None
+                    }
+                }
+                _ => None
+            },
+            csearch::FoundAst::Found(&ast::IIImplItem(_, ref ii)) => match ii.node {
+                ast::ConstImplItem(_, ref expr) => Some(expr.id),
+                _ => None
+            },
             _ => None
         };
-        tcx.extern_const_statics.borrow_mut().insert(def_id,
-                                                     expr_id.unwrap_or(ast::DUMMY_NODE_ID));
+        // If we used the reference expression, particularly to choose an impl
+        // of a trait-associated const, don't cache that, because the next
+        // lookup with the same def_id may yield a different result.
+        if !used_ref_id {
+            tcx.extern_const_statics
+               .borrow_mut().insert(def_id,
+                                    expr_id.unwrap_or(ast::DUMMY_NODE_ID));
+        }
         expr_id.map(|id| tcx.map.expect_expr(id))
     }
 }
@@ -399,6 +461,16 @@ pub fn const_uint_checked_neg<'a>(
     Ok(const_uint((!a).wrapping_add(1)))
 }
 
+fn const_uint_not(a: u64, opt_ety: Option<UintTy>) -> const_val {
+    let mask = match opt_ety {
+        Some(UintTy::U8) => u8::MAX as u64,
+        Some(UintTy::U16) => u16::MAX as u64,
+        Some(UintTy::U32) => u32::MAX as u64,
+        None | Some(UintTy::U64) => u64::MAX,
+    };
+    const_uint(!a & mask)
+}
+
 macro_rules! overflow_checking_body {
     ($a:ident, $b:ident, $ety:ident, $overflowing_op:ident,
      lhs: $to_8_lhs:ident $to_16_lhs:ident $to_32_lhs:ident,
@@ -615,7 +687,7 @@ pub fn eval_const_expr_partial<'tcx>(tcx: &ty::ctxt<'tcx>,
       ast::ExprUnary(ast::UnNot, ref inner) => {
         match try!(eval_const_expr_partial(tcx, &**inner, ety)) {
           const_int(i) => const_int(!i),
-          const_uint(i) => const_uint(!i),
+          const_uint(i) => const_uint_not(i, expr_uint_type),
           const_bool(b) => const_bool(!b),
           const_str(_) => signal!(e, NotOnString),
           const_float(_) => signal!(e, NotOnFloat),
@@ -755,7 +827,35 @@ pub fn eval_const_expr_partial<'tcx>(tcx: &ty::ctxt<'tcx>,
                           _ => (None, None)
                       }
                   } else {
-                      (lookup_const_by_id(tcx, def_id), None)
+                      (lookup_const_by_id(tcx, def_id, Some(e.id)), None)
+                  }
+              }
+              Some(def::DefAssociatedConst(def_id, provenance)) => {
+                  if ast_util::is_local(def_id) {
+                      match provenance {
+                          def::FromTrait(trait_id) => match tcx.map.find(def_id.node) {
+                              Some(ast_map::NodeTraitItem(ti)) => match ti.node {
+                                  ast::ConstTraitItem(ref ty, _) => {
+                                      (resolve_trait_associated_const(tcx, ti,
+                                                                      trait_id, e.id),
+                                       Some(&**ty))
+                                  }
+                                  _ => (None, None)
+                              },
+                              _ => (None, None)
+                          },
+                          def::FromImpl(_) => match tcx.map.find(def_id.node) {
+                              Some(ast_map::NodeImplItem(ii)) => match ii.node {
+                                  ast::ConstImplItem(ref ty, ref expr) => {
+                                      (Some(&**expr), Some(&**ty))
+                                  }
+                                  _ => (None, None)
+                              },
+                              _ => (None, None)
+                          },
+                      }
+                  } else {
+                      (lookup_const_by_id(tcx, def_id, Some(e.id)), None)
                   }
               }
               Some(def::DefVariant(enum_def, variant_def, _)) => {
@@ -833,11 +933,76 @@ pub fn eval_const_expr_partial<'tcx>(tcx: &ty::ctxt<'tcx>,
     Ok(result)
 }
 
+fn resolve_trait_associated_const<'a, 'tcx: 'a>(tcx: &'a ty::ctxt<'tcx>,
+                                                ti: &'tcx ast::TraitItem,
+                                                trait_id: ast::DefId,
+                                                ref_id: ast::NodeId)
+                                                -> Option<&'tcx Expr>
+{
+    let rcvr_substs = ty::node_id_item_substs(tcx, ref_id).substs;
+    let subst::SeparateVecsPerParamSpace {
+        types: rcvr_type,
+        selfs: rcvr_self,
+        fns: _,
+    } = rcvr_substs.types.split();
+    let trait_substs =
+        subst::Substs::erased(subst::VecPerParamSpace::new(rcvr_type,
+                                                           rcvr_self,
+                                                           Vec::new()));
+    let trait_substs = tcx.mk_substs(trait_substs);
+    debug!("resolve_trait_associated_const: trait_substs={}",
+           trait_substs.repr(tcx));
+    let trait_ref = ty::Binder(ty::TraitRef { def_id: trait_id,
+                                              substs: trait_substs });
+
+    ty::populate_implementations_for_trait_if_necessary(tcx, trait_ref.def_id());
+    let infcx = infer::new_infer_ctxt(tcx);
+
+    let param_env = ty::empty_parameter_environment(tcx);
+    let mut selcx = traits::SelectionContext::new(&infcx, &param_env);
+    let obligation = traits::Obligation::new(traits::ObligationCause::dummy(),
+                                             trait_ref.to_poly_trait_predicate());
+    let selection = match selcx.select(&obligation) {
+        Ok(Some(vtable)) => vtable,
+        // Still ambiguous, so give up and let the caller decide whether this
+        // expression is really needed yet. Some associated constant values
+        // can't be evaluated until monomorphization is done in trans.
+        Ok(None) => {
+            return None
+        }
+        Err(e) => {
+            tcx.sess.span_bug(ti.span,
+                              &format!("Encountered error `{}` when trying \
+                                        to select an implementation for \
+                                        constant trait item reference.",
+                                       e.repr(tcx)))
+        }
+    };
+
+    match selection {
+        traits::VtableImpl(ref impl_data) => {
+            match ty::associated_consts(tcx, impl_data.impl_def_id)
+                     .iter().find(|ic| ic.name == ti.ident.name) {
+                Some(ic) => lookup_const_by_id(tcx, ic.def_id, None),
+                None => match ti.node {
+                    ast::ConstTraitItem(_, Some(ref expr)) => Some(&*expr),
+                    _ => None,
+                },
+            }
+        }
+        _ => {
+            tcx.sess.span_bug(
+                ti.span,
+                &format!("resolve_trait_associated_const: unexpected vtable type"))
+        }
+    }
+}
+
 fn cast_const<'tcx>(tcx: &ty::ctxt<'tcx>, val: const_val, ty: Ty) -> CastResult {
     macro_rules! convert_val {
         ($intermediate_ty:ty, $const_type:ident, $target_ty:ty) => {
             match val {
-                const_bool(b) => Ok($const_type(b as $intermediate_ty as $target_ty)),
+                const_bool(b) => Ok($const_type(b as u64 as $intermediate_ty as $target_ty)),
                 const_uint(u) => Ok($const_type(u as $intermediate_ty as $target_ty)),
                 const_int(i) => Ok($const_type(i as $intermediate_ty as $target_ty)),
                 const_float(f) => Ok($const_type(f as $intermediate_ty as $target_ty)),

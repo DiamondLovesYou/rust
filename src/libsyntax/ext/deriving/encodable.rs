@@ -88,42 +88,39 @@
 //! }
 //! ```
 
-use ast::{MetaItem, Item, Expr, ExprRet, MutMutable};
+use ast::{MetaItem, Expr, ExprRet, MutMutable};
 use codemap::Span;
-use ext::base::ExtCtxt;
+use ext::base::{ExtCtxt,Annotatable};
 use ext::build::AstBuilder;
 use ext::deriving::generic::*;
 use ext::deriving::generic::ty::*;
 use parse::token;
 use ptr::P;
 
-pub fn expand_deriving_rustc_encodable<F>(cx: &mut ExtCtxt,
-                                          span: Span,
-                                          mitem: &MetaItem,
-                                          item: &Item,
-                                          push: F) where
-    F: FnOnce(P<Item>),
+pub fn expand_deriving_rustc_encodable(cx: &mut ExtCtxt,
+                                       span: Span,
+                                       mitem: &MetaItem,
+                                       item: Annotatable,
+                                       push: &mut FnMut(Annotatable))
 {
     expand_deriving_encodable_imp(cx, span, mitem, item, push, "rustc_serialize")
 }
 
-pub fn expand_deriving_encodable<F>(cx: &mut ExtCtxt,
-                                    span: Span,
-                                    mitem: &MetaItem,
-                                    item: &Item,
-                                    push: F) where
-    F: FnOnce(P<Item>),
+pub fn expand_deriving_encodable(cx: &mut ExtCtxt,
+                                 span: Span,
+                                 mitem: &MetaItem,
+                                 item: Annotatable,
+                                 push: &mut FnMut(Annotatable))
 {
     expand_deriving_encodable_imp(cx, span, mitem, item, push, "serialize")
 }
 
-fn expand_deriving_encodable_imp<F>(cx: &mut ExtCtxt,
-                                    span: Span,
-                                    mitem: &MetaItem,
-                                    item: &Item,
-                                    push: F,
-                                    krate: &'static str) where
-    F: FnOnce(P<Item>),
+fn expand_deriving_encodable_imp(cx: &mut ExtCtxt,
+                                 span: Span,
+                                 mitem: &MetaItem,
+                                 item: Annotatable,
+                                 push: &mut FnMut(Annotatable),
+                                 krate: &'static str)
 {
     if !cx.use_std {
         // FIXME(#21880): lift this requirement.
@@ -147,17 +144,18 @@ fn expand_deriving_encodable_imp<F>(cx: &mut ExtCtxt,
                                     vec!(), true))))
                 },
                 explicit_self: borrowed_explicit_self(),
-                args: vec!(Ptr(box Literal(Path::new_local("__S")),
+                args: vec!(Ptr(Box::new(Literal(Path::new_local("__S"))),
                             Borrowed(None, MutMutable))),
                 ret_ty: Literal(Path::new_(
                     pathvec_std!(cx, core::result::Result),
                     None,
-                    vec!(box Tuple(Vec::new()), box Literal(Path::new_(
+                    vec!(Box::new(Tuple(Vec::new())), Box::new(Literal(Path::new_(
                         vec!["__S", "Error"], None, vec![], false
-                    ))),
+                    )))),
                     true
                 )),
                 attributes: Vec::new(),
+                is_unsafe: false,
                 combine_substructure: combine_substructure(Box::new(|a, b, c| {
                     encodable_substructure(a, b, c)
                 })),
@@ -166,7 +164,7 @@ fn expand_deriving_encodable_imp<F>(cx: &mut ExtCtxt,
         associated_types: Vec::new(),
     };
 
-    trait_def.expand(cx, mitem, item, push)
+    trait_def.expand(cx, mitem, &item, push)
 }
 
 fn encodable_substructure(cx: &mut ExtCtxt, trait_span: Span,

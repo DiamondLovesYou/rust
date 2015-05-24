@@ -54,6 +54,8 @@ pub const MAXIMUM_REPARSE_DATA_BUFFER_SIZE: usize = 16 * 1024;
 pub const FSCTL_GET_REPARSE_POINT: libc::DWORD = 0x900a8;
 pub const IO_REPARSE_TAG_SYMLINK: libc::DWORD = 0xa000000c;
 
+pub const SYMBOLIC_LINK_FLAG_DIRECTORY: libc::DWORD = 0x1;
+
 // Note that these are not actually HANDLEs, just values to pass to GetStdHandle
 pub const STD_INPUT_HANDLE: libc::DWORD = -10i32 as libc::DWORD;
 pub const STD_OUTPUT_HANDLE: libc::DWORD = -11i32 as libc::DWORD;
@@ -469,6 +471,18 @@ extern "system" {
                       hWritePipe: libc::LPHANDLE,
                       lpPipeAttributes: libc::LPSECURITY_ATTRIBUTES,
                       nSize: libc::DWORD) -> libc::BOOL;
+    pub fn CreateThread(lpThreadAttributes: libc::LPSECURITY_ATTRIBUTES,
+                        dwStackSize: libc::SIZE_T,
+                        lpStartAddress: extern "system" fn(*mut libc::c_void)
+                                                           -> libc::DWORD,
+                        lpParameter: libc::LPVOID,
+                        dwCreationFlags: libc::DWORD,
+                        lpThreadId: libc::LPDWORD) -> libc::HANDLE;
+    pub fn WaitForSingleObject(hHandle: libc::HANDLE,
+                               dwMilliseconds: libc::DWORD) -> libc::DWORD;
+    pub fn SwitchToThread() -> libc::BOOL;
+    pub fn Sleep(dwMilliseconds: libc::DWORD);
+    pub fn GetProcessId(handle: libc::HANDLE) -> libc::DWORD;
 }
 
 #[link(name = "userenv")]

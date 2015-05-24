@@ -15,8 +15,6 @@ use super::Wrapping;
 
 use ops::*;
 
-use intrinsics::{overflowing_add, overflowing_sub, overflowing_mul};
-
 use intrinsics::{i8_add_with_overflow, u8_add_with_overflow};
 use intrinsics::{i16_add_with_overflow, u16_add_with_overflow};
 use intrinsics::{i32_add_with_overflow, u32_add_with_overflow};
@@ -33,14 +31,6 @@ use intrinsics::{i64_mul_with_overflow, u64_mul_with_overflow};
 use ::{i8,i16,i32,i64};
 
 #[unstable(feature = "core", reason = "may be removed, renamed, or relocated")]
-#[deprecated(since = "1.0.0", reason = "moved to inherent methods")]
-pub trait WrappingOps {
-    fn wrapping_add(self, rhs: Self) -> Self;
-    fn wrapping_sub(self, rhs: Self) -> Self;
-    fn wrapping_mul(self, rhs: Self) -> Self;
-}
-
-#[unstable(feature = "core", reason = "may be removed, renamed, or relocated")]
 pub trait OverflowingOps {
     fn overflowing_add(self, rhs: Self) -> (Self, bool);
     fn overflowing_sub(self, rhs: Self) -> (Self, bool);
@@ -48,6 +38,7 @@ pub trait OverflowingOps {
 
     fn overflowing_div(self, rhs: Self) -> (Self, bool);
     fn overflowing_rem(self, rhs: Self) -> (Self, bool);
+    fn overflowing_neg(self) -> (Self, bool);
 
     fn overflowing_shl(self, rhs: u32) -> (Self, bool);
     fn overflowing_shr(self, rhs: u32) -> (Self, bool);
@@ -98,27 +89,6 @@ sh_impl_all! { u8 u16 u32 u64 usize i8 i16 i32 i64 isize }
 
 macro_rules! wrapping_impl {
     ($($t:ty)*) => ($(
-        impl WrappingOps for $t {
-            #[inline(always)]
-            fn wrapping_add(self, rhs: $t) -> $t {
-                unsafe {
-                    overflowing_add(self, rhs)
-                }
-            }
-            #[inline(always)]
-            fn wrapping_sub(self, rhs: $t) -> $t {
-                unsafe {
-                    overflowing_sub(self, rhs)
-                }
-            }
-            #[inline(always)]
-            fn wrapping_mul(self, rhs: $t) -> $t {
-                unsafe {
-                    overflowing_mul(self, rhs)
-                }
-            }
-        }
-
         #[stable(feature = "rust1", since = "1.0.0")]
         impl Add for Wrapping<$t> {
             type Output = Wrapping<$t>;
@@ -153,6 +123,7 @@ macro_rules! wrapping_impl {
         impl Not for Wrapping<$t> {
             type Output = Wrapping<$t>;
 
+            #[inline(always)]
             fn not(self) -> Wrapping<$t> {
                 Wrapping(!self.0)
             }
@@ -231,7 +202,7 @@ macro_rules! signed_overflowing_impl {
             #[inline(always)]
             fn overflowing_div(self, rhs: $t) -> ($t, bool) {
                 if self == $t::MIN && rhs == -1 {
-                    (1, true)
+                    (self, true)
                 } else {
                     (self/rhs, false)
                 }
@@ -254,6 +225,15 @@ macro_rules! signed_overflowing_impl {
             fn overflowing_shr(self, rhs: u32) -> ($t, bool) {
                 (self >> (rhs & self::shift_max::$t),
                  (rhs > self::shift_max::$t))
+            }
+
+            #[inline(always)]
+            fn overflowing_neg(self) -> ($t, bool) {
+                if self == $t::MIN {
+                    ($t::MIN, true)
+                } else {
+                    (-self, false)
+                }
             }
         }
     )*)
@@ -300,6 +280,11 @@ macro_rules! unsigned_overflowing_impl {
                 (self >> (rhs & self::shift_max::$t),
                  (rhs > self::shift_max::$t))
             }
+
+            #[inline(always)]
+            fn overflowing_neg(self) -> ($t, bool) {
+                ((!self).wrapping_add(1), true)
+            }
         }
     )*)
 }
@@ -338,6 +323,11 @@ impl OverflowingOps for usize {
     #[inline(always)]
     fn overflowing_rem(self, rhs: usize) -> (usize, bool) {
         let (r, f) = (self as u64).overflowing_rem(rhs as u64);
+        (r as usize, f)
+    }
+    #[inline(always)]
+    fn overflowing_neg(self) -> (usize, bool) {
+        let (r, f) = (self as u64).overflowing_neg();
         (r as usize, f)
     }
     #[inline(always)]
@@ -386,6 +376,11 @@ impl OverflowingOps for usize {
         (r as usize, f)
     }
     #[inline(always)]
+    fn overflowing_neg(self) -> (usize, bool) {
+        let (r, f) = (self as u32).overflowing_neg();
+        (r as usize, f)
+    }
+    #[inline(always)]
     fn overflowing_shl(self, rhs: u32) -> (usize, bool) {
         let (r, f) = (self as u32).overflowing_shl(rhs);
         (r as usize, f)
@@ -431,6 +426,11 @@ impl OverflowingOps for isize {
         (r as isize, f)
     }
     #[inline(always)]
+    fn overflowing_neg(self) -> (isize, bool) {
+        let (r, f) = (self as i64).overflowing_neg();
+        (r as isize, f)
+    }
+    #[inline(always)]
     fn overflowing_shl(self, rhs: u32) -> (isize, bool) {
         let (r, f) = (self as i64).overflowing_shl(rhs);
         (r as isize, f)
@@ -473,6 +473,11 @@ impl OverflowingOps for isize {
     #[inline(always)]
     fn overflowing_rem(self, rhs: isize) -> (isize, bool) {
         let (r, f) = (self as i32).overflowing_rem(rhs as i32);
+        (r as isize, f)
+    }
+    #[inline(always)]
+    fn overflowing_neg(self) -> (isize, bool) {
+        let (r, f) = (self as i32).overflowing_neg();
         (r as isize, f)
     }
     #[inline(always)]

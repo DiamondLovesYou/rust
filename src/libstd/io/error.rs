@@ -12,7 +12,7 @@ use boxed::Box;
 use convert::Into;
 use error;
 use fmt;
-use marker::Send;
+use marker::{Send, Sync};
 use option::Option::{self, Some, None};
 use result;
 use sys;
@@ -46,7 +46,7 @@ enum Repr {
 #[derive(Debug)]
 struct Custom {
     kind: ErrorKind,
-    error: Box<error::Error+Send>,
+    error: Box<error::Error+Send+Sync>,
 }
 
 /// A list specifying general categories of I/O error.
@@ -146,7 +146,7 @@ impl Error {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn new<E>(kind: ErrorKind, error: E) -> Error
-        where E: Into<Box<error::Error+Send>>
+        where E: Into<Box<error::Error+Send+Sync>>
     {
         Error {
             repr: Repr::Custom(Box::new(Custom {
@@ -169,13 +169,6 @@ impl Error {
     /// Creates a new instance of an `Error` from a particular OS error code.
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn from_raw_os_error(code: i32) -> Error {
-        Error { repr: Repr::Os(code) }
-    }
-
-    /// Creates a new instance of an `Error` from a particular OS error code.
-    #[unstable(feature = "io", reason = "deprecated")]
-    #[deprecated(since = "1.0.0", reason = "renamed to from_raw_os_error")]
-    pub fn from_os_error(code: i32) -> Error {
         Error { repr: Repr::Os(code) }
     }
 
@@ -222,4 +215,9 @@ impl error::Error for Error {
             Repr::Custom(ref c) => c.error.description(),
         }
     }
+}
+
+fn _assert_error_is_sync_send() {
+    fn _is_sync_send<T: Sync+Send>() {}
+    _is_sync_send::<Error>();
 }

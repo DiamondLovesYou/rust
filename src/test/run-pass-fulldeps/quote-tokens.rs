@@ -8,7 +8,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// ignore-android
+// ignore-cross-compile
 // ignore-pretty: does not work well with `--test`
 
 #![feature(quote, rustc_private)]
@@ -43,6 +43,12 @@ fn syntax_extension(cx: &ExtCtxt) {
     let _n: syntax::ast::Attribute = quote_attr!(cx, #![cfg(foo, bar = "baz")]);
 
     let _o: Option<P<syntax::ast::Item>> = quote_item!(cx, fn foo<T: ?Sized>() {});
+
+    let stmts = vec![
+        quote_stmt!(cx, let x = 1;).unwrap(),
+        quote_stmt!(cx, let y = 2;).unwrap(),
+    ];
+    let expr: P<syntax::ast::Expr> = quote_expr!(cx, x + y);
 }
 
 fn main() {

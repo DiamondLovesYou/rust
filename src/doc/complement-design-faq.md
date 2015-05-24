@@ -39,7 +39,7 @@ representation as a primitive. This allows using Rust `enum`s in FFI where C
 `enum`s are also used, for most use cases. The attribute can also be applied
 to `struct`s to get the same layout as a C struct would.
 
-[repr]: reference.html#miscellaneous-attributes
+[repr]: reference.html#ffi-attributes
 
 ## There is no GC
 
@@ -56,7 +56,7 @@ Types which are [`Sync`][sync] are thread-safe when multiple shared
 references to them are used concurrently. Types which are not `Sync` are not
 thread-safe, and thus when used in a global require unsafe code to use.
 
-[sync]: core/kinds/trait.Sync.html
+[sync]: core/marker/trait.Sync.html
 
 ### If mutable static items that implement `Sync` are safe, why is taking &mut SHARABLE unsafe?
 
@@ -79,7 +79,7 @@ feature.
 A nice replacement is the [lazy constructor macro][lcm] by [Marvin
 Löbel][kim].
 
-[fqa]: https://mail.mozilla.org/pipermail/rust-dev/2013-April/003815.html
+[fqa]: http://yosefk.com/c++fqa/ctors.html#fqa-10.12
 [elp]: http://ericlippert.com/2013/02/06/static-constructors-part-one/
 [lcm]: https://gist.github.com/Kimundi/8782487
 [kim]: https://github.com/Kimundi
@@ -96,7 +96,7 @@ code should need to run is a stack.
 possibility is covered by the `match`, adding further variants to the `enum`
 in the future will prompt a compilation failure, rather than runtime panic.
 Second, it makes cost explicit. In general, the only safe way to have a
-non-exhaustive match would be to panic the task if nothing is matched, though
+non-exhaustive match would be to panic the thread if nothing is matched, though
 it could fall through if the type of the `match` expression is `()`. This sort
 of hidden cost and special casing is against the language's philosophy. It's
 easy to ignore certain cases by using the `_` wildcard:
@@ -139,7 +139,7 @@ and explicitly calling the `clone` method. Making user-defined copy operators
 explicit surfaces the underlying complexity, forcing the developer to opt-in
 to potentially expensive operations.
 
-[copy]: core/kinds/trait.Copy.html
+[copy]: core/marker/trait.Copy.html
 [clone]: core/clone/trait.Clone.html
 
 ## No move constructors
@@ -165,12 +165,13 @@ particularly easy to read.
 
 ## Why is `let` used to introduce variables?
 
-We don't use the term "variable", instead, we use "variable bindings". The
-simplest way for binding is the `let` syntax, other ways including `if let`,
-`while let` and `match`. Bindings also exist in function arguments positions.
+Instead of the term "variable", we use "variable bindings". The
+simplest way for creating a binding is by using the `let` syntax.
+Other ways include `if let`, `while let`, and `match`. Bindings also
+exist in function argument positions.
 
 Bindings always happen in pattern matching positions, and it's also Rust's way
-to declare mutability. One can also redeclare mutability of a binding in
+to declare mutability. One can also re-declare mutability of a binding in
 pattern matching. This is useful to avoid unnecessary `mut` annotations. An
 interesting historical note is that Rust comes, syntactically, most closely
 from ML, which also uses `let` to introduce bindings.

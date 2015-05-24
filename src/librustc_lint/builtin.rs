@@ -206,8 +206,8 @@ impl LintPass for TypeLimits {
                                 let (min, max) = int_ty_range(int_type);
                                 let negative = self.negated_expr_id == e.id;
 
-                                if (negative && v > (min.abs() as u64)) ||
-                                   (!negative && v > (max.abs() as u64)) {
+                                if (negative && min != i64::MIN && v > -min as u64) ||
+                                   (!negative && v > max as u64) {
                                     cx.span_lint(OVERFLOWING_LITERALS, e.span,
                                                  &*format!("literal out of range for {:?}", t));
                                     return;
@@ -910,9 +910,8 @@ impl NonSnakeCase {
         words.connect("_")
     }
 
-    fn check_snake_case(&self, cx: &Context, sort: &str, ident: ast::Ident, span: Span) {
-        fn is_snake_case(ident: ast::Ident) -> bool {
-            let ident = token::get_ident(ident);
+    fn check_snake_case(&self, cx: &Context, sort: &str, name: &str, span: Option<Span>) {
+        fn is_snake_case(ident: &str) -> bool {
             if ident.is_empty() {
                 return true;
             }
@@ -924,6 +923,8 @@ impl NonSnakeCase {
                 allow_underscore = match c {
                     '_' if !allow_underscore => return false,
                     '_' => false,
+                    // It would be more obvious to use `c.is_lowercase()`,
+                    // but some characters do not have a lowercase form
                     c if !c.is_uppercase() => true,
                     _ => return false,
                 };
@@ -931,18 +932,18 @@ impl NonSnakeCase {
             })
         }
 
-        let s = token::get_ident(ident);
-
-        if !is_snake_case(ident) {
-            let sc = NonSnakeCase::to_snake_case(&s);
-            if sc != &s[..] {
-                cx.span_lint(NON_SNAKE_CASE, span,
-                    &*format!("{} `{}` should have a snake case name such as `{}`",
-                            sort, s, sc));
+        if !is_snake_case(name) {
+            let sc = NonSnakeCase::to_snake_case(name);
+            let msg = if sc != name {
+                format!("{} `{}` should have a snake case name such as `{}`",
+                        sort, name, sc)
             } else {
-                cx.span_lint(NON_SNAKE_CASE, span,
-                    &*format!("{} `{}` should have a snake case name",
-                            sort, s));
+                format!("{} `{}` should have a snake case name",
+                        sort, name)
+            };
+            match span {
+                Some(span) => cx.span_lint(NON_SNAKE_CASE, span, &msg),
+                None => cx.lint(NON_SNAKE_CASE, &msg),
             }
         }
     }
@@ -953,21 +954,31 @@ impl LintPass for NonSnakeCase {
         lint_array!(NON_SNAKE_CASE)
     }
 
+    fn check_crate(&mut self, cx: &Context, cr: &ast::Crate) {
+        let attr_crate_name = cr.attrs.iter().find(|at| at.check_name("crate_name"))
+                                      .and_then(|at| at.value_str().map(|s| (at, s)));
+        if let Some(ref name) = cx.tcx.sess.opts.crate_name {
+            self.check_snake_case(cx, "crate", name, None);
+        } else if let Some((attr, ref name)) = attr_crate_name {
+            self.check_snake_case(cx, "crate", name, Some(attr.span));
+        }
+    }
+
     fn check_fn(&mut self, cx: &Context,
                 fk: visit::FnKind, _: &ast::FnDecl,
                 _: &ast::Block, span: Span, id: ast::NodeId) {
         match fk {
             visit::FkMethod(ident, _, _) => match method_context(cx, id, span) {
                 MethodContext::PlainImpl => {
-                    self.check_snake_case(cx, "method", ident, span)
+                    self.check_snake_case(cx, "method", &token::get_ident(ident), Some(span))
                 },
                 MethodContext::TraitDefaultImpl => {
-                    self.check_snake_case(cx, "trait method", ident, span)
+                    self.check_snake_case(cx, "trait method", &token::get_ident(ident), Some(span))
                 },
                 _ => (),
             },
             visit::FkItemFn(ident, _, _, _, _) => {
-                self.check_snake_case(cx, "function", ident, span)
+                self.check_snake_case(cx, "function", &token::get_ident(ident), Some(span))
             },
             _ => (),
         }
@@ -975,25 +986,27 @@ impl LintPass for NonSnakeCase {
 
     fn check_item(&mut self, cx: &Context, it: &ast::Item) {
         if let ast::ItemMod(_) = it.node {
-            self.check_snake_case(cx, "module", it.ident, it.span);
+            self.check_snake_case(cx, "module", &token::get_ident(it.ident), Some(it.span));
         }
     }
 
     fn check_trait_item(&mut self, cx: &Context, trait_item: &ast::TraitItem) {
         if let ast::MethodTraitItem(_, None) = trait_item.node {
-            self.check_snake_case(cx, "trait method", trait_item.ident, trait_item.span);
+            self.check_snake_case(cx, "trait method", &token::get_ident(trait_item.ident),
+                                  Some(trait_item.span));
         }
     }
 
     fn check_lifetime_def(&mut self, cx: &Context, t: &ast::LifetimeDef) {
-        self.check_snake_case(cx, "lifetime", t.lifetime.name.ident(), t.lifetime.span);
+        self.check_snake_case(cx, "lifetime", &token::get_ident(t.lifetime.name.ident()),
+                              Some(t.lifetime.span));
     }
 
     fn check_pat(&mut self, cx: &Context, p: &ast::Pat) {
         if let &ast::PatIdent(_, ref path1, _) = &p.node {
             let def = cx.tcx.def_map.borrow().get(&p.id).map(|d| d.full_def());
             if let Some(def::DefLocal(_)) = def {
-                self.check_snake_case(cx, "variable", path1.node, p.span);
+                self.check_snake_case(cx, "variable", &token::get_ident(path1.node), Some(p.span));
             }
         }
     }
@@ -1002,7 +1015,8 @@ impl LintPass for NonSnakeCase {
                         _: ast::Ident, _: &ast::Generics, _: ast::NodeId) {
         for sf in &s.fields {
             if let ast::StructField_ { kind: ast::NamedField(ident, _), .. } = sf.node {
-                self.check_snake_case(cx, "structure field", ident, sf.span);
+                self.check_snake_case(cx, "structure field", &token::get_ident(ident),
+                                      Some(sf.span));
             }
         }
     }
@@ -1049,6 +1063,26 @@ impl LintPass for NonUpperCaseGlobals {
             }
             ast::ItemConst(..) => {
                 NonUpperCaseGlobals::check_upper_case(cx, "constant", it.ident, it.span);
+            }
+            _ => {}
+        }
+    }
+
+    fn check_trait_item(&mut self, cx: &Context, ti: &ast::TraitItem) {
+        match ti.node {
+            ast::ConstTraitItem(..) => {
+                NonUpperCaseGlobals::check_upper_case(cx, "associated constant",
+                                                      ti.ident, ti.span);
+            }
+            _ => {}
+        }
+    }
+
+    fn check_impl_item(&mut self, cx: &Context, ii: &ast::ImplItem) {
+        match ii.node {
+            ast::ConstImplItem(..) => {
+                NonUpperCaseGlobals::check_upper_case(cx, "associated constant",
+                                                      ii.ident, ii.span);
             }
             _ => {}
         }
@@ -1570,8 +1604,9 @@ impl LintPass for MissingDoc {
         if self.private_traits.contains(&trait_item.id) { return }
 
         let desc = match trait_item.node {
+            ast::ConstTraitItem(..) => "an associated constant",
             ast::MethodTraitItem(..) => "a trait method",
-            ast::TypeTraitItem(..) => "an associated type"
+            ast::TypeTraitItem(..) => "an associated type",
         };
 
         self.check_missing_docs_attrs(cx, Some(trait_item.id),
@@ -1586,9 +1621,10 @@ impl LintPass for MissingDoc {
         }
 
         let desc = match impl_item.node {
+            ast::ConstImplItem(..) => "an associated constant",
             ast::MethodImplItem(..) => "a method",
             ast::TypeImplItem(_) => "an associated type",
-            ast::MacImplItem(_) => "an impl item macro"
+            ast::MacImplItem(_) => "an impl item macro",
         };
         self.check_missing_docs_attrs(cx, Some(impl_item.id),
                                       &impl_item.attrs,
@@ -1709,17 +1745,16 @@ impl LintPass for MissingDebugImplementations {
         };
 
         if self.impling_types.is_none() {
-            let impls = cx.tcx.trait_impls.borrow();
-            let impls = match impls.get(&debug) {
-                Some(impls) => {
-                    impls.borrow().iter()
-                         .filter(|d| d.krate == ast::LOCAL_CRATE)
-                         .filter_map(|d| ty::ty_to_def_id(ty::node_id_to_type(cx.tcx, d.node)))
-                         .map(|d| d.node)
-                         .collect()
+            let debug_def = ty::lookup_trait_def(cx.tcx, debug);
+            let mut impls = NodeSet();
+            debug_def.for_each_impl(cx.tcx, |d| {
+                if d.krate == ast::LOCAL_CRATE {
+                    if let Some(ty_def) = ty::ty_to_def_id(ty::node_id_to_type(cx.tcx, d.node)) {
+                        impls.insert(ty_def.node);
+                    }
                 }
-                None => NodeSet(),
-            };
+            });
+
             self.impling_types = Some(impls);
             debug!("{:?}", self.impling_types);
         }
@@ -1886,14 +1921,13 @@ impl LintPass for UnconditionalRecursion {
                 continue;
             }
             // add the successors of this node to explore the graph further.
-            cfg.graph.each_outgoing_edge(idx, |_, edge| {
+            for (_, edge) in cfg.graph.outgoing_edges(idx) {
                 let target_idx = edge.target();
                 let target_cfg_id = target_idx.node_id();
                 if !visited.contains(&target_cfg_id) {
                     work_queue.push(target_idx)
                 }
-                true
-            });
+            }
         }
 
         // Check the number of self calls because a function that
@@ -2087,6 +2121,72 @@ impl LintPass for InvalidNoMangleItems {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct MutableTransmutes;
+
+declare_lint! {
+    MUTABLE_TRANSMUTES,
+    Deny,
+    "mutating transmuted &mut T from &T may cause undefined behavior"
+}
+
+impl LintPass for MutableTransmutes {
+    fn get_lints(&self) -> LintArray {
+        lint_array!(MUTABLE_TRANSMUTES)
+    }
+
+    fn check_expr(&mut self, cx: &Context, expr: &ast::Expr) {
+        use syntax::ast::DefId;
+        use syntax::abi::RustIntrinsic;
+        let msg = "mutating transmuted &mut T from &T may cause undefined behavior,\
+                   consider instead using an UnsafeCell";
+        match get_transmute_from_to(cx, expr) {
+            Some((&ty::ty_rptr(_, from_mt), &ty::ty_rptr(_, to_mt))) => {
+                if to_mt.mutbl == ast::Mutability::MutMutable
+                    && from_mt.mutbl == ast::Mutability::MutImmutable {
+                    cx.span_lint(MUTABLE_TRANSMUTES, expr.span, msg);
+                }
+            }
+            _ => ()
+        }
+
+        fn get_transmute_from_to<'a, 'tcx>(cx: &Context<'a, 'tcx>, expr: &ast::Expr)
+            -> Option<(&'tcx ty::sty<'tcx>, &'tcx ty::sty<'tcx>)> {
+            match expr.node {
+                ast::ExprPath(..) => (),
+                _ => return None
+            }
+            if let DefFn(did, _) = ty::resolve_expr(cx.tcx, expr) {
+                if !def_id_is_transmute(cx, did) {
+                    return None;
+                }
+                let typ = ty::node_id_to_type(cx.tcx, expr.id);
+                match typ.sty {
+                    ty::ty_bare_fn(_, ref bare_fn) if bare_fn.abi == RustIntrinsic => {
+                        if let ty::FnConverging(to) = bare_fn.sig.0.output {
+                            let from = bare_fn.sig.0.inputs[0];
+                            return Some((&from.sty, &to.sty));
+                        }
+                    },
+                    _ => ()
+                }
+            }
+            None
+        }
+
+        fn def_id_is_transmute(cx: &Context, def_id: DefId) -> bool {
+            match ty::lookup_item_type(cx.tcx, def_id).ty.sty {
+                ty::ty_bare_fn(_, ref bfty) if bfty.abi == RustIntrinsic => (),
+                _ => return false
+            }
+            ty::with_path(cx.tcx, def_id, |path| match path.last() {
+                Some(ref last) => last.name().as_str() == "transmute",
+                _ => false
+            })
+        }
+    }
+}
+
 /// Forbids using the `#[feature(...)]` attribute
 #[derive(Copy, Clone)]
 pub struct UnstableFeatures;
@@ -2103,7 +2203,65 @@ impl LintPass for UnstableFeatures {
     }
     fn check_attribute(&mut self, ctx: &Context, attr: &ast::Attribute) {
         if attr::contains_name(&[attr.node.value.clone()], "feature") {
-            ctx.span_lint(UNSTABLE_FEATURES, attr.span, "unstable feature");
+            if let Some(items) = attr.node.value.meta_item_list() {
+                for item in items {
+                    ctx.span_lint(UNSTABLE_FEATURES, item.span, "unstable feature");
+                }
+            }
+        }
+    }
+}
+
+/// Lints for attempts to impl Drop on types that have `#[repr(C)]`
+/// attribute (see issue #24585).
+#[derive(Copy, Clone)]
+pub struct DropWithReprExtern;
+
+declare_lint! {
+    DROP_WITH_REPR_EXTERN,
+    Warn,
+    "use of #[repr(C)] on a type that implements Drop"
+}
+
+impl LintPass for DropWithReprExtern {
+    fn get_lints(&self) -> LintArray {
+        lint_array!(DROP_WITH_REPR_EXTERN)
+    }
+    fn check_crate(&mut self, ctx: &Context, _: &ast::Crate) {
+        for dtor_did in ctx.tcx.destructors.borrow().iter() {
+            let (drop_impl_did, dtor_self_type) =
+                if dtor_did.krate == ast::LOCAL_CRATE {
+                    let impl_did = ctx.tcx.map.get_parent_did(dtor_did.node);
+                    let ty = ty::lookup_item_type(ctx.tcx, impl_did).ty;
+                    (impl_did, ty)
+                } else {
+                    continue;
+                };
+
+            match dtor_self_type.sty {
+                ty::ty_enum(self_type_did, _) |
+                ty::ty_struct(self_type_did, _) |
+                ty::ty_closure(self_type_did, _) => {
+                    let hints = ty::lookup_repr_hints(ctx.tcx, self_type_did);
+                    if hints.iter().any(|attr| *attr == attr::ReprExtern) &&
+                        ty::ty_dtor(ctx.tcx, self_type_did).has_drop_flag() {
+                        let drop_impl_span = ctx.tcx.map.def_id_span(drop_impl_did,
+                                                                     codemap::DUMMY_SP);
+                        let self_defn_span = ctx.tcx.map.def_id_span(self_type_did,
+                                                                     codemap::DUMMY_SP);
+                        ctx.span_lint(DROP_WITH_REPR_EXTERN,
+                                      drop_impl_span,
+                                      "implementing Drop adds hidden state to types, \
+                                       possibly conflicting with `#[repr(C)]`");
+                        // FIXME #19668: could be span_lint_note instead of manual guard.
+                        if ctx.current_level(DROP_WITH_REPR_EXTERN) != Level::Allow {
+                            ctx.sess().span_note(self_defn_span,
+                                               "the `#[repr(C)]` attribute is attached here");
+                        }
+                    }
+                }
+                _ => {}
+            }
         }
     }
 }

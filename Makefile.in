@@ -76,7 +76,7 @@
 #
 #   * `CFG_ENABLE_VALGRIND=1` - Run tests under valgrind
 #   * `VALGRIND_COMPILE=1` - Run the compiler itself under valgrind
-#                            (may require `CFG_ENABLE_VALGRIND`)
+#                            (requires `CFG_ENABLE_VALGRIND`)
 #
 #   * `NO_REBUILD=1` - Don't rebootstrap when testing std
 #                      (and possibly other crates)
@@ -266,8 +266,3 @@ ifneq ($(strip $(findstring TAGS.emacs,$(MAKECMDGOALS)) \
   CFG_INFO := $(info cfg: including ctags rules)
   include $(CFG_SRC_DIR)mk/ctags.mk
 endif
-
-# Find all of the .d files and include them to add information about
-# header file dependencies.
-ALL_DEP_FILES := $(ALL_OBJ_FILES:%.o=%.d)
--include $(ALL_DEP_FILES)

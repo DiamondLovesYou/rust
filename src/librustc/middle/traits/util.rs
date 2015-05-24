@@ -12,7 +12,6 @@ use middle::subst::{Substs, VecPerParamSpace};
 use middle::infer::InferCtxt;
 use middle::ty::{self, Ty, AsPredicate, ToPolyTraitRef};
 use std::fmt;
-use std::rc::Rc;
 use syntax::ast;
 use syntax::codemap::Span;
 use util::common::ErrorReported;
@@ -336,14 +335,14 @@ pub fn trait_ref_for_builtin_bound<'tcx>(
     tcx: &ty::ctxt<'tcx>,
     builtin_bound: ty::BuiltinBound,
     param_ty: Ty<'tcx>)
-    -> Result<Rc<ty::TraitRef<'tcx>>, ErrorReported>
+    -> Result<ty::TraitRef<'tcx>, ErrorReported>
 {
     match tcx.lang_items.from_builtin_kind(builtin_bound) {
         Ok(def_id) => {
-            Ok(Rc::new(ty::TraitRef {
+            Ok(ty::TraitRef {
                 def_id: def_id,
                 substs: tcx.mk_substs(Substs::empty().with_self_ty(param_ty))
-            }))
+            })
         }
         Err(e) => {
             tcx.sess.err(&e);
@@ -355,15 +354,15 @@ pub fn trait_ref_for_builtin_bound<'tcx>(
 
 pub fn predicate_for_trait_ref<'tcx>(
     cause: ObligationCause<'tcx>,
-    trait_ref: Rc<ty::TraitRef<'tcx>>,
+    trait_ref: ty::TraitRef<'tcx>,
     recursion_depth: usize)
-    -> Result<PredicateObligation<'tcx>, ErrorReported>
+    -> PredicateObligation<'tcx>
 {
-    Ok(Obligation {
+    Obligation {
         cause: cause,
         recursion_depth: recursion_depth,
         predicate: trait_ref.as_predicate(),
-    })
+    }
 }
 
 pub fn predicate_for_trait_def<'tcx>(
@@ -371,13 +370,14 @@ pub fn predicate_for_trait_def<'tcx>(
     cause: ObligationCause<'tcx>,
     trait_def_id: ast::DefId,
     recursion_depth: usize,
-    param_ty: Ty<'tcx>)
-    -> Result<PredicateObligation<'tcx>, ErrorReported>
+    param_ty: Ty<'tcx>,
+    ty_params: Vec<Ty<'tcx>>)
+    -> PredicateObligation<'tcx>
 {
-    let trait_ref = Rc::new(ty::TraitRef {
+    let trait_ref = ty::TraitRef {
         def_id: trait_def_id,
-        substs: tcx.mk_substs(Substs::empty().with_self_ty(param_ty))
-    });
+        substs: tcx.mk_substs(Substs::new_trait(ty_params, vec![], param_ty))
+    };
     predicate_for_trait_ref(cause, trait_ref, recursion_depth)
 }
 
@@ -390,7 +390,7 @@ pub fn predicate_for_builtin_bound<'tcx>(
     -> Result<PredicateObligation<'tcx>, ErrorReported>
 {
     let trait_ref = try!(trait_ref_for_builtin_bound(tcx, builtin_bound, param_ty));
-    predicate_for_trait_ref(cause, trait_ref, recursion_depth)
+    Ok(predicate_for_trait_ref(cause, trait_ref, recursion_depth))
 }
 
 /// Cast a trait reference into a reference to one of its super
@@ -434,7 +434,7 @@ pub fn get_vtable_index_of_object_method<'tcx>(tcx: &ty::ctxt<'tcx>,
         for trait_item in &**trait_items {
             match *trait_item {
                 ty::MethodTraitItem(_) => method_count += 1,
-                ty::TypeTraitItem(_) => {}
+                _ => {}
             }
         }
     }
@@ -445,14 +445,14 @@ pub fn get_vtable_index_of_object_method<'tcx>(tcx: &ty::ctxt<'tcx>,
     for trait_item in trait_items.iter().take(method_offset_in_trait) {
         match *trait_item {
             ty::MethodTraitItem(_) => method_count += 1,
-            ty::TypeTraitItem(_) => {}
+            _ => {}
         }
     }
 
     // the item at the offset we were given really ought to be a method
     assert!(match trait_items[method_offset_in_trait] {
         ty::MethodTraitItem(_) => true,
-        ty::TypeTraitItem(_) => false
+        _ => false
     });
 
     method_count
@@ -466,17 +466,17 @@ pub fn closure_trait_ref_and_return_type<'tcx>(
     self_ty: Ty<'tcx>,
     sig: &ty::PolyFnSig<'tcx>,
     tuple_arguments: TupleArgumentsFlag)
-    -> ty::Binder<(Rc<ty::TraitRef<'tcx>>, Ty<'tcx>)>
+    -> ty::Binder<(ty::TraitRef<'tcx>, Ty<'tcx>)>
 {
     let arguments_tuple = match tuple_arguments {
         TupleArgumentsFlag::No => sig.0.inputs[0],
         TupleArgumentsFlag::Yes => ty::mk_tup(tcx, sig.0.inputs.to_vec()),
     };
     let trait_substs = Substs::new_trait(vec![arguments_tuple], vec![], self_ty);
-    let trait_ref = Rc::new(ty::TraitRef {
+    let trait_ref = ty::TraitRef {
         def_id: fn_trait_def_id,
         substs: tcx.mk_substs(trait_substs),
-    });
+    };
     ty::Binder((trait_ref, sig.0.output.unwrap_or(ty::mk_nil(tcx))))
 }
 
@@ -562,6 +562,10 @@ impl<'tcx> Repr<'tcx> for super::SelectionError<'tcx> {
                         a.repr(tcx),
                         b.repr(tcx),
                         c.repr(tcx)),
+
+            super::TraitNotObjectSafe(ref tr) =>
+                format!("TraitNotObjectSafe({})",
+                        tr.repr(tcx))
         }
     }
 }

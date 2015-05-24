@@ -430,7 +430,7 @@ macro_rules! options {
                       -> bool {
             match v {
                 Some(s) => {
-                    for s in s.words() {
+                    for s in s.split_whitespace() {
                         slot.push(s.to_string());
                     }
                     true
@@ -442,7 +442,7 @@ macro_rules! options {
                       -> bool {
             match v {
                 Some(s) => {
-                    let v = s.words().map(|s| s.to_string()).collect();
+                    let v = s.split_whitespace().map(|s| s.to_string()).collect();
                     *slot = Some(v);
                     true
                 },
@@ -624,6 +624,8 @@ options! {DebuggingOptions, DebuggingSetter, basic_debugging_options,
           "Force overflow checks on or off"),
     force_dropflag_checks: Option<bool> = (None, parse_opt_bool,
           "Force drop flag checks on or off"),
+    trace_macros: bool = (false, parse_bool,
+          "For every macro invocation, print its name and arguments"),
 }
 
 pub fn default_lib_output() -> CrateType {
@@ -637,6 +639,7 @@ pub fn default_configuration(sess: &Session) -> ast::CrateConfig {
     let arch = &sess.target.target.arch;
     let wordsz = &sess.target.target.target_pointer_width;
     let os = &sess.target.target.target_os;
+    let env = &sess.target.target.target_env;
 
     let fam = match sess.target.target.options.is_like_windows {
         true  => InternedString::new("windows"),
@@ -650,8 +653,8 @@ pub fn default_configuration(sess: &Session) -> ast::CrateConfig {
          mk(InternedString::new("target_family"), fam),
          mk(InternedString::new("target_arch"), intern(arch)),
          mk(InternedString::new("target_endian"), intern(end)),
-         mk(InternedString::new("target_pointer_width"),
-            intern(wordsz))
+         mk(InternedString::new("target_pointer_width"), intern(wordsz)),
+         mk(InternedString::new("target_env"), intern(env)),
     ];
     if sess.opts.debug_assertions {
         ret.push(attr::mk_word_item(InternedString::new("debug_assertions")));
@@ -685,7 +688,7 @@ pub fn build_target_config(opts: &Options, sp: &SpanHandler) -> Config {
         Ok(t) => t,
         Err(e) => {
             sp.handler().fatal(&format!("Error loading target specification: {}", e));
-    }
+        }
     };
 
     let (int_type, uint_type) = match &target.target_pointer_width[..] {
@@ -770,11 +773,14 @@ mod opt {
     pub fn   multi(a: S, b: S, c: S, d: S) -> R { stable(getopts::optmulti(a, b, c, d)) }
     pub fn    flag(a: S, b: S, c: S)       -> R { stable(getopts::optflag(a, b, c)) }
     pub fn flagopt(a: S, b: S, c: S, d: S) -> R { stable(getopts::optflagopt(a, b, c, d)) }
+    pub fn flagmulti(a: S, b: S, c: S)     -> R { stable(getopts::optflagmulti(a, b, c)) }
+
 
     pub fn     opt_u(a: S, b: S, c: S, d: S) -> R { unstable(getopts::optopt(a, b, c, d)) }
     pub fn   multi_u(a: S, b: S, c: S, d: S) -> R { unstable(getopts::optmulti(a, b, c, d)) }
     pub fn    flag_u(a: S, b: S, c: S)       -> R { unstable(getopts::optflag(a, b, c)) }
     pub fn flagopt_u(a: S, b: S, c: S, d: S) -> R { unstable(getopts::optflagopt(a, b, c, d)) }
+    pub fn flagmulti_u(a: S, b: S, c: S)     -> R { unstable(getopts::optflagmulti(a, b, c)) }
 }
 
 /// Returns the "short" subset of the rustc command line options,
@@ -801,8 +807,8 @@ pub fn rustc_short_optgroups() -> Vec<RustcOptGroup> {
         opt::multi("", "print", "Comma separated list of compiler information to \
                                print on stdout",
                  "[crate-name|file-names|sysroot]"),
-        opt::flag("g",  "",  "Equivalent to -C debuginfo=2"),
-        opt::flag("O", "", "Equivalent to -C opt-level=2"),
+        opt::flagmulti("g",  "",  "Equivalent to -C debuginfo=2"),
+        opt::flagmulti("O", "", "Equivalent to -C opt-level=2"),
         opt::opt("o", "", "Write output to <filename>", "FILENAME"),
         opt::opt("",  "out-dir", "Write output to compiler-chosen filename \
                                 in <dir>", "DIR"),
@@ -864,7 +870,7 @@ pub fn parse_cfgspecs(cfgspecs: Vec<String> ) -> ast::CrateConfig {
         parse::parse_meta_from_source_str("cfgspec".to_string(),
                                           s.to_string(),
                                           Vec::new(),
-                                          &parse::new_parse_sess())
+                                          &parse::ParseSess::new())
     }).collect::<ast::CrateConfig>()
 }
 
@@ -1127,7 +1133,7 @@ impl fmt::Display for CrateType {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
 
     use session::config::{build_configuration, optgroups, build_session_options};
     use session::build_session;

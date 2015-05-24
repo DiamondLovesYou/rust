@@ -147,7 +147,7 @@ pub fn type_is_fat_ptr<'tcx>(cx: &ty::ctxt<'tcx>, ty: Ty<'tcx>) -> bool {
 }
 
 // Some things don't need cleanups during unwinding because the
-// task can free them all at once later. Currently only things
+// thread can free them all at once later. Currently only things
 // that only contain scalars and shared boxes can avoid unwind
 // cleanups.
 pub fn type_needs_unwind_cleanup<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>, ty: Ty<'tcx>) -> bool {
@@ -935,12 +935,6 @@ pub fn const_get_elt(cx: &CrateContext, v: ValueRef, us: &[c_uint])
                cx.tn().val_to_string(v), us, cx.tn().val_to_string(r));
 
         return r;
-    }
-}
-
-pub fn is_const(v: ValueRef) -> bool {
-    unsafe {
-        llvm::LLVMIsConstant(v) == True
     }
 }
 

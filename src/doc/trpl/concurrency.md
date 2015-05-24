@@ -59,7 +59,7 @@ place!
 Rust's standard library provides a library for threads, which allow you to
 run Rust code in parallel. Here's a basic example of using `std::thread`:
 
-```
+```rust
 use std::thread;
 
 fn main() {
@@ -73,7 +73,7 @@ The `thread::spawn()` method accepts a closure, which is executed in a
 new thread. It returns a handle to the thread, that can be used to
 wait for the child thread to finish and extract its result:
 
-```
+```rust
 use std::thread;
 
 fn main() {
@@ -116,7 +116,7 @@ use std::thread;
 fn main() {
     let mut data = vec![1u32, 2, 3];
 
-    for i in 0..2 {
+    for i in 0..3 {
         thread::spawn(move || {
             data[i] += 1;
         });
@@ -154,7 +154,7 @@ use std::sync::Mutex;
 fn main() {
     let mut data = Mutex::new(vec![1u32, 2, 3]);
 
-    for i in 0..2 {
+    for i in 0..3 {
         let data = data.lock().unwrap();
         thread::spawn(move || {
             data[i] += 1;
@@ -176,8 +176,8 @@ Here's the error:
                   ^~~~~~~~~~~~~
 ```
 
-You see, [`Mutex`](std/sync/struct.Mutex.html) has a
-[`lock`](http://doc.rust-lang.org/nightly/std/sync/struct.Mutex.html#method.lock)
+You see, [`Mutex`](../std/sync/struct.Mutex.html) has a
+[`lock`](../std/sync/struct.Mutex.html#method.lock)
 method which has this signature:
 
 ```ignore
@@ -189,14 +189,14 @@ guard across thread boundaries, which gives us our error.
 
 We can use `Arc<T>` to fix this. Here's the working version:
 
-```
+```rust
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 fn main() {
     let data = Arc::new(Mutex::new(vec![1u32, 2, 3]));
 
-    for i in 0..2 {
+    for i in 0..3 {
         let data = data.clone();
         thread::spawn(move || {
             let mut data = data.lock().unwrap();
@@ -217,7 +217,7 @@ thread more closely:
 # use std::thread;
 # fn main() {
 #     let data = Arc::new(Mutex::new(vec![1u32, 2, 3]));
-#     for i in 0..2 {
+#     for i in 0..3 {
 #         let data = data.clone();
 thread::spawn(move || {
     let mut data = data.lock().unwrap();
@@ -248,7 +248,7 @@ threads with each other. Let's talk about one of them: channels.
 Here's a version of our code that uses channels for synchronization, rather
 than waiting for a specific time:
 
-```
+```rust
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::sync::mpsc;
@@ -281,7 +281,7 @@ a simple `()` down the channel, and then wait for ten of them to come back.
 While this channel is just sending a generic signal, we can send any data that
 is `Send` over the channel!
 
-```
+```rust
 use std::thread;
 use std::sync::mpsc;
 
@@ -311,7 +311,7 @@ the answer, and then it `send()`s us the answer over the channel.
 A `panic!` will crash the currently executing thread. You can use Rust's
 threads as a simple isolation mechanism:
 
-```
+```rust
 use std::thread;
 
 let result = thread::spawn(move || {

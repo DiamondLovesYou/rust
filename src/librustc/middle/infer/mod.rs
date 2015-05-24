@@ -22,6 +22,7 @@ pub use middle::ty::IntVarValue;
 pub use self::freshen::TypeFreshener;
 pub use self::region_inference::GenericKind;
 
+use middle::free_region::FreeRegionMap;
 use middle::subst;
 use middle::subst::Substs;
 use middle::ty::{TyVid, IntVid, FloatVid, RegionVid, UnconstrainedNumeric};
@@ -29,9 +30,9 @@ use middle::ty::replace_late_bound_regions;
 use middle::ty::{self, Ty};
 use middle::ty_fold::{TypeFolder, TypeFoldable};
 use middle::ty_relate::{Relate, RelateResult, TypeRelation};
+use rustc_data_structures::unify::{self, UnificationTable};
 use std::cell::{RefCell};
 use std::fmt;
-use std::rc::Rc;
 use syntax::ast;
 use syntax::codemap;
 use syntax::codemap::Span;
@@ -41,8 +42,8 @@ use util::ppaux::{Repr, UserString};
 
 use self::combine::CombineFields;
 use self::region_inference::{RegionVarBindings, RegionSnapshot};
-use self::unify::{ToType, UnificationTable};
 use self::error_reporting::ErrorReporting;
+use self::unify_key::ToType;
 
 pub mod bivariate;
 pub mod combine;
@@ -57,7 +58,7 @@ pub mod resolve;
 mod freshen;
 pub mod sub;
 pub mod type_variable;
-pub mod unify;
+pub mod unify_key;
 
 pub type Bound<T> = Option<T>;
 pub type UnitResult<'tcx> = RelateResult<'tcx, ()>; // "unify result"
@@ -153,7 +154,7 @@ impl fmt::Display for TypeOrigin {
 #[derive(Clone, Debug)]
 pub enum ValuePairs<'tcx> {
     Types(ty::expected_found<Ty<'tcx>>),
-    TraitRefs(ty::expected_found<Rc<ty::TraitRef<'tcx>>>),
+    TraitRefs(ty::expected_found<ty::TraitRef<'tcx>>),
     PolyTraitRefs(ty::expected_found<ty::PolyTraitRef<'tcx>>),
 }
 
@@ -661,8 +662,8 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
     pub fn sub_trait_refs(&self,
                           a_is_expected: bool,
                           origin: TypeOrigin,
-                          a: Rc<ty::TraitRef<'tcx>>,
-                          b: Rc<ty::TraitRef<'tcx>>)
+                          a: ty::TraitRef<'tcx>,
+                          b: ty::TraitRef<'tcx>)
                           -> UnitResult<'tcx>
     {
         debug!("sub_trait_refs({} <: {})",
@@ -673,7 +674,7 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
                 origin: origin,
                 values: TraitRefs(expected_found(a_is_expected, a.clone(), b.clone()))
             };
-            self.sub(a_is_expected, trace).relate(&*a, &*b).map(|_| ())
+            self.sub(a_is_expected, trace).relate(&a, &b).map(|_| ())
         })
     }
 
@@ -854,8 +855,10 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
         self.region_vars.new_bound(debruijn)
     }
 
-    pub fn resolve_regions_and_report_errors(&self, subject_node_id: ast::NodeId) {
-        let errors = self.region_vars.resolve_regions(subject_node_id);
+    pub fn resolve_regions_and_report_errors(&self,
+                                             free_regions: &FreeRegionMap,
+                                             subject_node_id: ast::NodeId) {
+        let errors = self.region_vars.resolve_regions(free_regions, subject_node_id);
         self.report_region_errors(&errors); // see error_reporting.rs
     }
 
@@ -869,8 +872,8 @@ impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
         format!("({})", tstrs.connect(", "))
     }
 
-    pub fn trait_ref_to_string(&self, t: &Rc<ty::TraitRef<'tcx>>) -> String {
-        let t = self.resolve_type_vars_if_possible(&**t);
+    pub fn trait_ref_to_string(&self, t: &ty::TraitRef<'tcx>) -> String {
+        let t = self.resolve_type_vars_if_possible(t);
         t.user_string(self.tcx)
     }
 

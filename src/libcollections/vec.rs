@@ -15,34 +15,44 @@
 //!
 //! # Examples
 //!
-//! Explicitly creating a `Vec<T>` with `new()`:
+//! You can explicitly create a `Vec<T>` with `new()`:
 //!
 //! ```
-//! let xs: Vec<i32> = Vec::new();
+//! let v: Vec<i32> = Vec::new();
 //! ```
 //!
-//! Using the `vec!` macro:
+//! ...or by using the `vec!` macro:
 //!
 //! ```
-//! let ys: Vec<i32> = vec![];
+//! let v: Vec<i32> = vec![];
 //!
-//! let zs = vec![1i32, 2, 3, 4, 5];
+//! let v = vec![1, 2, 3, 4, 5];
+//!
+//! let v = vec![0; 10]; // ten zeroes
 //! ```
 //!
-//! Push:
+//! You can `push` values onto the end of a vector (which will grow the vector as needed):
 //!
 //! ```
-//! let mut xs = vec![1i32, 2];
+//! let mut v = vec![1, 2];
 //!
-//! xs.push(3);
+//! v.push(3);
 //! ```
 //!
-//! And pop:
+//! Popping values works in much the same way:
 //!
 //! ```
-//! let mut xs = vec![1i32, 2];
+//! let mut v = vec![1, 2];
 //!
-//! let two = xs.pop();
+//! let two = v.pop();
+//! ```
+//!
+//! Vectors also support indexing (through the `Index` and `IndexMut` traits):
+//!
+//! ```
+//! let mut v = vec![1, 2, 3];
+//! let three = v[2];
+//! v[1] = v[1] + 5;
 //! ```
 
 #![stable(feature = "rust1", since = "1.0.0")]
@@ -53,14 +63,15 @@ use alloc::boxed::Box;
 use alloc::heap::{EMPTY, allocate, reallocate, deallocate};
 use core::cmp::max;
 use core::cmp::Ordering;
-use core::default::Default;
 use core::fmt;
 use core::hash::{self, Hash};
 use core::intrinsics::assume;
-use core::iter::{repeat, FromIterator, IntoIterator};
+#[cfg(not(stage0))]
+use core::intrinsics::arith_offset;
+use core::iter::{repeat, FromIterator};
 use core::marker::PhantomData;
 use core::mem;
-use core::ops::{Index, IndexMut, Deref, Add};
+use core::ops::{Index, IndexMut, Deref};
 use core::ops;
 use core::ptr;
 use core::ptr::Unique;
@@ -70,6 +81,8 @@ use core::usize;
 
 use borrow::{Cow, IntoCow};
 
+use super::range::RangeArgument;
+
 // FIXME- fix places which assume the max vector allowed has memory usize::MAX.
 static MAX_MEMORY_SIZE: usize = isize::MAX as usize;
 
@@ -78,7 +91,6 @@ static MAX_MEMORY_SIZE: usize = isize::MAX as usize;
 /// # Examples
 ///
 /// ```
-/// # #![feature(collections)]
 /// let mut vec = Vec::new();
 /// vec.push(1);
 /// vec.push(2);
@@ -92,9 +104,9 @@ static MAX_MEMORY_SIZE: usize = isize::MAX as usize;
 /// vec[0] = 7;
 /// assert_eq!(vec[0], 7);
 ///
-/// vec.push_all(&[1, 2, 3]);
+/// vec.extend([1, 2, 3].iter().cloned());
 ///
-/// for x in vec.iter() {
+/// for x in &vec {
 ///     println!("{}", x);
 /// }
 /// assert_eq!(vec, [7, 1, 2, 3]);
@@ -117,11 +129,7 @@ static MAX_MEMORY_SIZE: usize = isize::MAX as usize;
 /// stack.push(2);
 /// stack.push(3);
 ///
-/// loop {
-///     let top = match stack.pop() {
-///         None => break, // empty
-///         Some(x) => x,
-///     };
+/// while let Some(top) = stack.pop() {
 ///     // Prints 3, 2, 1
 ///     println!("{}", top);
 /// }
@@ -360,9 +368,8 @@ impl<T> Vec<T> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(collections)]
     /// let mut vec = Vec::with_capacity(10);
-    /// vec.push_all(&[1, 2, 3]);
+    /// vec.extend([1, 2, 3].iter().cloned());
     /// assert_eq!(vec.capacity(), 10);
     /// vec.shrink_to_fit();
     /// assert!(vec.capacity() >= 3);
@@ -416,7 +423,6 @@ impl<T> Vec<T> {
     /// # Examples
     ///
     /// ```
-    /// # #![feature(collections)]
     /// let mut vec = vec![1, 2, 3, 4];
     /// vec.truncate(2);
     /// assert_eq!(vec, [1, 2]);
@@ -448,37 +454,6 @@ impl<T> Vec<T> {
                reason = "waiting on RFC revision")]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         &mut self[..]
-    }
-
-    /// Creates a consuming iterator, that is, one that moves each value out of
-    /// the vector (from start to end). The vector cannot be used after calling
-    /// this.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// let v = vec!["a".to_string(), "b".to_string()];
-    /// for s in v.into_iter() {
-    ///     // s has type String, not &String
-    ///     println!("{}", s);
-    /// }
-    /// ```
-    #[inline]
-    #[stable(feature = "rust1", since = "1.0.0")]
-    pub fn into_iter(self) -> IntoIter<T> {
-        unsafe {
-            let ptr = *self.ptr;
-            assume(!ptr.is_null());
-            let cap = self.cap;
-            let begin = ptr as *const T;
-            let end = if mem::size_of::<T>() == 0 {
-                (ptr as usize + self.len()) as *const T
-            } else {
-                ptr.offset(self.len() as isize) as *const T
-            };
-            mem::forget(self);
-            IntoIter { allocation: ptr, cap: cap, ptr: begin, end: end }
-        }
     }
 
     /// Sets the length of a vector.
@@ -572,12 +547,11 @@ impl<T> Vec<T> {
     ///
     /// # Panics
     ///
-    /// Panics if `i` is out of bounds.
+    /// Panics if `index` is out of bounds.
     ///
     /// # Examples
     ///
     /// ```
-    /// # #![feature(collections)]
     /// let mut v = vec![1, 2, 3];
     /// assert_eq!(v.remove(1), 2);
     /// assert_eq!(v, [1, 3]);
@@ -673,7 +647,7 @@ impl<T> Vec<T> {
             // zero-size types consume no memory, so we can't rely on the
             // address space running out
             self.len = self.len.checked_add(1).expect("length overflow");
-            unsafe { mem::forget(value); }
+            mem::forget(value);
             return
         }
 
@@ -750,36 +724,61 @@ impl<T> Vec<T> {
         unsafe { other.set_len(0); }
     }
 
-    /// Creates a draining iterator that clears the `Vec` and iterates over
-    /// the removed items from start to end.
+    /// Create a draining iterator that removes the specified range in the vector
+    /// and yields the removed items from start to end. The element range is
+    /// removed even if the iterator is not consumed until the end.
+    ///
+    /// Note: It is unspecified how many elements are removed from the vector,
+    /// if the `Drain` value is leaked.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the starting point is greater than the end point or if
+    /// the end point is greater than the length of the vector.
     ///
     /// # Examples
     ///
     /// ```
-    /// # #![feature(collections)]
-    /// let mut v = vec!["a".to_string(), "b".to_string()];
-    /// for s in v.drain() {
-    ///     // s has type String, not &String
-    ///     println!("{}", s);
-    /// }
-    /// assert!(v.is_empty());
+    /// # #![feature(collections_drain)]
+    ///
+    /// // Draining using `..` clears the whole vector.
+    /// let mut v = vec![1, 2, 3];
+    /// let u: Vec<_> = v.drain(..).collect();
+    /// assert_eq!(v, &[]);
+    /// assert_eq!(u, &[1, 2, 3]);
     /// ```
-    #[inline]
-    #[unstable(feature = "collections",
-               reason = "matches collection reform specification, waiting for dust to settle")]
-    pub fn drain(&mut self) -> Drain<T> {
+    #[unstable(feature = "collections_drain",
+               reason = "recently added, matches RFC")]
+    pub fn drain<R>(&mut self, range: R) -> Drain<T> where R: RangeArgument<usize> {
+        // Memory safety
+        //
+        // When the Drain is first created, it shortens the length of
+        // the source vector to make sure no uninitalized or moved-from elements
+        // are accessible at all if the Drain's destructor never gets to run.
+        //
+        // Drain will ptr::read out the values to remove.
+        // When finished, remaining tail of the vec is copied back to cover
+        // the hole, and the vector length is restored to the new length.
+        //
+        let len = self.len();
+        let start = *range.start().unwrap_or(&0);
+        let end = *range.end().unwrap_or(&len);
+        assert!(start <= end);
+        assert!(end <= len);
+
         unsafe {
-            let begin = *self.ptr as *const T;
-            let end = if mem::size_of::<T>() == 0 {
-                (*self.ptr as usize + self.len()) as *const T
-            } else {
-                (*self.ptr).offset(self.len() as isize) as *const T
-            };
-            self.set_len(0);
+            // set self.vec length's to start, to be safe in case Drain is leaked
+            self.set_len(start);
+            // Use the borrow in the IterMut to indicate borrowing behavior of the
+            // whole Drain iterator (like &mut T).
+            let range_slice = slice::from_raw_parts_mut(
+                                        self.as_mut_ptr().offset(start as isize),
+                                        end - start);
             Drain {
-                ptr: begin,
-                end: end,
-                marker: PhantomData,
+                tail_start: end,
+                tail_len: len - end,
+                iter: range_slice.iter_mut(),
+                vec: self as *mut _,
             }
         }
     }
@@ -995,7 +994,7 @@ impl<T> Vec<T> {
                 num_u: 0,
                 marker: PhantomData,
             };
-            unsafe { mem::forget(vec); }
+            mem::forget(vec);
 
             while pv.num_t != 0 {
                 unsafe {
@@ -1308,7 +1307,7 @@ pub fn from_elem<T: Clone>(elem: T, n: usize) -> Vec<T> {
 // Common trait implementations for Vec
 ////////////////////////////////////////////////////////////////////////////////
 
-#[unstable(feature = "collections")]
+#[stable(feature = "rust1", since = "1.0.0")]
 impl<T:Clone> Clone for Vec<T> {
     #[cfg(not(test))]
     fn clone(&self) -> Vec<T> { <[T]>::to_vec(&**self) }
@@ -1512,8 +1511,53 @@ impl<T> IntoIterator for Vec<T> {
     type Item = T;
     type IntoIter = IntoIter<T>;
 
+    /// Creates a consuming iterator, that is, one that moves each value out of
+    /// the vector (from start to end). The vector cannot be used after calling
+    /// this.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let v = vec!["a".to_string(), "b".to_string()];
+    /// for s in v.into_iter() {
+    ///     // s has type String, not &String
+    ///     println!("{}", s);
+    /// }
+    /// ```
+    #[inline]
+    #[cfg(stage0)]
     fn into_iter(self) -> IntoIter<T> {
-        self.into_iter()
+        unsafe {
+            let ptr = *self.ptr;
+            assume(!ptr.is_null());
+            let cap = self.cap;
+            let begin = ptr as *const T;
+            let end = if mem::size_of::<T>() == 0 {
+                (ptr as usize + self.len()) as *const T
+            } else {
+                ptr.offset(self.len() as isize) as *const T
+            };
+            mem::forget(self);
+            IntoIter { allocation: ptr, cap: cap, ptr: begin, end: end }
+        }
+    }
+
+    #[inline]
+    #[cfg(not(stage0))]
+    fn into_iter(self) -> IntoIter<T> {
+        unsafe {
+            let ptr = *self.ptr;
+            assume(!ptr.is_null());
+            let cap = self.cap;
+            let begin = ptr as *const T;
+            let end = if mem::size_of::<T>() == 0 {
+                arith_offset(ptr as *const i8, self.len() as isize) as *const T
+            } else {
+                ptr.offset(self.len() as isize) as *const T
+            };
+            mem::forget(self);
+            IntoIter { allocation: ptr, cap: cap, ptr: begin, end: end }
+        }
     }
 }
 
@@ -1537,7 +1581,7 @@ impl<'a, T> IntoIterator for &'a mut Vec<T> {
     }
 }
 
-#[unstable(feature = "collections", reason = "waiting on Extend stability")]
+#[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Extend<T> for Vec<T> {
     #[inline]
     fn extend<I: IntoIterator<Item=T>>(&mut self, iterable: I) {
@@ -1597,31 +1641,6 @@ impl<T: Ord> Ord for Vec<T> {
     }
 }
 
-#[unstable(feature = "collections",
-           reason = "will be replaced by slice syntax")]
-#[deprecated(since = "1.0.0", reason = "use &mut s[..] instead")]
-#[allow(deprecated)]
-impl<T> AsSlice<T> for Vec<T> {
-    /// Deprecated: use `&mut s[..]` instead.
-    #[inline]
-    fn as_slice(&self) -> &[T] {
-        self
-    }
-}
-
-#[unstable(feature = "collections",
-           reason = "recent addition, needs more experience")]
-impl<'a, T: Clone> Add<&'a [T]> for Vec<T> {
-    type Output = Vec<T>;
-
-    #[inline]
-    fn add(mut self, rhs: &[T]) -> Vec<T> {
-        self.push_all(rhs);
-        self
-    }
-}
-
-#[unsafe_destructor]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Drop for Vec<T> {
     fn drop(&mut self) {
@@ -1690,7 +1709,7 @@ impl<'a> From<&'a str> for Vec<u8> {
 // Clone-on-write
 ////////////////////////////////////////////////////////////////////////////////
 
-#[unstable(feature = "collections")]
+#[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, T> FromIterator<T> for Cow<'a, [T]> where T: Clone {
     fn from_iter<I: IntoIterator<Item=T>>(it: I) -> Cow<'a, [T]> {
         Cow::Owned(FromIterator::from_iter(it))
@@ -1744,6 +1763,7 @@ impl<T> Iterator for IntoIter<T> {
     type Item = T;
 
     #[inline]
+    #[cfg(stage0)]
     fn next(&mut self) -> Option<T> {
         unsafe {
             if self.ptr == self.end {
@@ -1768,17 +1788,48 @@ impl<T> Iterator for IntoIter<T> {
     }
 
     #[inline]
+    #[cfg(not(stage0))]
+    fn next(&mut self) -> Option<T> {
+        unsafe {
+            if self.ptr == self.end {
+                None
+            } else {
+                if mem::size_of::<T>() == 0 {
+                    // purposefully don't use 'ptr.offset' because for
+                    // vectors with 0-size elements this would return the
+                    // same pointer.
+                    self.ptr = arith_offset(self.ptr as *const i8, 1) as *const T;
+
+                    // Use a non-null pointer value
+                    Some(ptr::read(EMPTY as *mut T))
+                } else {
+                    let old = self.ptr;
+                    self.ptr = self.ptr.offset(1);
+
+                    Some(ptr::read(old))
+                }
+            }
+        }
+    }
+
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         let diff = (self.end as usize) - (self.ptr as usize);
         let size = mem::size_of::<T>();
         let exact = diff / (if size == 0 {1} else {size});
         (exact, Some(exact))
     }
+
+    #[inline]
+    fn count(self) -> usize {
+        self.size_hint().0
+    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> DoubleEndedIterator for IntoIter<T> {
     #[inline]
+    #[cfg(stage0)]
     fn next_back(&mut self) -> Option<T> {
         unsafe {
             if self.end == self.ptr {
@@ -1798,12 +1849,33 @@ impl<T> DoubleEndedIterator for IntoIter<T> {
             }
         }
     }
+
+    #[inline]
+    #[cfg(not(stage0))]
+    fn next_back(&mut self) -> Option<T> {
+        unsafe {
+            if self.end == self.ptr {
+                None
+            } else {
+                if mem::size_of::<T>() == 0 {
+                    // See above for why 'ptr.offset' isn't used
+                    self.end = arith_offset(self.end as *const i8, -1) as *const T;
+
+                    // Use a non-null pointer value
+                    Some(ptr::read(EMPTY as *mut T))
+                } else {
+                    self.end = self.end.offset(-1);
+
+                    Some(ptr::read(mem::transmute(self.end)))
+                }
+            }
+        }
+    }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> ExactSizeIterator for IntoIter<T> {}
 
-#[unsafe_destructor]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Drop for IntoIter<T> {
     fn drop(&mut self) {
@@ -1817,14 +1889,16 @@ impl<T> Drop for IntoIter<T> {
     }
 }
 
-/// An iterator that drains a vector.
-#[unsafe_no_drop_flag]
-#[unstable(feature = "collections",
-           reason = "recently added as part of collections reform 2")]
-pub struct Drain<'a, T:'a> {
-    ptr: *const T,
-    end: *const T,
-    marker: PhantomData<&'a T>,
+/// A draining iterator for `Vec<T>`.
+#[unstable(feature = "collections_drain", reason = "recently added")]
+pub struct Drain<'a, T: 'a> {
+    /// Index of tail to preserve
+    tail_start: usize,
+    /// Length of tail
+    tail_len: usize,
+    /// Current remaining range to remove
+    iter: slice::IterMut<'a, T>,
+    vec: *mut Vec<T>,
 }
 
 unsafe impl<'a, T: Sync> Sync for Drain<'a, T> {}
@@ -1836,34 +1910,15 @@ impl<'a, T> Iterator for Drain<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<T> {
-        unsafe {
-            if self.ptr == self.end {
-                None
-            } else {
-                if mem::size_of::<T>() == 0 {
-                    // purposefully don't use 'ptr.offset' because for
-                    // vectors with 0-size elements this would return the
-                    // same pointer.
-                    self.ptr = mem::transmute(self.ptr as usize + 1);
-
-                    // Use a non-null pointer value
-                    Some(ptr::read(EMPTY as *mut T))
-                } else {
-                    let old = self.ptr;
-                    self.ptr = self.ptr.offset(1);
-
-                    Some(ptr::read(old))
-                }
+        self.iter.next().map(|elt|
+            unsafe {
+                ptr::read(elt as *const _)
             }
-        }
+        )
     }
 
-    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let diff = (self.end as usize) - (self.ptr as usize);
-        let size = mem::size_of::<T>();
-        let exact = diff / (if size == 0 {1} else {size});
-        (exact, Some(exact))
+        self.iter.size_hint()
     }
 }
 
@@ -1871,40 +1926,38 @@ impl<'a, T> Iterator for Drain<'a, T> {
 impl<'a, T> DoubleEndedIterator for Drain<'a, T> {
     #[inline]
     fn next_back(&mut self) -> Option<T> {
-        unsafe {
-            if self.end == self.ptr {
-                None
-            } else {
-                if mem::size_of::<T>() == 0 {
-                    // See above for why 'ptr.offset' isn't used
-                    self.end = mem::transmute(self.end as usize - 1);
+        self.iter.next_back().map(|elt|
+            unsafe {
+                ptr::read(elt as *const _)
+            }
+        )
+    }
+}
 
-                    // Use a non-null pointer value
-                    Some(ptr::read(EMPTY as *mut T))
-                } else {
-                    self.end = self.end.offset(-1);
+#[stable(feature = "rust1", since = "1.0.0")]
+impl<'a, T> Drop for Drain<'a, T> {
+    fn drop(&mut self) {
+        // exhaust self first
+        while let Some(_) = self.next() { }
 
-                    Some(ptr::read(self.end))
-                }
+        if self.tail_len > 0 {
+            unsafe {
+                let source_vec = &mut *self.vec;
+                // memmove back untouched tail, update to new length
+                let start = source_vec.len();
+                let tail = self.tail_start;
+                let src = source_vec.as_ptr().offset(tail as isize);
+                let dst = source_vec.as_mut_ptr().offset(start as isize);
+                ptr::copy(src, dst, self.tail_len);
+                source_vec.set_len(start + self.tail_len);
             }
         }
     }
 }
 
+
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, T> ExactSizeIterator for Drain<'a, T> {}
-
-#[unsafe_destructor]
-#[stable(feature = "rust1", since = "1.0.0")]
-impl<'a, T> Drop for Drain<'a, T> {
-    fn drop(&mut self) {
-        // self.ptr == self.end == mem::POST_DROP_USIZE if drop has already been called,
-        // so we can use #[unsafe_no_drop_flag].
-
-        // destroy the remaining elements
-        for _x in self.by_ref() {}
-    }
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 // Conversion from &[T] to &Vec<T>
@@ -1927,7 +1980,6 @@ impl<'a, T> Deref for DerefVec<'a, T> {
 }
 
 // Prevent the inner `Vec<T>` from attempting to deallocate memory.
-#[unsafe_destructor]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, T> Drop for DerefVec<'a, T> {
     fn drop(&mut self) {
@@ -1937,6 +1989,22 @@ impl<'a, T> Drop for DerefVec<'a, T> {
 }
 
 /// Converts a slice to a wrapper type providing a `&Vec<T>` reference.
+///
+/// # Examples
+///
+/// ```
+/// # #![feature(collections)]
+/// use std::vec::as_vec;
+///
+/// // Let's pretend we have a function that requires `&Vec<i32>`
+/// fn vec_consumer(s: &Vec<i32>) {
+///     assert_eq!(s, &[1, 2, 3]);
+/// }
+///
+/// // Provide a `&Vec<i32>` from a `&[i32]` without allocating
+/// let values = [1, 2, 3];
+/// vec_consumer(&as_vec(&values));
+/// ```
 #[unstable(feature = "collections")]
 pub fn as_vec<'a, T>(x: &'a [T]) -> DerefVec<'a, T> {
     unsafe {
@@ -1980,7 +2048,6 @@ struct PartialVecZeroSized<T,U> {
     marker: PhantomData<::core::cell::Cell<(T,U)>>,
 }
 
-#[unsafe_destructor]
 impl<T,U> Drop for PartialVecNonZeroSized<T,U> {
     fn drop(&mut self) {
         unsafe {
@@ -2006,7 +2073,6 @@ impl<T,U> Drop for PartialVecNonZeroSized<T,U> {
     }
 }
 
-#[unsafe_destructor]
 impl<T,U> Drop for PartialVecZeroSized<T,U> {
     fn drop(&mut self) {
         unsafe {

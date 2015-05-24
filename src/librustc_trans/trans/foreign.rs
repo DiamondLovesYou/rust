@@ -349,8 +349,8 @@ pub fn trans_native_call<'blk, 'tcx>(bcx: Block<'blk, 'tcx>,
         // The outptr can be noalias and nocapture because it's entirely
         // invisible to the program. We also know it's nonnull as well
         // as how many bytes we can dereference
-        attrs.arg(1, llvm::NoAliasAttribute)
-             .arg(1, llvm::NoCaptureAttribute)
+        attrs.arg(1, llvm::Attribute::NoAlias)
+             .arg(1, llvm::Attribute::NoCapture)
              .arg(1, llvm::DereferenceableAttribute(llret_sz));
     };
 
@@ -802,7 +802,9 @@ pub fn trans_rust_fn_with_foreign_abi<'a, 'tcx>(ccx: &CrateContext<'a, 'tcx>,
                     // appropriately sized integer and we have to convert it
                     let tmp = builder.bitcast(llforeign_arg,
                                               type_of::arg_type_of(ccx, rust_ty).ptr_to());
-                    builder.load(tmp)
+                    let load = builder.load(tmp);
+                    llvm::LLVMSetAlignment(load, type_of::align_of(ccx, rust_ty));
+                    load
                 } else {
                     builder.load(llforeign_arg)
                 }

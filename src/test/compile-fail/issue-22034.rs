@@ -11,9 +11,10 @@
 extern crate libc;
 
 fn main() {
-    let foo: *mut libc::c_void;
-    let cb: &mut Fn() = unsafe {
-        &mut *(foo as *mut Fn())
-        //~^ ERROR use of possibly uninitialized variable: `foo`
+    let ptr: *mut () = 0 as *mut _;
+    let _: &mut Fn() = unsafe {
+        &mut *(ptr as *mut Fn())
+        //~^ ERROR the trait `core::ops::Fn<()>` is not implemented
+        //~| ERROR the trait `core::ops::FnOnce<()>` is not implemented
     };
 }

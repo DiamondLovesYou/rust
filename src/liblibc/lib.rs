@@ -12,12 +12,13 @@
 #![cfg_attr(stage0, feature(custom_attribute))]
 #![crate_name = "libc"]
 #![crate_type = "rlib"]
-#![cfg_attr(not(feature = "cargo-build"), unstable(feature = "libc"))]
+#![cfg_attr(not(feature = "cargo-build"), unstable(feature = "libc",
+                                                   reason = "use `libc` from crates.io"))]
 #![cfg_attr(not(feature = "cargo-build"), feature(staged_api, core, no_std))]
 #![cfg_attr(not(feature = "cargo-build"), staged_api)]
 #![cfg_attr(not(feature = "cargo-build"), no_std)]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+       html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/",
        html_playground_url = "http://play.rust-lang.org/")]
 #![cfg_attr(test, feature(test))]
@@ -140,9 +141,19 @@ pub use funcs::bsd43::*;
 
 // On NaCl, these libraries are static. Thus it would be a Bad Idea to link them
 // in when creating a test crate.
-#[cfg(not(any(windows, all(target_os = "nacl", test))))]
+#[cfg(not(any(windows, target_env = "musl", all(target_os = "nacl", test))))]
 #[link(name = "c")]
 #[link(name = "m")]
+extern {}
+
+#[cfg(all(target_env = "musl", not(test)))]
+#[link(name = "c", kind = "static")]
+extern {}
+
+#[cfg(all(windows, target_env = "msvc"))]
+#[link(name = "kernel32")]
+#[link(name = "shell32")]
+#[link(name = "msvcrt")]
 extern {}
 
 // libnacl provides functions that require a trip through the IRT to work.
@@ -3296,6 +3307,8 @@ pub mod consts {
             pub const F_GETFL : c_int = 3;
             pub const F_SETFL : c_int = 4;
 
+            pub const O_ACCMODE : c_int = 3;
+
             pub const SIGTRAP : c_int = 5;
             pub const SIG_IGN: size_t = 1;
 
@@ -3534,6 +3547,30 @@ pub mod consts {
             pub const IPV6_DROP_MEMBERSHIP: c_int = 21;
 
             pub const TCP_NODELAY: c_int = 1;
+            pub const TCP_MAXSEG: c_int = 2;
+            pub const TCP_CORK: c_int = 3;
+            pub const TCP_KEEPIDLE: c_int = 4;
+            pub const TCP_KEEPINTVL: c_int = 5;
+            pub const TCP_KEEPCNT: c_int = 6;
+            pub const TCP_SYNCNT: c_int = 7;
+            pub const TCP_LINGER2: c_int = 8;
+            pub const TCP_DEFER_ACCEPT: c_int = 9;
+            pub const TCP_WINDOW_CLAMP: c_int = 10;
+            pub const TCP_INFO: c_int = 11;
+            pub const TCP_QUICKACK: c_int = 12;
+            pub const TCP_CONGESTION: c_int = 13;
+            pub const TCP_MD5SIG: c_int = 14;
+            pub const TCP_COOKIE_TRANSACTIONS: c_int = 15;
+            pub const TCP_THIN_LINEAR_TIMEOUTS: c_int = 16;
+            pub const TCP_THIN_DUPACK: c_int = 17;
+            pub const TCP_USER_TIMEOUT: c_int = 18;
+            pub const TCP_REPAIR: c_int = 19;
+            pub const TCP_REPAIR_QUEUE: c_int = 20;
+            pub const TCP_QUEUE_SEQ: c_int = 21;
+            pub const TCP_REPAIR_OPTIONS: c_int = 22;
+            pub const TCP_FASTOPEN: c_int = 23;
+            pub const TCP_TIMESTAMP: c_int = 24;
+
             pub const SOL_SOCKET: c_int = 1;
 
             pub const SO_DEBUG: c_int = 1;
@@ -3594,6 +3631,30 @@ pub mod consts {
             pub const IPV6_DROP_MEMBERSHIP: c_int = 21;
 
             pub const TCP_NODELAY: c_int = 1;
+            pub const TCP_MAXSEG: c_int = 2;
+            pub const TCP_CORK: c_int = 3;
+            pub const TCP_KEEPIDLE: c_int = 4;
+            pub const TCP_KEEPINTVL: c_int = 5;
+            pub const TCP_KEEPCNT: c_int = 6;
+            pub const TCP_SYNCNT: c_int = 7;
+            pub const TCP_LINGER2: c_int = 8;
+            pub const TCP_DEFER_ACCEPT: c_int = 9;
+            pub const TCP_WINDOW_CLAMP: c_int = 10;
+            pub const TCP_INFO: c_int = 11;
+            pub const TCP_QUICKACK: c_int = 12;
+            pub const TCP_CONGESTION: c_int = 13;
+            pub const TCP_MD5SIG: c_int = 14;
+            pub const TCP_COOKIE_TRANSACTIONS: c_int = 15;
+            pub const TCP_THIN_LINEAR_TIMEOUTS: c_int = 16;
+            pub const TCP_THIN_DUPACK: c_int = 17;
+            pub const TCP_USER_TIMEOUT: c_int = 18;
+            pub const TCP_REPAIR: c_int = 19;
+            pub const TCP_REPAIR_QUEUE: c_int = 20;
+            pub const TCP_QUEUE_SEQ: c_int = 21;
+            pub const TCP_REPAIR_OPTIONS: c_int = 22;
+            pub const TCP_FASTOPEN: c_int = 23;
+            pub const TCP_TIMESTAMP: c_int = 24;
+
             pub const SOL_SOCKET: c_int = 65535;
 
             pub const SO_DEBUG: c_int = 0x0001;
@@ -3747,12 +3808,6 @@ pub mod consts {
             pub static _SC_SENDMSG_MAX_SIZE : c_int = 0;
             pub static _SC_NPROCESSORS_ONLN : c_int = 1;
             pub static _SC_PAGESIZE : c_int = 2;
-        }
-
-        #[cfg(target_os = "macos")]
-        pub mod sysconf {
-            use types::os::arch::c95::c_int;
-            pub static _SC_NPROCESSORS_ONLN : c_int = 58;
         }
 
         #[cfg(target_os = "android")]
@@ -5115,10 +5170,54 @@ pub mod consts {
             pub const _SC_SEM_VALUE_MAX : c_int = 50;
             pub const _SC_SIGQUEUE_MAX : c_int = 51;
             pub const _SC_TIMER_MAX : c_int = 52;
+            pub const _SC_NPROCESSORS_CONF : c_int = 57;
+            pub const _SC_NPROCESSORS_ONLN : c_int = 58;
+            pub const _SC_2_PBS : c_int = 59;
+            pub const _SC_2_PBS_ACCOUNTING : c_int = 60;
+            pub const _SC_2_PBS_CHECKPOINT : c_int = 61;
+            pub const _SC_2_PBS_LOCATE : c_int = 62;
+            pub const _SC_2_PBS_MESSAGE : c_int = 63;
+            pub const _SC_2_PBS_TRACK : c_int = 64;
+            pub const _SC_ADVISORY_INFO : c_int = 65;
+            pub const _SC_BARRIERS : c_int = 66;
+            pub const _SC_CLOCK_SELECTION : c_int = 67;
+            pub const _SC_CPUTIME : c_int = 68;
+            pub const _SC_FILE_LOCKING : c_int = 69;
+            pub const _SC_HOST_NAME_MAX : c_int = 72;
+            pub const _SC_MONOTONIC_CLOCK : c_int = 74;
+            pub const _SC_READER_WRITER_LOCKS : c_int = 76;
+            pub const _SC_REGEXP : c_int = 77;
+            pub const _SC_SHELL : c_int = 78;
+            pub const _SC_SPAWN : c_int = 79;
+            pub const _SC_SPIN_LOCKS : c_int = 80;
+            pub const _SC_SPORADIC_SERVER : c_int = 81;
+            pub const _SC_THREAD_CPUTIME : c_int = 84;
+            pub const _SC_THREAD_SPORADIC_SERVER : c_int = 92;
+            pub const _SC_TIMEOUTS : c_int = 95;
+            pub const _SC_TRACE : c_int = 97;
+            pub const _SC_TRACE_EVENT_FILTER : c_int = 98;
+            pub const _SC_TRACE_INHERIT : c_int = 99;
+            pub const _SC_TRACE_LOG : c_int = 100;
+            pub const _SC_TYPED_MEMORY_OBJECTS : c_int = 102;
+            pub const _SC_V6_ILP32_OFF32 : c_int = 103;
+            pub const _SC_V6_ILP32_OFFBIG : c_int = 104;
+            pub const _SC_V6_LP64_OFF64 : c_int = 105;
+            pub const _SC_V6_LPBIG_OFFBIG : c_int = 106;
+            pub const _SC_IPV6 : c_int = 118;
+            pub const _SC_RAW_SOCKETS : c_int = 119;
+            pub const _SC_SYMLOOP_MAX : c_int = 120;
+            pub const _SC_PAGE_SIZE : c_int = _SC_PAGESIZE;
+            pub const _SC_XOPEN_STREAMS : c_int = 114;
             pub const _SC_XBS5_ILP32_OFF32 : c_int = 122;
             pub const _SC_XBS5_ILP32_OFFBIG : c_int = 123;
             pub const _SC_XBS5_LP64_OFF64 : c_int = 124;
             pub const _SC_XBS5_LPBIG_OFFBIG : c_int = 125;
+            pub const _SC_SS_REPL_MAX : c_int = 126;
+            pub const _SC_TRACE_EVENT_NAME_MAX : c_int = 127;
+            pub const _SC_TRACE_NAME_MAX : c_int = 128;
+            pub const _SC_TRACE_SYS_MAX : c_int = 129;
+            pub const _SC_TRACE_USER_EVENT_MAX : c_int = 130;
+            pub const _SC_PASS_MAX : c_int = 131;
         }
     }
 }
@@ -5629,6 +5728,9 @@ pub mod funcs {
                 pub fn tcgetpgrp(fd: c_int) -> pid_t;
                 pub fn ttyname(fd: c_int) -> *mut c_char;
                 pub fn unlink(c: *const c_char) -> c_int;
+                pub fn wait(status: *const c_int) -> pid_t;
+                pub fn waitpid(pid: pid_t, status: *const c_int, options: c_int)
+                               -> pid_t;
                 pub fn write(fd: c_int, buf: *const c_void, count: size_t)
                              -> ssize_t;
                 pub fn pread(fd: c_int, buf: *mut c_void, count: size_t,
@@ -5681,6 +5783,9 @@ pub mod funcs {
                 pub fn sysconf(name: c_int) -> c_long;
                 pub fn ttyname(fd: c_int) -> *mut c_char;
                 pub fn unlink(c: *const c_char) -> c_int;
+                pub fn wait(status: *const c_int) -> pid_t;
+                pub fn waitpid(pid: pid_t, status: *const c_int, options: c_int)
+                               -> pid_t;
                 pub fn write(fd: c_int, buf: *const c_void, count: size_t)
                              -> ssize_t;
                 pub fn pread(fd: c_int, buf: *mut c_void, count: size_t,

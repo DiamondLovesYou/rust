@@ -36,7 +36,10 @@ endef
 
 # Copy an executable
 # $(1) is the filename/libname-glob
+#
+# Gee, what's up with that $(nop)? See comment below.
 define PREPARE_BIN
+	$(nop)
 	@$(call E, prepare: $(PREPARE_DEST_BIN_DIR)/$(1))
 	$(Q)$(PREPARE_BIN_CMD) $(PREPARE_SOURCE_BIN_DIR)/$(1) $(PREPARE_DEST_BIN_DIR)/$(1)
 endef
@@ -80,7 +83,7 @@ define PREPARE_MAN
 	$(Q)$(PREPARE_MAN_CMD) $(PREPARE_SOURCE_MAN_DIR)/$(1) $(PREPARE_DEST_MAN_DIR)/$(1)
 endef
 
-PREPARE_TOOLS = $(filter-out compiletest rustbook, $(TOOLS))
+PREPARE_TOOLS = $(filter-out compiletest rustbook error-index-generator, $(TOOLS))
 
 
 # $(1) is tool
@@ -129,6 +132,8 @@ define DEF_PREPARE_TARGET_N
 # Rebind PREPARE_*_LIB_DIR to point to rustlib, then install the libs for the targets
 prepare-target-$(2)-host-$(3)-$(1)-$(4): PREPARE_WORKING_SOURCE_LIB_DIR=$$(PREPARE_SOURCE_LIB_DIR)/rustlib/$(2)/lib
 prepare-target-$(2)-host-$(3)-$(1)-$(4): PREPARE_WORKING_DEST_LIB_DIR=$$(PREPARE_DEST_LIB_DIR)/rustlib/$(2)/lib
+prepare-target-$(2)-host-$(3)-$(1)-$(4): PREPARE_SOURCE_BIN_DIR=$$(PREPARE_SOURCE_LIB_DIR)/rustlib/$(3)/bin
+prepare-target-$(2)-host-$(3)-$(1)-$(4): PREPARE_DEST_BIN_DIR=$$(PREPARE_DEST_LIB_DIR)/rustlib/$(3)/bin
 prepare-target-$(2)-host-$(3)-$(1)-$(4): prepare-maybe-clean-$(4) \
         $$(foreach crate, $$(TARGET_CRATES), \
           $$(TLIB$(1)_T_$(2)_H_$(3))/stamp.$$(crate)) \
@@ -143,6 +148,7 @@ prepare-target-$(2)-host-$(3)-$(1)-$(4): prepare-maybe-clean-$(4) \
       $$(if $$(findstring $(2), $$(PREPARE_TARGETS)),\
         $$(if $$(findstring $(3), $$(PREPARE_HOST)),\
           $$(call PREPARE_DIR,$$(PREPARE_WORKING_DEST_LIB_DIR))\
+          $$(call PREPARE_DIR,$$(PREPARE_DEST_BIN_DIR)) \
           $$(foreach crate,$$(TARGET_CRATES),\
             $$(if $$(SHARED_LIBS_DISABLED_$(2)),,\
               $$(if $$(or $$(findstring 1, $$(ONLY_RLIB_$$(crate))),$$(findstring 1,$$(CFG_INSTALL_ONLY_RLIB_$(2)))),, \
@@ -151,12 +157,15 @@ prepare-target-$(2)-host-$(3)-$(1)-$(4): prepare-maybe-clean-$(4) \
           $$(if $$(findstring $(2),$$(CFG_HOST)),\
             $$(foreach crate,$$(HOST_CRATES),\
               $$(call PREPARE_LIB,$$(call CFG_LIB_GLOB_$(2),$$(crate)))),)\
-          $$(call PREPARE_LIB,libmorestack.a) \
-          $$(call PREPARE_LIB,libcompiler-rt.a) \
-	  $$(if $$(filter $(3),$(2)),\
-	    $$(if $$(findstring nacl,$$(PREPARE_TARGETS)),\
-	      $$(call PREPARE_LIB,$$(shell echo $$(call CFG_LIB_NAME_$(3),LLVMgold) | sed 's/lib//')) \
-	      $$(call PREPARE_LIB,$$(call CFG_LIB_NAME_$(3),LTO)),),),),),)
+	  $$(foreach object,$$(INSTALLED_OBJECTS_$(2)),\
+	    $$(call PREPARE_LIB,$$(object))) \
+	    $$(if $$(filter $(3),$(2)),\
+	      $$(if $$(findstring nacl,$$(PREPARE_TARGETS)),\
+	        $$(call PREPARE_LIB,$$(shell echo $$(call CFG_LIB_NAME_$(3),LLVMgold) | sed 's/lib//')) \
+	        $$(call PREPARE_LIB,$$(call CFG_LIB_NAME_$(3),LTO)),),) \
+	  $$(foreach bin,$$(INSTALLED_BINS_$(3)),\
+	    $$(call PREPARE_BIN,$$(bin))) \
+	,),),)
 endef
 
 define INSTALL_GDB_DEBUGGER_SCRIPTS_COMMANDS

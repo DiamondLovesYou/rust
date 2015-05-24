@@ -22,22 +22,18 @@
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
 #![doc(html_logo_url = "http://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-       html_favicon_url = "http://www.rust-lang.org/favicon.ico",
+       html_favicon_url = "https://doc.rust-lang.org/favicon.ico",
        html_root_url = "http://doc.rust-lang.org/nightly/")]
 
-#![feature(box_patterns)]
-#![feature(box_syntax)]
+#![feature(associated_consts)]
 #![feature(collections)]
+#![feature(collections_drain)]
 #![feature(core)]
 #![feature(libc)]
-#![feature(quote, unsafe_destructor)]
 #![feature(rustc_private)]
 #![feature(staged_api)]
-#![feature(unicode)]
-#![feature(path_ext)]
 #![feature(str_char)]
-#![feature(into_cow)]
-#![feature(slice_patterns)]
+#![feature(unicode)]
 
 extern crate arena;
 extern crate fmt_macros;
@@ -75,6 +71,7 @@ pub mod diagnostics {
     pub mod macros;
     pub mod plugin;
     pub mod registry;
+    pub mod metadata;
 }
 
 pub mod syntax {
@@ -98,6 +95,7 @@ pub mod parse;
 pub mod ptr;
 pub mod show_span;
 pub mod std_inject;
+pub mod str;
 pub mod test;
 pub mod visit;
 
