@@ -41,6 +41,7 @@
 #![feature(simd, core)]
 
 // ignore-pretty very bad with line comments
+// ignore-pnacl PNaCl doesn't currently support f64x2 SIMD vectors.
 
 use std::env;
 use std::io::prelude::*;

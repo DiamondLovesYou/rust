@@ -39,6 +39,7 @@
 // OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // no-pretty-expanded FIXME #15189
+// ignore-pnacl PNaCl doesn't currently support f64x2 SIMD vectors.
 
 #![allow(non_snake_case)]
 #![feature(unboxed_closures, core, os, scoped)]
