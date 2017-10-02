@@ -16,8 +16,10 @@ use hir::def_id::{CrateNum, DefIndex};
 use lint;
 use middle::allocator::AllocatorKind;
 use middle::dependency_format;
+use mir::transform::MirPass;
 use session::search_paths::PathKind;
 use session::config::DebugInfoLevel;
+use traits::MirPluginIntrinsicTrans;
 use ty::tls;
 use util::nodemap::{FxHashMap, FxHashSet};
 use util::common::{duration_to_secs_str, ErrorReported};
@@ -82,6 +84,8 @@ pub struct Session {
     pub one_time_diagnostics: RefCell<FxHashSet<(lint::LintId, Option<Span>, String)>>,
     pub plugin_llvm_passes: RefCell<Vec<String>>,
     pub plugin_attributes: RefCell<Vec<(String, AttributeType)>>,
+    pub plugin_post_opt_mir_passes: RefCell<Vec<Rc<MirPass>>>,
+    pub plugin_intrinsics: RefCell<HashMap<String, Box<MirPluginIntrinsicTrans>>>,
     pub crate_types: RefCell<Vec<config::CrateType>>,
     pub dependency_formats: RefCell<dependency_format::Dependencies>,
     // The crate_disambiguator is constructed out of all the `-C metadata`
@@ -754,6 +758,8 @@ pub fn build_session_(sopts: config::Options,
         one_time_diagnostics: RefCell::new(FxHashSet()),
         plugin_llvm_passes: RefCell::new(Vec::new()),
         plugin_attributes: RefCell::new(Vec::new()),
+        plugin_post_opt_mir_passes: Default::default(),
+        plugin_intrinsics: Default::default(),
         crate_types: RefCell::new(Vec::new()),
         dependency_formats: RefCell::new(FxHashMap()),
         crate_disambiguator: RefCell::new(None),

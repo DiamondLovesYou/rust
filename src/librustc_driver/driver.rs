@@ -689,7 +689,7 @@ pub fn phase_2_configure_and_expand<F>(sess: &Session,
 
     let whitelisted_legacy_custom_derives = registry.take_whitelisted_custom_derives();
     let Registry { syntax_exts, early_lint_passes, late_lint_passes, lint_groups,
-                   llvm_passes, attributes, .. } = registry;
+      llvm_passes, attributes, post_opt_mir_passes, intrinsics, .. } = registry;
 
     sess.track_errors(|| {
         let mut ls = sess.lint_store.borrow_mut();
@@ -706,6 +706,8 @@ pub fn phase_2_configure_and_expand<F>(sess: &Session,
 
         *sess.plugin_llvm_passes.borrow_mut() = llvm_passes;
         *sess.plugin_attributes.borrow_mut() = attributes.clone();
+        *sess.plugin_post_opt_mir_passes.borrow_mut() = post_opt_mir_passes;
+        sess.plugin_intrinsics.borrow_mut().extend(intrinsics.into_iter());
     })?;
 
     // Lint plugins are registered; now we can process command line flags.
@@ -1035,6 +1037,11 @@ pub fn phase_3_run_analysis_passes<'tcx, F, R>(sess: &'tcx Session,
     passes.push_pass(MIR_OPTIMIZED, mir::transform::generator::StateTransform);
     passes.push_pass(MIR_OPTIMIZED, mir::transform::add_call_guards::CriticalCallEdges);
     passes.push_pass(MIR_OPTIMIZED, mir::transform::dump_mir::Marker("PreTrans"));
+
+    let b = sess.plugin_post_opt_mir_passes.borrow();
+    for plugin_pass in b.iter() {
+      passes.push_pass_rc(MIR_OPTIMIZED, plugin_pass.clone());
+    }
 
     let (tx, rx) = mpsc::channel();
 

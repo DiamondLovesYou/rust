@@ -12,6 +12,8 @@
 
 use rustc::lint::{EarlyLintPassObject, LateLintPassObject, LintId, Lint};
 use rustc::session::Session;
+use rustc::mir::transform::MirPass;
+use rustc::traits::MirPluginIntrinsicTrans;
 
 use syntax::ext::base::{SyntaxExtension, NamedSyntaxExtension, NormalTT, IdentTT};
 use syntax::ext::base::MacroExpanderFn;
@@ -22,6 +24,7 @@ use syntax_pos::Span;
 
 use std::collections::HashMap;
 use std::borrow::ToOwned;
+use std::rc::Rc;
 
 /// Structure used to register plugins.
 ///
@@ -60,6 +63,9 @@ pub struct Registry<'a> {
     #[doc(hidden)]
     pub attributes: Vec<(String, AttributeType)>,
 
+    pub post_opt_mir_passes: Vec<Rc<MirPass>>,
+    pub intrinsics: HashMap<String, Box<MirPluginIntrinsicTrans>>,
+
     whitelisted_custom_derives: Vec<ast::Name>,
 }
 
@@ -77,6 +83,8 @@ impl<'a> Registry<'a> {
             llvm_passes: vec![],
             attributes: vec![],
             whitelisted_custom_derives: Vec::new(),
+            post_opt_mir_passes: Vec::new(),
+            intrinsics: Default::default(),
         }
     }
 
@@ -92,6 +100,17 @@ impl<'a> Registry<'a> {
     /// with `--extra-plugins`
     pub fn args<'b>(&'b self) -> &'b [ast::NestedMetaItem] {
         self.args_hidden.as_ref().map(|v| &v[..]).unwrap_or(&[])
+    }
+
+    pub fn register_post_optimization_mir_pass<T>(&mut self, pass: T)
+        where T: Into<Rc<MirPass>>,
+    {
+        self.post_opt_mir_passes
+            .push(pass.into());
+    }
+    pub fn register_intrinsic(&mut self, name: String, pass: Box<MirPluginIntrinsicTrans>) {
+        self.intrinsics
+          .insert(name, pass);
     }
 
     /// Register a syntax extension of any kind.

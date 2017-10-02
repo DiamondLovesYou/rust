@@ -136,7 +136,7 @@ mod llvm_util;
 mod machine;
 mod metadata;
 mod meth;
-mod mir;
+pub mod mir;
 mod monomorphize;
 mod partitioning;
 mod symbol_names_test;

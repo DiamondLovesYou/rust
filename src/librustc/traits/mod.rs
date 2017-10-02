@@ -20,8 +20,9 @@ use hir::def_id::DefId;
 use middle::const_val::ConstEvalErr;
 use middle::region;
 use middle::free_region::FreeRegionMap;
+use mir::{self, Lvalue, StatementKind, SourceInfo, Operand};
 use ty::subst::Substs;
-use ty::{self, AdtKind, Ty, TyCtxt, TypeFoldable, ToPredicate};
+use ty::{self, FnSig, AdtKind, Ty, TyCtxt, TypeFoldable, ToPredicate};
 use ty::error::{ExpectedFound, TypeError};
 use infer::{InferCtxt};
 
@@ -59,6 +60,18 @@ mod specialize;
 mod structural_impls;
 pub mod trans;
 mod util;
+
+pub trait MirPluginIntrinsicTrans {
+    fn trans_simple_intrinsic<'a, 'tcx>(&self, tcx: TyCtxt<'a, 'tcx, 'tcx>,
+                                        name: &str,
+                                        source_info: SourceInfo,
+                                        sig: &FnSig<'tcx>,
+                                        parent_mir: &mir::Mir<'tcx>,
+                                        parent_param_substs: &'tcx Substs<'tcx>,
+                                        args: &Vec<Operand<'tcx>>,
+                                        dest: Lvalue<'tcx>,
+                                        extra_stmts: &mut Vec<StatementKind<'tcx>>);
+}
 
 /// An `Obligation` represents some trait reference (e.g. `int:Eq`) for
 /// which the vtable must be found.  The process of finding a vtable is

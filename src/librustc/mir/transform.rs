@@ -175,6 +175,11 @@ impl<'a, 'tcx> Passes {
         self.suites[suite.0].push(Rc::new(pass));
     }
 
+    /// Pushes a Rc-ed pass.
+    pub fn push_pass_rc(&mut self, suite: MirSuite, pass: Rc<MirPass>) {
+        self.suites[suite.0].push(pass);
+    }
+
     /// Pushes a pass hook.
     pub fn push_hook<T: PassHook + 'static>(&mut self, hook: T) {
         self.pass_hooks.push(Rc::new(hook));

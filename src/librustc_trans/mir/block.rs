@@ -457,6 +457,37 @@ impl<'a, 'tcx> MirContext<'a, 'tcx> {
                     return;
                 }
 
+                if let Some(intrinsic) = intrinsic {
+                    let b = bcx.tcx().sess.plugin_intrinsics.borrow();
+                    if let Some(trans) = b.get(intrinsic) {
+                        let &(ref dest, target) = destination
+                          .as_ref()
+                          .unwrap();
+
+                        let mut extra_stmts = Vec::new();
+                        trans.trans_simple_intrinsic(bcx.tcx(),
+                                                     intrinsic,
+                                                     terminator.source_info,
+                                                     &sig,
+                                                     self.mir,
+                                                     self.param_substs,
+                                                     args,
+                                                     dest.clone(),
+                                                     &mut extra_stmts);
+
+                        for stmt_kind in extra_stmts.into_iter() {
+                            let stmt = mir::Statement {
+                                source_info: terminator.source_info,
+                                kind: stmt_kind,
+                            };
+                            bcx = self.trans_statement(bcx, &stmt);
+                        }
+
+                        funclet_br(self, bcx, target);
+                        return;
+                    }
+                }
+
                 let extra_args = &args[sig.inputs().len()..];
                 let extra_args = extra_args.iter().map(|op_arg| {
                     let op_ty = op_arg.ty(self.mir, bcx.tcx());
