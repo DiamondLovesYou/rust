@@ -137,7 +137,7 @@ mod machine;
 mod metadata;
 mod meth;
 pub mod mir;
-mod monomorphize;
+pub mod monomorphize;
 mod partitioning;
 mod symbol_names_test;
 mod time_graph;
