@@ -70,7 +70,8 @@ pub trait MirPluginIntrinsicTrans {
                                         parent_param_substs: &'tcx Substs<'tcx>,
                                         args: &Vec<Operand<'tcx>>,
                                         dest: Lvalue<'tcx>,
-                                        extra_stmts: &mut Vec<StatementKind<'tcx>>);
+                                        extra_stmts: &mut Vec<StatementKind<'tcx>>)
+        where 'tcx: 'a;
 }
 
 /// An `Obligation` represents some trait reference (e.g. `int:Eq`) for
